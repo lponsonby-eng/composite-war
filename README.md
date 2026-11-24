@@ -55,6 +55,18 @@ hero and its backline soldiers behind. Cavalry charge for double damage after a 
 hit cavalry hard; artillery has long range and big blasts; healers mend the most hurt ally
 in reach. Set `cls` on a general to give them a different class.
 
+## Signature abilities
+Every hero gets two abilities of their own, rolled at random when they first appear:
+a weaker one learned at **level 15** and their best at **level 30** (heroes now level to
+40, with faster XP and a smaller bonus per level). The kind follows the hero's class and
+troops (warriors: strike / nova / aura; marksmen: shot / barrage; battle mages: blast /
+nova / drain / strike; healers: mend / aura / drain), the element follows their faction
+(fire, ice, nature, shadow, holy, steel: e.g. Lava Ball, Eviscerate, Blizzard), and the
+numbers are rolled, shown as 1-5 stars. Learned abilities raise a hero's value: their
+strength rating, hire price and persuasion price. They appear in the Recruit window and on
+the battle skill bar (keys V and B); computer heroes use them too. Tune it in
+`DATA.signature`.
+
 ## Soldier levels and promotion
 Every soldier has a level. After a battle each survivor gains a level, another if their
 side won, and one per kill. At **level 15** a soldier is promoted to tier 2 (e.g. Knight →

@@ -26,7 +26,7 @@ window.DATA = {
 
   // --- Hero skills -----------------------------------------------------------
   // target: 'self' (around the hero) or 'ground' (click a spot within range).
-  // Damage, healing and buffs grow 6% per hero level. dur: seconds.
+  // Damage, healing and buffs grow 2.5% per hero level. dur: seconds.
   skills: {
     charge:     { name: 'Charge',      mp: 30, cd: 15, target: 'self', dur: 4, desc: 'The squad sprints and its next blows hit twice as hard.' },
     rally:      { name: 'Rally',       mp: 40, cd: 20, target: 'self', dur: 8, heal: 0.3, def: 2, desc: 'Heals the squad 30% and steadies it (+2 defence).' },
@@ -45,8 +45,8 @@ window.DATA = {
   // xpBase + xpPerLevel * current level. Each level above 1 makes the general
   // leaderBonus stronger (hp and attack) and their squad squadBonus stronger.
   leveling: {
-    maxLevel: 20, xpBase: 40, xpPerLevel: 25,
-    leaderBonus: 0.10, squadBonus: 0.04,
+    maxLevel: 40, xpBase: 30, xpPerLevel: 4,
+    leaderBonus: 0.05, squadBonus: 0.02,
     killSoldier: 4, killGeneral: 25,   // XP to the general whose squad landed the blow
     fought: 10, won: 15, capture: 5,   // XP for taking part, for winning, for taking an empty town
   },
@@ -420,6 +420,70 @@ DATA.classOf = gid => {
 };
 DATA.roleOf = gid => DATA.heroClasses[DATA.classOf(gid)].role;
 // A hero's skills: set `skills` on the general, or from their class and troops.
+// --- Signature abilities ------------------------------------------------------
+// Every hero gets two abilities of their own, rolled at random when they first
+// appear: a weaker one learned at level 15 and their best at level 30 (the same
+// levels soldiers are promoted). The kind comes from the hero's class and troops,
+// the element from their faction, and the numbers are rolled (shown as 1-5 stars).
+DATA.signature = {
+  levels: [15, 30],
+  quality: [[0.6, 1.3], [0.85, 1.6]],          // random strength range at each tier
+  tierMul: [1, 1.7],                            // the level 30 ability is much stronger
+  valuePerStar: 0.06,                           // each star of unlocked ability adds 6% to the hero's worth
+  // kinds of ability each class can roll
+  kinds: { warrior: ['strike', 'nova', 'aura'], marksman: ['strike', 'blast'], mage: ['blast', 'nova', 'drain', 'strike'], healer: ['mend', 'aura', 'drain'] },
+  // base numbers per kind (before quality and tier)
+  base: {
+    strike: { target: 'unit', dmg: 60, range: 200, meleeRange: 50, mp: 35, cd: 14, desc: 'A devastating blow against a single enemy.' },
+    blast:  { target: 'ground', dmg: 34, radius: [32, 62], range: 230, mp: 50, cd: 20, desc: 'An exploding ball that hits every enemy in the area.' },
+    nova:   { target: 'self', dmg: 28, radius: [45, 80], mp: 45, cd: 18, desc: 'Strikes every enemy around the hero.' },
+    aura:   { target: 'self', atk: 0.25, def: 2, dur: 10, radius: 110, mp: 40, cd: 24, desc: 'Allies nearby fight harder and tougher.' },
+    mend:   { target: 'self', heal: 45, radius: 120, mp: 45, cd: 20, desc: 'Heals every ally nearby.' },
+    drain:  { target: 'unit', dmg: 42, steal: 0.6, range: 180, mp: 40, cd: 16, desc: 'Damages one enemy and heals the hero\'s squad.' },
+  },
+  elements: { aster: 'holy', frost: 'ice', thorn: 'nature', ember: 'fire', shadow: 'shadow', horde: 'nature', azure: 'ice', sun: 'fire', neutral: 'steel' },
+  projectile: { fire: 'fireball', ice: 'icebolt', nature: 'hexbolt', shadow: 'hexbolt', holy: 'sparkbolt', steel: 'fireball' },
+  names: {
+    strike: { holy: 'Judgement', ice: 'Frost Spike', nature: 'Venom Fang', fire: 'Searing Edge', shadow: 'Eviscerate', steel: 'Crushing Blow' },
+    shot:   { holy: 'Sun Arrow', ice: 'Glacier Bolt', nature: 'Thorn Shot', fire: 'Flame Arrow', shadow: 'Assassin Shot', steel: 'Piercing Shot' },
+    blast:  { holy: 'Sunburst', ice: 'Ice Comet', nature: 'Spore Bomb', fire: 'Lava Ball', shadow: 'Void Orb', steel: 'Thunder Shell' },
+    nova:   { holy: 'Holy Nova', ice: 'Blizzard', nature: 'Bramble Burst', fire: 'Inferno Ring', shadow: 'Shadow Storm', steel: 'Whirlwind' },
+    aura:   { holy: 'Banner of Light', ice: "Winter's Resolve", nature: 'Wild Fury', fire: 'War Drums', shadow: 'Dread Aura', steel: 'War Banner' },
+    mend:   { holy: 'Divine Grace', ice: 'Spring Thaw', nature: 'Rejuvenate', fire: 'Phoenix Ember', shadow: 'Dark Pact', steel: 'Field Surgery' },
+    drain:  { holy: 'Smite', ice: 'Chill Touch', nature: 'Leech Seed', fire: 'Soul Burn', shadow: 'Life Drain', steel: 'Bloodletting' },
+  },
+};
+
+// Rolls a hero's signature ability for tier 0 (level 15) or 1 (level 30).
+DATA.rollSignature = (gid, tier, faction, avoidKind, rnd = Math.random) => {
+  const Sg = DATA.signature, d = DATA.generals[gid];
+  const cls = DATA.classOf(gid), healer = DATA.units[d.leads].type === 'healer';
+  let kinds = Sg.kinds[healer ? 'healer' : cls];
+  if (avoidKind && kinds.length > 1 && rnd() < 0.7) kinds = kinds.filter(k => k !== avoidKind);   // usually something different
+  const kind = kinds[Math.floor(rnd() * kinds.length)];
+  const [lo, hi] = Sg.quality[tier], q = lo + rnd() * (hi - lo), m = q * Sg.tierMul[tier];
+  const B = Sg.base[kind];
+  const el = Sg.elements[faction] || ['fire', 'ice', 'nature', 'shadow', 'holy', 'steel'][Math.floor(rnd() * 6)];
+  const nameKind = kind === 'strike' && cls === 'marksman' ? 'shot' : kind;
+  const s = { id: `sig_${gid}_${tier}`, kind, element: el, target: B.target, sig: true, tier,
+    name: (tier === 1 && kind === avoidKind ? 'Greater ' : '') + Sg.names[nameKind][el],
+    mp: Math.round(B.mp * (0.8 + 0.2 * q) * (tier ? 1.3 : 1)), cd: B.cd, desc: B.desc };
+  if (B.dmg) s.dmg = Math.round(B.dmg * m);
+  if (B.heal) s.heal = Math.round(B.heal * m);
+  if (B.steal) s.steal = B.steal;
+  if (B.radius) s.radius = Math.round(Array.isArray(B.radius) ? B.radius[0] + (B.radius[1] - B.radius[0]) * Math.min(1, Math.sqrt(q / 1.6)) : B.radius);
+  if (B.range) s.range = kind === 'strike' && cls === 'warrior' ? B.meleeRange : B.range;
+  if (B.atk) { s.atk = +(1 + B.atk * m).toFixed(2); s.def = Math.round(B.def * m); s.dur = Math.round(B.dur * (0.8 + 0.2 * m)); }
+  s.proj = Sg.projectile[el];
+  s.stars = Math.max(1, Math.min(5, Math.round((q - 0.55) / 0.22) + (tier ? 1 : 0)));
+  return s;
+};
+
+// Short description of a signature ability's numbers, e.g. "62 dmg, radius 48".
+DATA.sigText = s => [s.dmg ? `${s.dmg} dmg` : '', s.heal ? `heals ${s.heal}` : '', s.steal ? `${Math.round(s.steal * 100)}% drained` : '',
+  s.radius ? `radius ${s.radius}` : '', s.atk ? `+${Math.round((s.atk - 1) * 100)}% atk, +${s.def} def, ${s.dur}s` : '', s.range ? `range ${s.range}` : '', `${s.mp} MP`]
+  .filter(Boolean).join(', ');
+
 DATA.skillsOf = gid => {
   const d = DATA.generals[gid];
   if (d.skills) return d.skills;

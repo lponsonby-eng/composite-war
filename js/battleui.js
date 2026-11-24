@@ -75,7 +75,7 @@ const BattleUI = {
       const k = e.key.toLowerCase(), b = this.b;
       if (k === ' ') { e.preventDefault(); this.togglePause(); }
       else if (k === 'escape') { if (this.aiming) this.aiming = null; else b.sel.clear(); this.refresh(); }
-      else if ('zxc'.includes(k) && k.length === 1) { const q = this.focus(); if (q) this.useSkill(q, q.skills['zxc'.indexOf(k)]); }
+      else if ('zxcvb'.includes(k) && k.length === 1) { const q = this.focus(); if (q) this.useSkill(q, q.skills['zxcvb'.indexOf(k)]); }
       else if (k >= '1' && k <= '9') { const q = this.mine()[+k - 1]; if (q) { if (!e.shiftKey) b.sel.clear(); b.sel.add(q); if (e.ctrlKey || e.metaKey) this.centre(q); this.refresh(); } }
       else if (k === 'q' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); }
       else if (k === 'e') { b.sel = new Set(this.mine()); this.refresh(); }
@@ -133,7 +133,7 @@ const BattleUI = {
   useSkill(q, id) {
     const b = this.b;
     if (!id || !b.canCast(q, id)) return;
-    if (DATA.skills[id].target === 'ground') { this.aiming = { q, id }; b.paused = b.paused; }
+    if (b.sk(id).target !== 'self') { this.aiming = { q, id }; b.paused = b.paused; }
     else b.cast(q, id);
     this.refresh();
   },
@@ -161,7 +161,7 @@ const BattleUI = {
         <button data-f="column">Column</button><button data-f="wedge">Wedge</button>
         <span class="sep"></span><span id="bc-skills"></span>
       </div>
-      <div class="bc-hint muted">Click / drag to select squads - right-click (or tap) the ground to move, an enemy to attack - Space pause - Z X C skills</div>`;
+      <div class="bc-hint muted">Click / drag to select squads - right-click (or tap) the ground to move, an enemy to attack - Space pause - Z X C V B skills</div>`;
     const ctr = $('#battle-ctrl');
     ctr.querySelector('[data-act="pause"]').onclick = () => this.togglePause();
     ctr.querySelectorAll('[data-s]').forEach(bt => bt.onclick = () => { Game.battleSpeed = +bt.dataset.s; this.refresh(); });
@@ -193,8 +193,8 @@ const BattleUI = {
     $('#bc-sel').textContent = sel.length ? `${sel.length === 1 ? DATA.generals[sel[0].id].name : sel.length + ' squads'}:` : 'All squads:';
     const q = this.focus();
     const html = q ? q.skills.map((id, i) => {
-      const S = DATA.skills[id], ready = b.canCast(q, id), cd = Math.max(0, Math.ceil((q.cd[id] || 0) - b.time));
-      return `<button data-sk="${id}" ${ready ? '' : 'disabled'} class="${this.aiming && this.aiming.id === id ? 'on' : ''}" title="${S.desc} (${S.mp} MP, key ${'ZXC'[i]})">${S.name} <small>${cd ? cd + 's' : S.mp + 'mp'}</small></button>`;
+      const S = b.sk(id), ready = b.canCast(q, id), cd = Math.max(0, Math.ceil((q.cd[id] || 0) - b.time));
+      return `<button data-sk="${id}" ${ready ? '' : 'disabled'} class="${this.aiming && this.aiming.id === id ? 'on' : ''} ${S.sig ? 'sig' : ''}" title="${S.desc}${S.sig ? ' ' + DATA.sigText(S) : ` (${S.mp} MP)`} - key ${'ZXCVB'[i]}">${S.sig ? '&#9733;' : ''}${S.name} <small>${cd ? cd + 's' : S.mp + 'mp'}</small></button>`;
     }).join('') + ` <button data-auto class="${q.auto ? 'on' : ''}" title="Let this hero use skills by themself">Auto</button>`
       + (this.aiming ? ' <span class="good">Click where it should land</span>' : '') : '<span class="muted">Select a squad for its skills</span>';
     if (html === this._skillsHtml) return;                 // only rebuild when something changed (keeps clicks working)

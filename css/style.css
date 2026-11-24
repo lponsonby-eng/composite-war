@@ -228,3 +228,10 @@ body[data-mode="battle"] #battle-hud .bh-mid, body[data-mode="battle"] #battle-h
 
 /* ---------- persuade ---------- */
 button.persuade { font-size: 13px; line-height: 1.1; padding: 2px 6px; }
+
+/* ---------- signature abilities ---------- */
+.sigs { margin: 6px 0; display: grid; gap: 4px; }
+.sigl { font-size: 15px; }
+.sigl.locked { opacity: .6; }
+.stars { color: var(--accent); letter-spacing: 1px; }
+#bc-skills button.sig { border-color: var(--accent); }

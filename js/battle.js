@@ -17,7 +17,7 @@ class Battle {
     this.playerSide = opts.playerSide === 'att' ? 0 : opts.playerSide === 'def' ? 1 : -1;
     this.headless = !!opts.headless;
     this.units = []; this.squads = []; this.projs = []; this.fx = []; this.texts = [];
-    this.zones = []; this.pending = [];
+    this.zones = []; this.pending = []; this.custom = {};
     this.time = 0; this.limit = DATA.battleTimeLimit;
     this.done = false; this.banner = null;
     this.xp = {};                            // gid -> XP earned from kills this battle
@@ -58,11 +58,13 @@ class Battle {
       const x = walled ? depth : side === 0 ? depth : W - depth;
       const sq = {
         id: g.id, side, members: [], order: side === 1 ? 'hold' : 'advance', tx: x, ty: cy,
-        face: [face, 0], auto: true, cd: {}, castT: Math.random(), skills: DATA.skillsOf(g.id),
+        face: [face, 0], auto: true, cd: {}, castT: Math.random(), skills: DATA.skillsOf(g.id).slice(),
         back: DATA.roleOf(g.id) === 'back', level: g.level || 1,
       };
       const L = DATA.battle.mp;
       sq.maxMp = L.base + L.perLevel * sq.level; sq.mp = sq.maxMp * L.start;
+      // signature abilities the hero has learned (level 15 and 30)
+      (g.sig || []).forEach((s, t) => { if (s && sq.level >= DATA.signature.levels[t]) { this.custom[s.id] = s; sq.skills.push(s.id); } });
       sq.leader = this.makeUnit(g, side, true, x, cy, null, 1, sq);
       this.units.push(sq.leader);
       const mix = g.mix || [], lv = g.lv || [];
@@ -170,23 +172,26 @@ class Battle {
   }
 
   // ------------------------------------------------------------------ skills
+  sk(id) { return DATA.skills[id] || this.custom[id]; }
+
   canCast(q, id) {
-    const S = DATA.skills[id];
+    const S = this.sk(id);
     return q.leader.alive && !q.leader.routing && q.mp >= S.mp && !(q.cd[id] > this.time);
   }
 
   // Cast now if in range, otherwise walk the hero there first.
   cast(q, id, x, y) {
-    const S = DATA.skills[id];
+    const S = this.sk(id);
     if (!this.canCast(q, id)) return false;
-    if (S.target === 'ground' && Math.hypot(x - q.leader.x, y - q.leader.y) > S.range) { q.cast = { id, x, y }; return true; }
+    if (S.target !== 'self' && Math.hypot(x - q.leader.x, y - q.leader.y) > S.range) { q.cast = { id, x, y }; return true; }
     q.cast = null;
     q.mp -= S.mp; q.cd[id] = this.time + S.cd;
-    const pw = 1 + 0.06 * (q.level - 1), L = q.leader;
+    const pw = 1 + 0.025 * (q.level - 1), L = q.leader;
     const team = this.units.filter(u => u.sq === q && u.alive && !u.routing);
     const near = (r, side) => this.units.filter(u => u.side === side && u.alive && !u.routing && !u.escaped && Math.hypot(u.x - x, u.y - y) <= r);
     const say = (s, c) => { if (!this.headless) this.texts.push({ x: L.x, y: L.y - 30, s, life: 1.2, color: c }); };
     if (S.target === 'self') { x = L.x; y = L.y; }
+    if (S.sig) { this.castSig(q, S, x, y, pw, near); say(S.name + '!', '#ffd84a'); if (!this.headless && q.side === this.playerSide) Assets.sfx('power-up', 0.35); return true; }
     switch (id) {
       case 'charge': for (const u of team) { u.buffs.push({ spd: 1.7, until: this.time + S.dur }); u.run = 999; } break;
       case 'rally': for (const u of team) { u.hp = Math.min(u.maxHp, u.hp + u.maxHp * S.heal * pw); u.buffs.push({ def: S.def, until: this.time + S.dur }); } break;
@@ -218,6 +223,53 @@ class Battle {
     return true;
   }
 
+  // A hero's own signature ability (see DATA.rollSignature).
+  castSig(q, S, x, y, pw, near) {
+    const L = q.leader, foe = 1 - q.side;
+    const pick = () => {                               // the enemy closest to where it was aimed
+      let best = null, bd = 40;
+      for (const e of this.units) if (e.side === foe && e.alive && !e.escaped && !e.routing && e.seen[q.side]) {
+        const d = Math.hypot(e.x - x, e.y - y); if (d < bd) { bd = d; best = e; }
+      }
+      return best;
+    };
+    const big = (u, s, c) => { if (!this.headless) this.texts.push({ x: u.x, y: u.y - 24, s, life: 1, color: c }); };
+    switch (S.kind) {
+      case 'strike': {
+        const e = pick(); if (!e) return;
+        if (S.range > 60) this.projs.push({ x: L.x, y: L.y - 6, tx: e.x, ty: e.y - 6, tg: e, side: q.side, gid: q.id, src: L, dmg: S.dmg * pw, splash: 0, img: S.proj, speed: 260, angle: 0, pierce: true });
+        else { this.damage(e, S.dmg * pw, q.id, false, L); this.addFx('slash', e.x, e.y - 6, 0.4); this.addFx('hit', e.x, e.y - 8, 0.4); }
+        big(e, '!!', '#ff8a5a');
+        break;
+      }
+      case 'drain': {
+        const e = pick(); if (!e) return;
+        const before = e.hp; this.damage(e, S.dmg * pw, q.id, true, L);
+        const got = Math.max(0, before - Math.max(0, e.hp)) * S.steal;
+        const team = this.units.filter(u => u.sq === q && u.alive);
+        for (const u of team) u.hp = Math.min(u.maxHp, u.hp + got / Math.max(1, team.length) * 2);
+        this.addFx('sparkle', L.x, L.y - 8, 0.6); this.addFx('smoke', e.x, e.y - 6, 0.5);
+        break;
+      }
+      case 'blast':
+        this.projs.push({ x: L.x, y: L.y - 6, tx: x, ty: y, tg: null, side: q.side, gid: q.id, src: L, dmg: S.dmg * pw, splash: S.radius, img: S.proj, speed: 150, angle: 0, big: true });
+        break;
+      case 'nova':
+        for (const v of near(S.radius, foe)) this.damage(v, S.dmg * pw, q.id, true, L);
+        for (let i = 0; i < 8; i++) { const a = i / 8 * Math.PI * 2; this.addFx(S.element === 'ice' ? 'sparkle' : 'fire', L.x + Math.cos(a) * S.radius * 0.7, L.y + Math.sin(a) * S.radius * 0.45, 0.5); }
+        this.zones.push({ x: L.x, y: L.y, r: S.radius, until: this.time + 0.4, side: q.side, ring: true });
+        break;
+      case 'aura':
+        for (const u of near(S.radius, q.side)) u.buffs.push({ atk: 1 + (S.atk - 1) * pw, def: S.def, until: this.time + S.dur });
+        this.zones.push({ x: L.x, y: L.y, r: S.radius, until: this.time + 0.6, side: q.side, ring: true, good: true });
+        break;
+      case 'mend':
+        for (const u of near(S.radius, q.side)) { u.hp = Math.min(u.maxHp, u.hp + S.heal * pw); this.addFx('sparkle', u.x, u.y - 8, 0.5); }
+        this.zones.push({ x: L.x, y: L.y, r: S.radius, until: this.time + 0.6, side: q.side, ring: true, good: true });
+        break;
+    }
+  }
+
   // Heroes on auto (and all computer heroes) use their skills when it makes sense.
   autoCast(q) {
     const L = q.leader, foes = this.units.filter(e => e.side !== q.side && e.alive && !e.routing && !e.escaped && e.seen[q.side]);
@@ -225,7 +277,8 @@ class Battle {
     const nearest = foes.reduce((m, e) => Math.min(m, udist(e, L)), 1e9);
     for (const id of q.skills) {
       if (!this.canCast(q, id)) continue;
-      const S = DATA.skills[id];
+      const S = this.sk(id);
+      if (S.sig) { const r = this.autoSig(q, id, S, foes, team, nearest); if (r) return r; continue; }
       if (S.target === 'ground') {
         // aim at the densest visible group of enemies in range
         let best = null, bn = 0;
@@ -248,6 +301,27 @@ class Battle {
     }
   }
 
+  autoSig(q, id, S, foes, team, nearest) {
+    const L = q.leader, inRange = foes.filter(e => udist(e, L) <= (S.range || 0));
+    const allies = this.units.filter(u => u.side === q.side && u.alive && udist(u, L) <= (S.radius || 0));
+    switch (S.kind) {
+      case 'strike': case 'drain': {
+        if (S.kind === 'drain' && team.reduce((s, u) => s + u.hp / u.maxHp, 0) / Math.max(1, team.length) > 0.85 && !inRange.some(e => e.isLeader)) return false;
+        const e = inRange.find(f => f.isLeader) || inRange.sort((a, b) => b.hp - a.hp)[0];
+        return e ? this.cast(q, id, e.x, e.y) : false;
+      }
+      case 'blast': {
+        let best = null, bn = 0;
+        for (const e of inRange) { const n = foes.filter(f => Math.hypot(f.x - e.x, f.y - e.y) <= S.radius).length; if (n > bn) { bn = n; best = e; } }
+        return best && bn >= 3 ? this.cast(q, id, best.x, best.y) : false;
+      }
+      case 'nova': return foes.filter(e => udist(e, L) <= S.radius).length >= 3 ? this.cast(q, id) : false;
+      case 'aura': return allies.length >= 5 && nearest < 100 ? this.cast(q, id) : false;
+      case 'mend': return allies.filter(u => u.hp / u.maxHp < 0.65).length >= 3 ? this.cast(q, id) : false;
+    }
+    return false;
+  }
+
   // ------------------------------------------------------------------ simulation
   update(dt) {
     if (this.done || this.paused) return;
@@ -260,7 +334,7 @@ class Battle {
       if (!q.leader.alive) continue;
       q.mp = Math.min(q.maxMp, q.mp + DATA.battle.mp.regen * dt);
       if (q.cast) {
-        const S = DATA.skills[q.cast.id];
+        const S = this.sk(q.cast.id);
         if (Math.hypot(q.cast.x - q.leader.x, q.cast.y - q.leader.y) <= S.range) this.cast(q, q.cast.id, q.cast.x, q.cast.y);
       } else if ((q.auto || q.side !== this.playerSide) && (q.castT -= dt) <= 0) { q.castT = 0.5; this.autoCast(q); }
     }
@@ -451,7 +525,8 @@ class Battle {
       if (d <= step + 2) {
         p.dead = true;
         if (p.splash) {
-          if (!p.quiet) this.addFx('fire', p.tx, p.ty, 0.4); else this.addFx('hit', p.tx, p.ty, 0.2);
+          if (p.big) for (let i = 0; i < 5; i++) this.addFx(i % 2 ? 'smoke' : 'fire', p.tx + (Math.random() - 0.5) * p.splash, p.ty + (Math.random() - 0.5) * p.splash * 0.6, 0.6);
+          else if (!p.quiet) this.addFx('fire', p.tx, p.ty, 0.4); else this.addFx('hit', p.tx, p.ty, 0.2);
           for (const v of this.units) if (v.alive && !v.escaped && v.side !== p.side && Math.hypot(v.x - p.tx, v.y - 6 - p.ty) <= p.splash) this.damage(v, p.dmg, p.gid, true, p.src);
         } else if (p.tg && p.tg.alive) {
           this.addFx('hit', p.tx, p.ty, 0.25);
@@ -691,6 +766,10 @@ class Battle {
     // spell areas
     for (const z of this.zones) {
       if (!this.cellVisible(z.x, z.y)) continue;
+      if (z.ring) {
+        ctx.strokeStyle = z.good ? 'rgba(255,240,140,0.9)' : 'rgba(255,140,80,0.9)'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.ellipse(z.x, z.y, z.r, z.r * 0.6, 0, 0, Math.PI * 2); ctx.stroke(); continue;
+      }
       ctx.fillStyle = z.frost ? 'rgba(160,220,255,0.28)' : `rgba(255,90,40,${0.15 + 0.15 * Math.sin(this.time * 20)})`;
       ctx.strokeStyle = z.frost ? 'rgba(220,245,255,0.8)' : 'rgba(255,150,60,0.9)'; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.ellipse(z.x, z.y, z.r, z.r * 0.6, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();

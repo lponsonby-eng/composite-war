@@ -33,6 +33,7 @@ const Game = {
     const place = (gid, spot) => {
       const g = DATA.generals[gid];
       this.gens[gid] = { id: gid, faction: g.faction, spot, troops: g.troops, mix: Array(g.troops).fill(g.leads), lv: Array(g.troops).fill(1), acted: false, alive: true, level: g.level || 1, xp: 0 };
+      this.rollSig(this.gens[gid]);
     };
     for (const [id, s] of Object.entries(DATA.spots)) for (const gid of s.gens || []) place(gid, id);
     const unplaced = f => Object.keys(DATA.generals).filter(gid => DATA.generals[gid].faction === f && !this.gens[gid] && !DATA.generals[gid].captain);
@@ -78,6 +79,7 @@ const Game = {
         if (g.xp == null) g.xp = 0;
         if (!g.mix) g.mix = Array(g.troops).fill(DATA.generals[g.id].leads);
         if (!g.lv) g.lv = Array(g.mix.length).fill(1);
+        if (!g.sig) this.rollSig(g);
       }
       this.startMap();
       this.log('Game loaded.');
@@ -111,11 +113,20 @@ const Game = {
   genPower(g) {
     const p = this.unitPower(DATA.generals[g.id].leads), L = DATA.leveling, lv = (g.level || 1) - 1;
     const lead = (1 + lv * L.leaderBonus) ** 2, squad = (1 + lv * L.squadBonus) ** 2;   // hp and attack both scale
-    return p * 8 * lead + (g.mix || []).reduce((s, u, i) => { const b = DATA.soldierBoost((g.lv || [])[i]); return s + this.unitPower(u) * b.hp * b.atk; }, 0) * squad;
+    const sigMul = 1 + this.learnedSig(g).reduce((s, x) => s + x.stars, 0) * DATA.signature.valuePerStar;   // strong abilities make a hero worth more
+    return p * 8 * lead * sigMul + (g.mix || []).reduce((s, u, i) => { const b = DATA.soldierBoost((g.lv || [])[i]); return s + this.unitPower(u) * b.hp * b.atk; }, 0) * squad;
   },
 
   // ======================================================== levels
   xpNeeded(g) { return DATA.leveling.xpBase + DATA.leveling.xpPerLevel * g.level; },
+  // Each hero's two signature abilities, rolled once (level 15 and level 30).
+  rollSig(g) {
+    const f = g.faction || DATA.generals[g.id].faction;
+    const a = DATA.rollSignature(g.id, 0, f), b = DATA.rollSignature(g.id, 1, f, a.kind);
+    g.sig = [a, b];
+  },
+  learnedSig(g) { return (g.sig || []).filter((s, t) => s && g.level >= DATA.signature.levels[t]); },
+
   // Adds XP and returns how many levels the general gained.
   gainXp(g, amount) {
     const L = DATA.leveling;
@@ -128,7 +139,10 @@ const Game = {
   },
 
   // ======================================================== wandering generals
-  hireCost(g) { return DATA.hiring.base + DATA.hiring.perLevel * g.level; },
+  hireCost(g) {
+    const stars = this.learnedSig(g).reduce((s, x) => s + x.stars, 0);
+    return Math.round((DATA.hiring.base + DATA.hiring.perLevel * g.level) * (1 + stars * 0.1) / 5) * 5;
+  },
 
   // ======================================================== persuasion
   // Gold it takes to win general g over (null if they cannot be persuaded).
@@ -200,6 +214,7 @@ const Game = {
     if (pool.length && this.wanderers().length < H.maxOnMap && Math.random() < H.appearChance) {
       const id = pool[Math.floor(Math.random() * pool.length)], d = DATA.generals[id];
       const g = this.gens[id] = { id, faction: null, troops: 0, mix: [], lv: [], acted: false, alive: true, level: d.level || 1, xp: 0 };
+      this.rollSig(g);
       this.makeWanderer(g);
       const mine = this.spots[g.spot].owner === this.player;
       this.log(`A wandering ${DATA.units[d.leads].name.toLowerCase()}, ${d.name} (Lv ${g.level}), has appeared at ${DATA.spots[g.spot].name}.${mine ? ' Hire them!' : ''}`, mine ? 'good' : 'muted');
@@ -330,6 +345,9 @@ const Game = {
         <p><span class="role ${cls.role}">${cls.name}</span> ${d.lord && d.faction === this.player ? `As lord of the ${DATA.factions[this.player].name}, ${d.name} can recruit every unit the faction has, in any mix.` : cls.blurb}</p>
         <p class="muted">Squad ${g.troops}/${d.max} - Gold ${gold}. Fill sets the type the quick Recruit button uses.</p>
         <p class="muted">Squad: ${squadText(g, true) || 'empty'}</p>
+        <div class="sigs">${(g.sig || []).map((s, t) => `<div class="sigl ${g.level >= DATA.signature.levels[t] ? '' : 'locked'}">
+          <b>${s.name}</b> <span class="stars">${'\u2605'.repeat(s.stars)}${'\u2606'.repeat(5 - s.stars)}</span>
+          <span class="muted">${g.level >= DATA.signature.levels[t] ? 'learned' : 'at level ' + DATA.signature.levels[t]} - ${s.desc} ${DATA.sigText(s)}</span></div>`).join('')}</div>
         <p class="muted">Soldiers level up in battle and are promoted at level ${P.tierLevels[0]} and ${P.tierLevels[1]}.
           ${vet ? `As a level ${g.level} hero, ${d.name} can also recruit veterans.` : `From hero level ${P.veteranHeroLevel}, ${d.name} can recruit veterans.`}</p>
         <table class="rect">${rows}</table>${others ? `<p class="muted">Other troops: ${others}</p>` : ''}
@@ -404,7 +422,7 @@ const Game = {
     if (def.length === 0) {
       result = { winner: 'att', att: att.map(g => ({ id: g.id, alive: true, troops: g.troops, mix: g.mix.slice(), lv: g.lv.slice(), before: g.troops, xp: DATA.leveling.capture })), def: [] };
     } else {
-      const army = list => list.map(g => ({ id: g.id, troops: g.troops, mix: g.mix.slice(), lv: g.lv.slice(), level: g.level }));
+      const army = list => list.map(g => ({ id: g.id, troops: g.troops, mix: g.mix.slice(), lv: g.lv.slice(), level: g.level, sig: g.sig }));
       const battle = new Battle({ attackers: army(att), defenders: army(def), attFaction: attF, defFaction: defF,
         spotName, spotId: to, playerSide, headless: !playerSide });
       result = playerSide ? await this.playBattle(battle) : battle.runHeadless();
@@ -428,8 +446,10 @@ const Game = {
       const before = g.level;
       x.levelUp = this.gainXp(g, x.xp || 0);
       x.level = g.level;
+      const learned = (g.sig || []).filter((s, t) => s && before < DATA.signature.levels[t] && g.level >= DATA.signature.levels[t]);
       if (x.levelUp && g.faction === this.player) {
         this.log(`${DATA.generals[x.id].name} reached level ${g.level}!`, 'good');
+        for (const s of learned) this.log(`${DATA.generals[x.id].name} learned ${s.name} ${'\u2605'.repeat(s.stars)} (${DATA.sigText(s)})!`, 'big');
         Assets.sfx('power-up', 0.45);
       } else if (x.levelUp && before < 5 && g.level >= 5) {
         this.log(`Enemy general ${DATA.generals[x.id].name} is now level ${g.level}.`, 'muted');
