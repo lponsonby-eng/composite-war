@@ -425,6 +425,13 @@ DATA.roleOf = gid => DATA.heroClasses[DATA.classOf(gid)].role;
 // Hiring weight of a unit for faction f (0 if not on the roster), and its label.
 DATA.weightOf = (f, u) => (DATA.rosters[f] || {})[u] || 0;
 DATA.rarity = w => w >= 4 ? 'Common' : w >= 2 ? 'Uncommon' : 'Rare';
+// Rarer units cost more and only a limited number can be hired each turn (per
+// faction): perTurn + 1 for every `perTowns` towns the faction holds. Common: no limit.
+DATA.rarityRules = {
+  Common:   { cost: 1,    perTurn: Infinity },
+  Uncommon: { cost: 1.15, perTurn: 4, perTowns: 4 },
+  Rare:     { cost: 1.4,  perTurn: 1, perTowns: 6 },
+};
 // Picks a unit from `list` at random by faction f's weights (bonus: extra weight for one type).
 DATA.pickWeighted = (f, list, bonus, rnd = Math.random) => {
   const ws = list.map(u => Math.max(1, DATA.weightOf(f, u)) * (u === bonus ? 2 : 1));

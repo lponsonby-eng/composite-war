@@ -21,6 +21,7 @@ const Game = {
     for (const f of Object.keys(DATA.factions)) this.gold[f] = DATA.startGold;
     for (const [id, s] of Object.entries(DATA.spots)) this.spots[id] = { owner: s.owner };
     this.placeGenerals();
+    this.stock = {}; for (const f of Object.keys(DATA.factions)) this.refillStock(f);
     this.log(`You lead the ${DATA.factions[fid].name}. Unite the realm!`, 'good');
     this.startMap();
     this.centerOnHome();
@@ -63,8 +64,8 @@ const Game = {
 
   save() {
     try {
-      const { player, turn, gold, spots, gens, logLines } = this;
-      localStorage.setItem(SAVE_KEY, JSON.stringify({ player, turn, gold, spots, gens, logLines }));
+      const { player, turn, gold, spots, gens, logLines, stock } = this;
+      localStorage.setItem(SAVE_KEY, JSON.stringify({ player, turn, gold, spots, gens, logLines, stock }));
       return true;
     } catch (e) { return false; }
   },
@@ -299,21 +300,51 @@ const Game = {
     if (best >= 0) { g.mix.splice(best, 1); g.lv.splice(best, 1); g.troops = g.mix.length; }
   },
   canBuyVeterans(g) { return g.level >= DATA.promotion.veteranHeroLevel; },
+
+  // ---- prices and the per-turn hiring stock of uncommon and rare units
+  rarityOf(f, u) { return DATA.rarity(DATA.weightOf(f, u)); },
+  unitCost(f, u, vet) {
+    return Math.round(DATA.units[u].cost * DATA.rarityRules[this.rarityOf(f, u)].cost * (vet ? DATA.promotion.veteranCost : 1));
+  },
+  stockCap(f, u) {
+    const R = DATA.rarityRules[this.rarityOf(f, u)];
+    return R.perTurn === Infinity ? Infinity : R.perTurn + Math.floor(this.spotsOf(f).length / R.perTowns);
+  },
+  refillStock(f) {
+    this.stock = this.stock || {};
+    this.stock[f] = {};
+    for (const u of Object.keys(DATA.rosters[f] || {})) { const c = this.stockCap(f, u); if (c !== Infinity) this.stock[f][u] = c; }
+  },
+  stockLeft(f, u) {
+    if (this.stockCap(f, u) === Infinity) return Infinity;
+    if (!this.stock || !this.stock[f]) this.refillStock(f);
+    return this.stock[f][u] ?? this.stockCap(f, u);
+  },
+  canBuy(f, u, vet) { return this.stockLeft(f, u) > 0 && this.gold[f] >= this.unitCost(f, u, vet); },
+  // Hire one soldier of type u into general g's squad for faction f (pays and uses stock).
+  buyOne(g, f, u, vet) {
+    if (g.troops >= DATA.generals[g.id].max || !this.canBuy(f, u, vet)) return false;
+    this.gold[f] -= this.unitCost(f, u, vet);
+    if (this.stockLeft(f, u) !== Infinity) this.stock[f][u]--;
+    this.addSoldier(g, u, vet ? DATA.promotion.tierLevels[0] : 1);
+    return true;
+  },
+
   recruitCost(list) {
-    return list.reduce((s, g) => s + (DATA.generals[g.id].max - g.troops) * DATA.units[this.prefType(g)].cost, 0);
+    return list.reduce((s, g) => s + (DATA.generals[g.id].max - g.troops) * this.unitCost(this.player, this.prefType(g)), 0);
   },
 
   recruit() {
     const list = [...this.ui.picked].map(id => this.gens[id]);
-    let hired = 0;
+    let hired = 0, outOf = null;
     for (const g of list) {
-      const type = this.prefType(g), cost = DATA.units[type].cost;
-      while (g.troops < DATA.generals[g.id].max && this.gold[this.player] >= cost) {
-        this.addSoldier(g, type); this.gold[this.player] -= cost; hired++;
-      }
+      const type = this.prefType(g);
+      while (g.troops < DATA.generals[g.id].max && this.buyOne(g, this.player, type)) hired++;
+      if (g.troops < DATA.generals[g.id].max && this.stockLeft(this.player, type) <= 0) outOf = type;
     }
     if (hired) { Assets.sfx('gold-1', 0.5); this.log(`Recruited ${hired} soldiers.`); }
-    else this.log('Not enough gold to recruit.', 'bad');
+    if (outOf) this.log(`No more ${DATA.units[outOf].name} can be hired this turn.`, 'muted');
+    else if (!hired) this.log('Not enough gold to recruit.', 'bad');
     this.refreshTop(); this.renderPanel();
   },
 
@@ -326,24 +357,24 @@ const Game = {
       const counts = {}; for (const u of g.mix) counts[u] = (counts[u] || 0) + 1;
       const P = DATA.promotion, vet = this.canBuyVeterans(g);
       const rows = DATA.recruitable(gid, this.player).map(id => {
-        const u = DATA.units[id], ty = DATA.unitTypes[u.type];
+        const u = DATA.units[id], ty = DATA.unitTypes[u.type], stock = this.stockLeft(this.player, id);
         const extra = [u.splash ? 'area damage' : '', u.antiCav ? 'anti-cavalry' : '', u.type === 'cavalry' ? 'charge' : '', u.type === 'healer' ? 'heals allies' : ''].filter(Boolean).join(', ');
         return `<tr class="${g.pref === id || (!g.pref && d.leads === id) ? 'pref' : ''}">
           <td><img class="uico" src="${Assets.unitIcon(id)}"></td>
           <td><b>${u.name}</b> <span class="rar r${DATA.rarity(DATA.weightOf(this.player, id))[0]}">${DATA.rarity(DATA.weightOf(this.player, id))}</span><br><span class="role ${ty.role}">${ty.name}</span> <span class="muted">${extra}</span></td>
           <td class="st">HP ${u.hp}<br>${u.type === 'healer' ? 'Heal' : 'Atk'} ${u.atk} Def ${u.def}<br>Range ${u.range}</td>
-          <td class="st">${u.cost}g</td>
+          <td class="st">${this.unitCost(this.player, id)}g${stock === Infinity ? '' : `<br><span class="${stock ? '' : 'bad'}">${stock} left this turn</span>`}</td>
           <td>${counts[id] ? `<button data-dis="${id}" title="Dismiss one (lowest level first)">-</button>` : ''} <b>${counts[id] || 0}</b>
-            <button data-add="${id}" ${room < 1 || gold < u.cost ? 'disabled' : ''}>+1</button>
-            <button data-fill="${id}" ${room < 1 || gold < u.cost ? 'disabled' : ''}>Fill</button>
-            ${vet ? `<br><button data-vet="${id}" ${room < 1 || gold < u.cost * P.veteranCost ? 'disabled' : ''} title="Starts at level ${P.tierLevels[0]}">+1 ${DATA.unitName(id, P.tierLevels[0])} ${u.cost * P.veteranCost}g</button>` : ''}</td></tr>`;
+            <button data-add="${id}" ${room < 1 || !this.canBuy(this.player, id) ? 'disabled' : ''}>+1</button>
+            <button data-fill="${id}" ${room < 1 || !this.canBuy(this.player, id) ? 'disabled' : ''}>Fill</button>
+            ${vet ? `<br><button data-vet="${id}" ${room < 1 || !this.canBuy(this.player, id, true) ? 'disabled' : ''} title="Starts at level ${P.tierLevels[0]}">+1 ${DATA.unitName(id, P.tierLevels[0])} ${this.unitCost(this.player, id, true)}g</button>` : ''}</td></tr>`;
       }).join('');
       // soldiers of types this general can no longer recruit (e.g. after changing sides)
       const others = Object.keys(counts).filter(id => !DATA.recruitable(gid, this.player).includes(id))
         .map(id => `${DATA.units[id].name} x${counts[id]} <button data-dis="${id}">-</button>`).join(' ');
       m.innerHTML = `<div class="box rec"><h2>Recruit for ${d.name}</h2>
         <p><span class="role ${cls.role}">${cls.name}</span> ${d.lord && d.faction === this.player ? `As lord of the ${DATA.factions[this.player].name}, ${d.name} can recruit every unit the faction has, in any mix.` : cls.blurb}</p>
-        <p class="muted">Squad ${g.troops}/${d.max} - Gold ${gold}. Fill sets the type the quick Recruit button uses.</p>
+        <p class="muted">Squad ${g.troops}/${d.max} - Gold ${gold}. Fill sets the type the quick Recruit button uses. Uncommon and rare units cost more and only a few can be hired each turn.</p>
         <p class="muted">Squad: ${squadText(g, true) || 'empty'}</p>
         <div class="sigs">${(g.sig || []).map((s, t) => `<div class="sigl ${g.level >= DATA.signature.levels[t] ? '' : 'locked'}">
           <b>${s.name}</b> <span class="stars">${'\u2605'.repeat(s.stars)}${'\u2606'.repeat(5 - s.stars)}</span>
@@ -356,8 +387,7 @@ const Game = {
         <div class="mbtns"><button data-close>Done</button></div></div>`;
       m.hidden = false;
       const buy = (id, n) => {
-        const c = DATA.units[id].cost;
-        for (let i = 0; i < n && g.troops < d.max && this.gold[this.player] >= c; i++) { this.addSoldier(g, id); this.gold[this.player] -= c; }
+        for (let i = 0; i < n && this.buyOne(g, this.player, id); i++);
         Assets.sfx('gold-1', 0.4); this.refreshTop(); draw();
       };
       m.querySelectorAll('[data-add]').forEach(b => b.onclick = () => buy(b.dataset.add, 1));
@@ -369,16 +399,15 @@ const Game = {
         for (const u of ok) want[u] = Math.max(1, DATA.weightOf(this.player, u)) / total * d.max;
         let bought = 0;
         while (g.troops < d.max) {
-          const u = ok.filter(x => this.gold[this.player] >= DATA.units[x].cost).sort((a, b) => ((have[a] || 0) - want[a]) - ((have[b] || 0) - want[b]))[0];
-          if (!u) break;
-          this.addSoldier(g, u); this.gold[this.player] -= DATA.units[u].cost; have[u] = (have[u] || 0) + 1; bought++;
+          const u = ok.filter(x => this.canBuy(this.player, x)).sort((a, b) => ((have[a] || 0) - want[a]) - ((have[b] || 0) - want[b]))[0];
+          if (!u || !this.buyOne(g, this.player, u)) break;
+          have[u] = (have[u] || 0) + 1; bought++;
         }
         if (bought) Assets.sfx('gold-1', 0.4);
         this.refreshTop(); draw();
       };
       m.querySelectorAll('[data-vet]').forEach(b => b.onclick = () => {
-        const id = b.dataset.vet, c = DATA.units[id].cost * DATA.promotion.veteranCost;
-        if (g.troops < d.max && this.gold[this.player] >= c) { this.addSoldier(g, id, DATA.promotion.tierLevels[0]); this.gold[this.player] -= c; }
+        this.buyOne(g, this.player, b.dataset.vet, true);
         Assets.sfx('gold-1', 0.4); this.refreshTop(); draw();
       });
       m.querySelectorAll('[data-fill]').forEach(b => b.onclick = () => { g.pref = b.dataset.fill; buy(b.dataset.fill, 99); });
@@ -560,6 +589,7 @@ const Game = {
 
   newTurn() {
     this.turn++;
+    for (const f of Object.keys(DATA.factions)) this.refillStock(f);
     for (const f of Object.keys(DATA.factions))
       for (const id of this.spotsOf(f)) this.gold[f] += DATA.spots[id].income;
     for (const g of Object.values(this.gens)) {
@@ -608,14 +638,11 @@ const Game = {
       const ok = DATA.recruitable(g.id, f), pref = this.prefType(g);
       while (g.troops < DATA.generals[g.id].max) {
         // by the faction's hiring weights (the hero's own type counts double)
-        let type = DATA.pickWeighted(f, ok, pref);
-        const vc = DATA.units[type].cost * DATA.promotion.veteranCost;
-        if (this.canBuyVeterans(g) && this.gold[f] >= vc + 300) {         // rich: hire a veteran
-          this.addSoldier(g, type, DATA.promotion.tierLevels[0]); this.gold[f] -= vc; continue;
-        }
-        if (this.gold[f] < DATA.units[type].cost) type = ok.filter(u => DATA.units[u].cost <= this.gold[f]).sort((a, b) => DATA.units[a].cost - DATA.units[b].cost)[0];
-        if (!type) break;
-        this.addSoldier(g, type); this.gold[f] -= DATA.units[type].cost;
+        const avail = ok.filter(u => this.canBuy(f, u));
+        if (!avail.length) break;
+        const type = DATA.pickWeighted(f, avail, pref);
+        if (this.canBuyVeterans(g) && this.gold[f] >= this.unitCost(f, type, true) + 300 && this.buyOne(g, f, type, true)) continue;   // rich: a veteran
+        if (!this.buyOne(g, f, type)) break;
       }
     }
 
