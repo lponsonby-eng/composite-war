@@ -52,6 +52,12 @@ buttons or Z / X / C, and area skills land where you click. **Auto** lets a hero
 themself; computer heroes always do. Space pauses. Tune it in `DATA.battle` and
 `DATA.skills`. Auto-resolved battles run the same simulation without drawing.
 
+## Formation screen
+Before every battle you fight yourself, the formation screen shows your squads in a
+**front row** (deploys nearest the enemy) and a **back row**. Click a squad to switch
+rows, use the arrows to order them along the line, or press Auto to sort by class. Each
+hero remembers their row for next time, and Auto group formation in battle keeps the rows.
+
 ## Hero classes, unit types and recruiting
 Modelled on the class/recruit system of Vahren-engine games such as Kinoko Takenoko War
 (the system, not its units: every unit here is our own). Each unit has a type: infantry,

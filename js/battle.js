@@ -47,7 +47,9 @@ class Battle {
   // inside their town; their backline right behind the wall to shoot over it.
   placeSquads(gens, side) {
     const W = this.W, H = this.H, T = this.terrain;
-    const front = gens.filter(g => DATA.roleOf(g.id) === 'front'), back = gens.filter(g => DATA.roleOf(g.id) === 'back');
+    // rows: the formation chosen on the formation screen (g.row), or by class
+    const rowOf = g => g.row || DATA.roleOf(g.id);
+    const front = gens.filter(g => rowOf(g) === 'front'), back = gens.filter(g => rowOf(g) === 'back');
     const walled = side === 1 && T.walls;
     const rows = walled ? [[back, T.wallX + 40], [front, T.wallX + 110]]
       : [[front, 230], [back, 150]].filter(r => r[0].length);
@@ -59,7 +61,7 @@ class Battle {
       const sq = {
         id: g.id, side, members: [], order: side === 1 ? 'hold' : 'advance', tx: x, ty: cy,
         face: [face, 0], auto: true, cd: {}, castT: Math.random(), skills: DATA.skillsOf(g.id).slice(),
-        back: DATA.roleOf(g.id) === 'back', level: g.level || 1,
+        back: DATA.roleOf(g.id) === 'back', row: rowOf(g), level: g.level || 1,
       };
       const L = DATA.battle.mp;
       sq.maxMp = L.base + L.perLevel * sq.level; sq.mp = sq.maxMp * L.start;
@@ -139,7 +141,7 @@ class Battle {
     if (formation === 'line') rows = [squads];
     else if (formation === 'column') rows = squads.map(q => [q]);
     else if (formation === 'wedge') { rows = []; let i = 0, n = 1; while (i < squads.length) { rows.push(squads.slice(i, i + n)); i += n; n++; } }
-    else { rows = [squads.filter(q => !q.back), squads.filter(q => q.back)].filter(r => r.length); }
+    else { rows = [squads.filter(q => q.row !== 'back'), squads.filter(q => q.row === 'back')].filter(r => r.length); }
     const cap = Math.min(...squads.map(q => q.leader.spd));          // the group keeps together
     rows.forEach((row, r) => row.forEach((q, i) => {
       const lat = (i - (row.length - 1) / 2) * 48;

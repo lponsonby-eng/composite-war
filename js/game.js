@@ -472,7 +472,10 @@ const Game = {
     if (def.length === 0) {
       result = { winner: 'att', att: att.map(g => ({ id: g.id, alive: true, troops: g.troops, mix: g.mix.slice(), lv: g.lv.slice(), before: g.troops, xp: DATA.leveling.capture })), def: [] };
     } else {
-      const army = list => list.map(g => ({ id: g.id, troops: g.troops, mix: g.mix.slice(), lv: g.lv.slice(), level: g.level, sig: g.sig }));
+      const mineList = playerSide === 'att' ? att : playerSide === 'def' ? def : null;
+      if (mineList) await this.formationDialog(mineList, DATA.spots[to].name);
+      const army = list => list.map(g => ({ id: g.id, troops: g.troops, mix: g.mix.slice(), lv: g.lv.slice(), level: g.level, sig: g.sig,
+        row: list === mineList ? g.row || DATA.roleOf(g.id) : null }));
       const battle = new Battle({ attackers: army(att), defenders: army(def), attFaction: attF, defFaction: defF,
         spotName, spotId: to, playerSide, headless: !playerSide });
       result = playerSide ? await this.playBattle(battle) : battle.runHeadless();
@@ -543,6 +546,51 @@ const Game = {
       if (mine) this.queueEvents('won', { spot: to });
     }
     this.refreshTop();
+  },
+
+  // Formation screen before a battle you fight yourself: put each squad in the front
+  // or back row and order them along the line. Choices are remembered (g.row) and
+  // the list order is kept for this battle.
+  formationDialog(list, where) {
+    return new Promise(resolve => {
+      const m = $('#modal');
+      for (const g of list) if (!g.row) g.row = DATA.roleOf(g.id);
+      const order = list.slice();
+      const card = (g, i) => {
+        const d = DATA.generals[g.id];
+        return `<div class="fslot" data-sw="${g.id}" title="Click to move to the ${g.row === 'front' ? 'back' : 'front'} row">
+          <img src="${Assets.portrait(g.id)}"><div class="fi"><b>${d.name}</b> <span class="lv">Lv ${g.level}</span><br>
+          ${roleTag(g.id)} <span class="muted">${g.troops}/${d.max}</span><div class="muted sq">${squadText(g) || 'No troops'}</div></div>
+          <div class="fmv"><button data-up="${g.id}" title="Move up the line">&#9650;</button><button data-dn="${g.id}" title="Move down the line">&#9660;</button></div></div>`;
+      };
+      const draw = () => {
+        const fr = order.filter(g => g.row === 'front'), bk = order.filter(g => g.row === 'back');
+        m.innerHTML = `<div class="box form"><h2>Battle formation - ${where}</h2>
+          <p class="muted">Click a squad to switch rows. Arrows move it along the line (top to bottom of the field).
+            The front row deploys nearest the enemy; the back row behind it. Group moves in Auto formation keep these rows.</p>
+          <div class="frows">
+            <div class="frow"><h3>Back row</h3>${bk.map(card).join('') || '<p class="muted">empty</p>'}</div>
+            <div class="frow front"><h3>Front row <span class="muted">enemy &#8594;</span></h3>${fr.map(card).join('') || '<p class="muted">empty</p>'}</div>
+          </div>
+          ${bk.length && !fr.length ? '<p class="warn">Your back row has no front row to protect it.</p>' : ''}
+          <div class="mbtns"><button data-auto>Auto (by class)</button><button data-go class="primary">Start battle</button></div></div>`;
+        m.hidden = false; m.onclick = null;
+        m.querySelectorAll('[data-sw]').forEach(el => el.onclick = e => {
+          if (e.target.closest('button')) return;
+          const g = list.find(x => x.id === el.dataset.sw); g.row = g.row === 'front' ? 'back' : 'front'; Assets.sfx('menu-1', 0.25); draw();
+        });
+        const move = (id, dir) => {
+          const g = order.find(x => x.id === id), same = order.filter(x => x.row === g.row), i = same.indexOf(g), j = i + dir;
+          if (j < 0 || j >= same.length) return;
+          const a = order.indexOf(g), b = order.indexOf(same[j]); [order[a], order[b]] = [order[b], order[a]]; draw();
+        };
+        m.querySelectorAll('[data-up]').forEach(b => b.onclick = () => move(b.dataset.up, -1));
+        m.querySelectorAll('[data-dn]').forEach(b => b.onclick = () => move(b.dataset.dn, 1));
+        m.querySelector('[data-auto]').onclick = () => { for (const g of list) g.row = DATA.roleOf(g.id); draw(); };
+        m.querySelector('[data-go]').onclick = () => { m.hidden = true; list.splice(0, list.length, ...order); resolve(); };
+      };
+      draw();
+    });
   },
 
   playBattle(battle) {
