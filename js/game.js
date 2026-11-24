@@ -63,7 +63,9 @@ const Game = {
   },
 
   // ======================================================== queries
-  generalsAt(spot) { return Object.values(this.gens).filter(g => g.alive && g.spot === spot); },
+  generalsAt(spot) { return Object.values(this.gens).filter(g => g.alive && !g.free && g.spot === spot); },
+  wanderersAt(spot) { return Object.values(this.gens).filter(g => g.alive && g.free && g.spot === spot); },
+  wanderers() { return Object.values(this.gens).filter(g => g.alive && g.free); },
   gensOf(f) { return Object.values(this.gens).filter(g => g.alive && g.faction === f); },
   spotsOf(f) { return Object.keys(this.spots).filter(id => this.spots[id].owner === f); },
   neighbors(id) {
@@ -91,6 +93,52 @@ const Game = {
     while (g.level < L.maxLevel && g.xp >= this.xpNeeded(g)) { g.xp -= this.xpNeeded(g); g.level++; ups++; }
     if (g.level >= L.maxLevel) g.xp = 0;
     return ups;
+  },
+
+  // ======================================================== wandering generals
+  hireCost(g) { return DATA.hiring.base + DATA.hiring.perLevel * g.level; },
+  stayTurns() { const H = DATA.hiring; return H.stayMin + Math.floor(Math.random() * (H.stayMax - H.stayMin + 1)); },
+
+  // Turns a general into a wanderer at a random town (other than `avoid`).
+  makeWanderer(g, avoid) {
+    const towns = Object.keys(this.spots).filter(id => id !== avoid);
+    g.free = true; g.faction = null; g.troops = 0; g.acted = false;
+    g.spot = towns[Math.floor(Math.random() * towns.length)];
+    g.stay = this.stayTurns();
+  },
+
+  hire(gid, f) {
+    const g = this.gens[gid], cost = this.hireCost(g);
+    if (!g || !g.free || this.spots[g.spot].owner !== f || this.gold[f] < cost) return false;
+    this.gold[f] -= cost;
+    g.free = false; g.faction = f; g.acted = true; delete g.stay;
+    g.troops = Math.max(g.troops, Math.ceil(DATA.generals[gid].max / 2));
+    const name = DATA.generals[gid].name;
+    if (f === this.player) { this.log(`${name} has joined your army!`, 'good'); Assets.sfx('power-up', 0.5); }
+    else this.log(`${name} has joined the ${DATA.factions[f].name}.`, this.neighborsOfPlayer(g.spot) ? 'bad' : 'muted');
+    return true;
+  },
+  neighborsOfPlayer(spot) { return this.neighbors(spot).some(n => this.spots[n].owner === this.player); },
+
+  // Each new turn: wanderers drift on, and sometimes a new one arrives.
+  wanderTurn() {
+    for (const g of this.wanderers()) {
+      if (--g.stay > 0) continue;
+      const ns = this.neighbors(g.spot);
+      g.spot = ns[Math.floor(Math.random() * ns.length)];
+      g.stay = this.stayTurns();
+      if (this.spots[g.spot].owner === this.player)
+        this.log(`${DATA.generals[g.id].name} (wanderer, Lv ${g.level}) wandered into ${DATA.spots[g.spot].name}.`, 'good');
+    }
+    const H = DATA.hiring;
+    const pool = Object.keys(DATA.wanderers).filter(id => !this.gens[id]);
+    if (pool.length && this.wanderers().length < H.maxOnMap && Math.random() < H.appearChance) {
+      const id = pool[Math.floor(Math.random() * pool.length)], d = DATA.generals[id];
+      const g = this.gens[id] = { id, faction: null, troops: 0, acted: false, alive: true, level: d.level || 1, xp: 0 };
+      this.makeWanderer(g);
+      const mine = this.spots[g.spot].owner === this.player;
+      this.log(`A wandering ${DATA.units[d.leads].name.toLowerCase()}, ${d.name} (Lv ${g.level}), has appeared at ${DATA.spots[g.spot].name}.${mine ? ' Hire them!' : ''}`, mine ? 'good' : 'muted');
+    }
   },
   armyPower(list) { return list.reduce((s, g) => s + this.genPower(g), 0); },
 
@@ -241,15 +289,18 @@ const Game = {
         else if (DATA.factions[defF].neutral && !DATA.generals[g.id].lord) {
           g.faction = attF; g.spot = to; g.acted = true;          // free generals join the conqueror
           this.log(`${DATA.generals[g.id].name} has joined the ${DATA.factions[attF].name}!`, attF === this.player ? 'good' : '');
-        } else {
+        } else if (DATA.generals[g.id].lord) {
           g.alive = false;
           this.log(`${DATA.generals[g.id].name} was captured.`, defF === this.player ? 'bad' : '');
+        } else {
+          this.makeWanderer(g, to);
+          this.log(`${DATA.generals[g.id].name} was defeated and now wanders the realm.`, defF === this.player ? 'bad' : '');
         }
       }
       const mine = attF === this.player, theirs = defF === this.player;
       this.log(`${DATA.factions[attF].name} captured ${spotName}!`, mine ? 'good' : theirs ? 'bad' : '');
       if (this.spotsOf(defF).length === 0 && !DATA.factions[defF].neutral) {
-        for (const g of this.gensOf(defF)) g.alive = false;
+        for (const g of this.gensOf(defF)) { if (DATA.generals[g.id].lord) g.alive = false; else this.makeWanderer(g); }
         this.log(`The ${DATA.factions[defF].name} has been destroyed!`, 'big');
       }
     } else {
@@ -350,8 +401,9 @@ const Game = {
       for (const id of this.spotsOf(f)) this.gold[f] += DATA.spots[id].income;
     for (const g of Object.values(this.gens)) {
       g.acted = false;
-      if (g.alive && DATA.factions[g.faction].neutral) g.troops = Math.min(DATA.generals[g.id].max, g.troops + 1);
+      if (g.alive && !g.free && DATA.factions[g.faction].neutral) g.troops = Math.min(DATA.generals[g.id].max, g.troops + 1);
     }
+    this.wanderTurn();
     const inc = this.spotsOf(this.player).reduce((s, id) => s + DATA.spots[id].income, 0);
     this.log(`Turn ${this.turn}. Income +${inc} gold.`, 'turn');
     Assets.sfx('gold-1', 0.4);
@@ -369,6 +421,10 @@ const Game = {
 
     // Spots that touch an enemy are the "front". Interior armies march toward it.
     const front = new Set(this.spotsOf(f).filter(id => this.neighbors(id).some(n => this.spots[n].owner !== f)));
+
+    // 0. Hire any wandering general in our towns we can afford, best first
+    for (const g of this.wanderers().filter(w => this.spots[w.spot].owner === f).sort((a, b) => b.level - a.level))
+      this.hire(g.id, f);
 
     // 1. Recruit, front-line generals first
     const gens = this.gensOf(f).sort((a, b) => (front.has(b.spot) ? 1 : 0) - (front.has(a.spot) ? 1 : 0));
@@ -491,7 +547,10 @@ const Game = {
       }).join('');
       p.innerHTML = `<h2>The Realm</h2><table class="realm"><tr><th>Faction</th><th>Towns</th><th>Generals</th></tr>${rows}</table>
         <p class="hint">Click one of your towns (yellow names) to command the generals there.
-        Then click a road neighbour: <b>white</b> = move, <b>red</b> = attack.</p>`;
+        Then click a road neighbour: <b>white</b> = move, <b>red</b> = attack.</p>
+        ${this.wanderers().length ? `<h3 class="wh">Wandering generals</h3>${this.wanderers().map(g =>
+          `<div class="hint">${DATA.generals[g.id].name} <span class="lv">Lv ${g.level}</span> at ${DATA.spots[g.spot].name}</div>`).join('')}
+          <p class="hint">Hire them when they are in one of your towns.</p>` : ''}`;
       return;
     }
     const s = DATA.spots[id], owner = this.spots[id].owner, fa = DATA.factions[owner];
@@ -509,6 +568,16 @@ const Game = {
         ${own ? `<div class="gs">${g.acted ? 'done' : this.ui.picked.has(g.id) ? 'ready' : ''}</div>` : ''}</div>`;
     }).join('') || '<p class="muted">No generals here.</p>';
 
+    const free = this.wanderersAt(id);
+    const wlist = free.length ? `<h3 class="wh">Wandering here</h3><div class="gens">${free.map(g => {
+      const d = DATA.generals[g.id], c = this.hireCost(g);
+      return `<div class="gen"><img src="assets/faces/${d.face}.png">
+        <div class="gi"><div class="gn">${d.name} <span class="lv">Lv ${g.level}</span></div>
+        <div class="gu">${DATA.units[d.leads].name} - squad ${Math.ceil(d.max / 2)}/${d.max}</div>
+        <div class="gu">Leaves in ${g.stay} turn${g.stay === 1 ? '' : 's'}</div></div>
+        ${own ? `<button data-hire="${g.id}" ${this.gold[this.player] < c ? 'disabled' : ''}>Hire ${c}g</button>` : ''}</div>`;
+    }).join('')}</div>${own ? '' : '<p class="hint">Capture this town to hire them.</p>'}` : '';
+
     const picked = [...this.ui.picked].map(g => this.gens[g]);
     const cost = this.recruitCost(picked);
     p.innerHTML = `<h2 style="color:${fa.color}">${s.name}</h2>
@@ -519,7 +588,12 @@ const Game = {
       </div>
       <p class="hint">${picked.length ? 'Click a highlighted neighbour: <b>white</b> to move, <b>red</b> to attack with the ticked generals.' : 'Tick generals (click them) to give orders.'}
       Recruiting does not use up a general's turn.</p>`
-      : `<p class="hint">Strength: ${Math.round(this.armyPower(gens))}</p>`}`;
+      : `<p class="hint">Strength: ${Math.round(this.armyPower(gens))}</p>`}
+      ${wlist}`;
+    p.querySelectorAll('[data-hire]').forEach(el => el.onclick = () => {
+      if (this.busy) return;
+      if (this.hire(el.dataset.hire, this.player)) { this.refreshTop(); this.select(id); }
+    });
     p.querySelectorAll('[data-g]').forEach(el => el.onclick = () => this.togglePick(el.dataset.g));
     const rb = $('#btn-recruit'); if (rb) rb.onclick = () => this.recruit();
   },

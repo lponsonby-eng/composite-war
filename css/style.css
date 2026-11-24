@@ -177,3 +177,5 @@ button.big { font-size: 22px; padding: 6px 18px; margin-top: 10px; }
 .xbar { height: 3px; background: #1d2440; margin-top: 2px; }
 .xbar i { display: block; height: 100%; background: #6fb6ff; }
 table.res td + td { padding-left: 14px; }
+.wh { font-weight: normal; font-size: 19px; margin: 14px 0 6px; color: var(--accent); }
+.gen button { font-size: 15px; padding: 2px 6px; }

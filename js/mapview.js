@@ -214,6 +214,19 @@ const MapView = {
     });
     if (gens.length > 4) label(ctx, '+' + (gens.length - 4), s.x + 24, s.y + 6, '#fff', 'left');
 
+    // wandering generals stand beside the building, marked with a gold $
+    const free = game.wanderersAt ? game.wanderersAt(id) : [];
+    free.slice(0, 2).forEach((g, i) => {
+      const wx = s.x + 14 + i * 10, wy = s.y - 16;
+      const bob = Math.floor(this.time * 2 + i) % 2;
+      Assets.drawUnit(ctx, 'c' + DATA.generals[g.id].face, 0, 0, false, wx, wy);
+      const cx = wx + 8, cy = wy - 4 - bob;                     // bobbing gold coin: "for hire"
+      ctx.fillStyle = '#1a1020'; ctx.beginPath(); ctx.arc(cx, cy, 4.5, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#ffd84a'; ctx.beginPath(); ctx.arc(cx, cy, 3.5, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#b8860b'; ctx.fillRect(Math.round(cx) - 1, Math.round(cy) - 2, 1, 4);
+      ctx.fillStyle = '#fff6b0'; ctx.fillRect(Math.round(cx) - 2, Math.round(cy) - 2, 1, 1);
+    });
+
     // name label
     label(ctx, s.name, s.x, s.y + 21, owner === game.player ? '#fff6b0' : '#ffffff', 'center', 12);
   },

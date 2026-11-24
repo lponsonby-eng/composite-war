@@ -96,6 +96,18 @@ window.DATA = {
     sela:   { name: 'Sela',        faction: 'neutral', face: 4,  leads: 'militia', max: 6, troops: 5 },
   },
 
+  // --- Wandering generals -------------------------------------------------
+  // Generals with no faction drift between towns. Whoever owns the town they
+  // are in can hire them: cost = base + perLevel * level, and they arrive with
+  // half a squad. Captured generals (not lords) also become wanderers.
+  hiring: { base: 60, perLevel: 25, appearChance: 0.4, maxOnMap: 3, stayMin: 3, stayMax: 6 },
+  wanderers: {
+    kestrel: { name: 'Kestrel',  face: 2,  leads: 'archer', max: 8, troops: 0, level: 3, wanderer: true },
+    juro:    { name: 'Juro',     face: 7,  leads: 'ninja',  max: 8, troops: 0, level: 2, wanderer: true },
+    marta:   { name: 'Marta',    face: 8,  leads: 'knight', max: 8, troops: 0, level: 2, wanderer: true },
+    fenn:    { name: 'Old Fenn', face: 18, leads: 'mage',   max: 6, troops: 0, level: 4, wanderer: true },
+  },
+
   // --- Map -----------------------------------------------------------------
   // The map is 640 x 360 pixels. kind: capital | town | village | shrine.
   // income: gold per turn. gens: generals stationed there at the start.
@@ -134,3 +146,6 @@ window.DATA = {
     ['emberkeep', 'mistfen'], ['mistfen', 'nightspire'], ['mistfen', 'gloomvale'], ['gloomvale', 'nightspire'],
   ],
 };
+
+// Wanderers are generals too: put them in the same table so every lookup works.
+Object.assign(DATA.generals, DATA.wanderers);
