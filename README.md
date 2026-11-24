@@ -7,6 +7,7 @@ Open `index.html` through any local web server (for example `python3 -m http.ser
 
 ## Files
 - `js/data.js` – the scenario: factions, regions, unit stats, generals, levelling, hiring, ground. Start here.
+- `js/events.js` – story events: the prologue, faction openings, region discoveries, random events, milestones and endings.
 - `js/map.js` – the map: 92 towns, roads and landmark positions (made by `tools/genmap.py`, safe to hand-edit).
 - `js/art.js` – pixel art drawn in code: each region's buildings, landmarks and scenery.
 - `js/game.js` – campaign state, turns, AI opponents, panels and dialogs.
@@ -27,6 +28,16 @@ with its capital and three towns; the other 60 towns are free towns held by mili
 Win by defeating every rival faction.
 
 To make a different map: `python3 tools/genmap.py 42` (any number gives a new layout).
+
+## Story
+The realm was held together by the Concord Crown until it shattered into eight shards,
+one for each faction. Story events (`js/events.js`) play as dialogue with portraits:
+a prologue and an opening for each faction; a discovery with a choice the first time you
+take a town in each region; random events at the start of some turns (caravans, bandits,
+refugees, plague, festivals, deserters, wanderers, an old drill-master); milestones (first
+victory, first signature ability, 25 and 50 towns, rival factions falling); and endings.
+Choices can give or cost gold, soldiers, XP, promotions or bring a wandering general.
+Add your own events by copying an entry; the format is described at the top of the file.
 
 ## Battles
 Battles are fought on a large field (1120 x 720) with scrolling, zoom, a minimap and
