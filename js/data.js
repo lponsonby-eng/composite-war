@@ -336,6 +336,15 @@ window.DATA = {
     'Fenna', 'Lorcan', 'Tilda', 'Osric', 'Wynn', 'Agna', 'Bors', 'Cael', 'Della', 'Edda', 'Garth', 'Hale', 'Isa'],
   captainFaces: [3, 6, 9, 10, 13, 14, 22, 25, 1, 5, 12, 16],
 
+  // --- Persuasion -----------------------------------------------------------
+  // Pay a general of another side to join you. Price = base + perPower x their
+  // strength (level, squad size and quality), times factionMul for generals of a
+  // rival faction (loyal) or captainMul for militia captains. Lords refuse.
+  // You need an envoy: one of your generals who has not acted, in your town next
+  // to theirs; the envoy spends their turn. Computer factions persuade too (one a
+  // turn, keeping `aiReserve` gold), but never the player's generals.
+  persuade: { base: 40, perPower: 0.6, factionMul: 1.6, captainMul: 0.7, aiReserve: 150 },
+
   // --- Wandering generals -------------------------------------------------
   // Generals with no faction drift between towns. Whoever owns the town they
   // are in can hire them: cost = base + perLevel * level, and they arrive with

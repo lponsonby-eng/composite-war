@@ -71,6 +71,15 @@ melee it fights at under half strength. In testing, a frontline army beats a lon
 almost every time, a mixed army beats a lone backline about 3 times in 4, and mixed vs
 all-frontline is about even. Tune it in `DATA.roles`; set a unit's `role` to override.
 
+## Persuasion
+Any general who is not yours (except faction lords) can be persuaded to join for gold.
+Click their town: you need one of your generals who has not acted, in your town next
+to theirs, to go as envoy (it uses their turn). The price grows with the general's
+strength (level, squad size and quality): militia captains ~100 gold, Free Towns heroes
+~130-200, rival faction generals 60% more. The persuaded general joins with their level
+and troops and moves into the envoy's town. Computer factions persuade too (one a turn,
+never the player's generals). Tune it in `DATA.persuade`.
+
 ## Levels & experience
 Generals earn XP in battle: per kill by their squad, for taking part, and for winning.
 Each level makes the general 10% stronger and their squad 4% stronger. Tune it in

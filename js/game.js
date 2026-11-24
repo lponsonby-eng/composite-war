@@ -129,6 +129,36 @@ const Game = {
 
   // ======================================================== wandering generals
   hireCost(g) { return DATA.hiring.base + DATA.hiring.perLevel * g.level; },
+
+  // ======================================================== persuasion
+  // Gold it takes to win general g over (null if they cannot be persuaded).
+  persuadeCost(g) {
+    const d = DATA.generals[g.id], P = DATA.persuade;
+    if (d.lord || g.free || !g.alive) return null;
+    const mul = d.captain ? P.captainMul : DATA.factions[g.faction].neutral ? 1 : P.factionMul;
+    return Math.round((P.base + this.genPower(g) * P.perPower) * mul / 5) * 5;
+  },
+  // One of faction f's generals who has not acted, in f's town next to `spot`.
+  envoyFor(spot, f) {
+    for (const n of this.neighbors(spot)) {
+      if (this.spots[n].owner !== f) continue;
+      const e = this.generalsAt(n).find(g => g.faction === f && !g.acted);
+      if (e) return e;
+    }
+    return null;
+  },
+  persuade(gid, f) {
+    const g = this.gens[gid], cost = this.persuadeCost(g), envoy = cost != null && this.envoyFor(g.spot, f);
+    if (!envoy || this.gold[f] < cost) return false;
+    const was = g.faction, from = g.spot;
+    this.gold[f] -= cost;
+    g.faction = f; g.spot = envoy.spot; g.acted = true; envoy.acted = true;
+    const name = DATA.generals[gid].name, who = DATA.factions[f].name;
+    if (f === this.player) { this.log(`${name} was persuaded to join you for ${cost} gold!`, 'good'); Assets.sfx('gold-1', 0.5); }
+    else this.log(`${name} of the ${DATA.factions[was].name} was persuaded to join the ${who}.`, was === this.player ? 'bad' : 'muted');
+    if (this.spotsOf(was).length && !this.gensOf(was).length && !DATA.factions[was].neutral) this.log(`The ${DATA.factions[was].name} has no generals left!`, 'muted');
+    return { from };
+  },
   stayTurns() { const H = DATA.hiring; return H.stayMin + Math.floor(Math.random() * (H.stayMax - H.stayMin + 1)); },
 
   // Turns a general into a wanderer at a random town (other than `avoid`).
@@ -515,6 +545,15 @@ const Game = {
     // Spots that touch an enemy are the "front". Interior armies march toward it.
     const front = new Set(this.spotsOf(f).filter(id => this.neighbors(id).some(n => this.spots[n].owner !== f)));
 
+    // 0a. Persuade one good-value general next to our towns (never the player's)
+    const P = DATA.persuade;
+    const targets = [...new Set(this.spotsOf(f).flatMap(id => this.neighbors(id)))]
+      .filter(n => this.spots[n].owner !== f && this.spots[n].owner !== this.player)
+      .flatMap(n => this.generalsAt(n)).filter(g => g.faction !== this.player)
+      .map(g => ({ g, c: this.persuadeCost(g) })).filter(x => x.c != null && this.gold[f] >= x.c + P.aiReserve)
+      .sort((a, b) => this.genPower(b.g) / b.c - this.genPower(a.g) / a.c);
+    for (const { g } of targets) if (this.persuade(g.id, f)) break;
+
     // 0. Hire any wandering general in our towns we can afford, best first
     for (const g of this.wanderers().filter(w => this.spots[w.spot].owner === f).sort((a, b) => b.level - a.level))
       this.hire(g.id, f);
@@ -662,9 +701,11 @@ const Game = {
     const s = DATA.spots[id], owner = this.spots[id].owner, fa = DATA.factions[owner];
     const own = owner === this.player;
     const gens = this.generalsAt(id);
+    const envoy = own ? null : this.envoyFor(id, this.player);
     const list = gens.map(g => {
       const d = DATA.generals[g.id], u = DATA.units[d.leads];
       const canPick = own && !g.acted;
+      const pc = own ? null : this.persuadeCost(g);
       return `<div class="gen ${g.acted && own ? 'acted' : ''} ${this.ui.picked.has(g.id) ? 'picked' : ''}" ${canPick ? `data-g="${g.id}"` : ''}>
         <img src="${Assets.portrait(g.id)}">
         <div class="gi"><div class="gn">${d.name} <span class="lv">Lv ${g.level}</span>${d.lord ? ' <span class="lord">Lord</span>' : ''}</div>
@@ -672,7 +713,10 @@ const Game = {
         <div class="gu sq">${squadText(g) || 'No troops'}</div>
         <div class="tbar"><i style="width:${g.troops / d.max * 100}%"></i></div>
         ${own ? `<div class="xbar" title="${g.xp}/${this.xpNeeded(g)} XP"><i style="width:${g.level >= DATA.leveling.maxLevel ? 100 : g.xp / this.xpNeeded(g) * 100}%"></i></div>` : ''}</div>
-        ${own ? `<div class="gs">${g.acted ? 'done' : this.ui.picked.has(g.id) ? 'ready' : ''}</div>` : ''}</div>`;
+        ${own ? `<div class="gs">${g.acted ? 'done' : this.ui.picked.has(g.id) ? 'ready' : ''}</div>`
+          : pc == null ? (d.lord ? '<div class="gs muted" title="Lords cannot be persuaded">loyal</div>' : '')
+          : `<button class="persuade" data-per="${g.id}" ${!envoy || this.gold[this.player] < pc ? 'disabled' : ''}
+              title="${envoy ? `Envoy: ${DATA.generals[envoy.id].name} from ${DATA.spots[envoy.spot].name}` : 'Needs one of your generals who has not acted, in a town next to this one'}">Persuade<br>${pc}g</button>`}</div>`;
     }).join('') || '<p class="muted">No generals here.</p>';
 
     const free = this.wanderersAt(id);
@@ -695,8 +739,15 @@ const Game = {
       </div>
       <p class="hint">${picked.length ? 'Click a highlighted neighbour: <b>white</b> to move, <b>red</b> to attack with the ticked generals.' : 'Tick generals (click them) to give orders.'}
       Recruiting does not use up a general's turn.</p>`
-      : `<p class="hint">Strength: ${Math.round(this.armyPower(gens))}</p>`}
+      : `<p class="hint">Strength: ${Math.round(this.armyPower(gens))}</p>
+         ${gens.length ? `<p class="hint">${envoy ? `Persuade a general to join you: <b>${DATA.generals[envoy.id].name}</b> (${DATA.spots[envoy.spot].name}) goes as envoy and uses their turn.`
+           : 'To persuade a general here you need a general who has not acted, in one of your towns next to this one.'}</p>` : ''}`}
       ${wlist}`;
+    p.querySelectorAll('[data-per]').forEach(el => el.onclick = () => {
+      if (this.busy) return;
+      const r = this.persuade(el.dataset.per, this.player);
+      if (r) { this.refreshTop(); this.select(this.gens[el.dataset.per].spot); }
+    });
     p.querySelectorAll('[data-hire]').forEach(el => el.onclick = () => {
       if (this.busy) return;
       if (this.hire(el.dataset.hire, this.player)) { this.refreshTop(); this.select(id); }
