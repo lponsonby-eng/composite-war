@@ -23,7 +23,7 @@ const Game = {
     this.placeGenerals();
     this.stock = {}; for (const f of Object.keys(DATA.factions)) this.refillStock(f);
     this.log(`You lead the ${DATA.factions[fid].name}. Unite the realm!`, 'good');
-    this.seen = {}; this.evq = [];
+    this.seen = {}; this.evq = []; this.mods = [];
     this.startMap();
     this.centerOnHome();
     this.queueEvents('start');
@@ -67,8 +67,8 @@ const Game = {
 
   save() {
     try {
-      const { player, turn, gold, spots, gens, logLines, stock, seen } = this;
-      localStorage.setItem(SAVE_KEY, JSON.stringify({ player, turn, gold, spots, gens, logLines, stock, seen }));
+      const { player, turn, gold, spots, gens, logLines, stock, seen, mods } = this;
+      localStorage.setItem(SAVE_KEY, JSON.stringify({ player, turn, gold, spots, gens, logLines, stock, seen, mods }));
       return true;
     } catch (e) { return false; }
   },
@@ -77,6 +77,7 @@ const Game = {
     try {
       const d = JSON.parse(localStorage.getItem(SAVE_KEY));
       if (!d) return false;
+      this.mods = [];
       Object.assign(this, d);
       for (const g of Object.values(this.gens)) {           // saves from before levels existed
         if (!g.level) g.level = DATA.generals[g.id].level || 1;
@@ -534,7 +535,7 @@ const Game = {
       }
       const mine = attF === this.player, theirs = defF === this.player;
       this.log(`${DATA.factions[attF].name} captured ${spotName}!`, mine ? 'good' : theirs ? 'bad' : '');
-      if (mine) { this.queueEvents('won', { spot: to }); this.queueEvents('capture', { spot: to }); }
+      if (mine) { this.queueEvents('won', { spot: to }); this.queueEvents('capture', { spot: to, from: defF }); }
       if (this.spotsOf(defF).length === 0 && !DATA.factions[defF].neutral) {
         for (const g of this.gensOf(defF)) { if (DATA.generals[g.id].lord) g.alive = false; else this.makeWanderer(g); }
         this.log(`The ${DATA.factions[defF].name} has been destroyed!`, 'big');
@@ -629,15 +630,18 @@ const Game = {
 
   // ======================================================== story events (js/events.js)
   // Finds the events for a trigger and puts them in the queue. At most one random
-  // (chance) event per turn. storyOff turns events off (used by tests).
+  // (chance) event per check, picked in random order, and only if no other event fired. storyOff turns events off (used by tests).
   queueEvents(trigger, c = {}) {
     if (this.storyOff || !window.EVENTS) return;
     this.seen = this.seen || {}; this.evq = this.evq || [];
     let randomDone = false;
-    for (const e of EVENTS) {
+    const fixed = EVENTS.filter(e => !e.chance), rnd = EVENTS.filter(e => e.chance);
+    for (let i = rnd.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [rnd[i], rnd[j]] = [rnd[j], rnd[i]]; }
+    for (const e of fixed.concat(rnd)) {
       if (e.trigger !== trigger || (!e.repeat && this.seen[e.id])) continue;
       try { if (e.when && !e.when(this, c)) continue; } catch (err) { continue; }
-      if (e.chance) { if (randomDone || Math.random() > e.chance) continue; randomDone = true; }
+      if (e.chance) { if (randomDone || Math.random() > e.chance) continue; }
+      randomDone = true;                       // a random event only if nothing else happened
       if (!e.repeat) this.seen[e.id] = true;
       this.evq.push({ e, c });
     }
@@ -670,7 +674,7 @@ const Game = {
     return t.replace(/\{(\w+)\}/g, (m, k) => ({
       lord: lord ? DATA.generals[lord].name : 'my lord', advisor: adv ? DATA.generals[adv].name : 'your advisor',
       faction: DATA.factions[this.player].name, town: town ? DATA.spots[town].name : 'the capital',
-      region: town ? DATA.regions[DATA.spots[town].region].name : '', other: c.other || '', hero: c.hero ? DATA.generals[c.hero].name : '',
+      region: town ? DATA.regions[DATA.spots[town].region].name : '', other: c.other || '', prev: c.from ? DATA.factions[c.from].name : '', hero: c.hero ? DATA.generals[c.hero].name : '',
     })[k] ?? m);
   },
 
@@ -692,16 +696,47 @@ const Game = {
           <div>${name ? `<div class="who">${name}</div>` : ''}<p>${this.storyText(sc.text, c)}</p></div></div>`;
         const last = i === e.scenes.length - 1;
         if (!last) return show(html, [['Next', () => { i++; scene(); }]]);
-        if (!e.choices) return show(html, [['Continue', done]]);
-        show(html, e.choices.map(ch => [ch.label, () => {
-          let res = ''; try { res = ch.effect(this, c) || ''; } catch (err) { console.warn(err); }
+        const choices = (e.choices || []).filter(ch => { try { return !ch.when || ch.when(this, c); } catch (err) { return false; } });
+        if (!choices.length) return show(html, [['Continue', done]]);
+        show(html, choices.map(ch => [ch.label + (ch.outcomes ? ' <span class="risk">?</span>' : ''), () => {
+          const r = this.resolveChoice(ch, c);
           this.refreshTop();
-          if (res) { this.log(res, 'good'); show(`<p class="result">${res}</p>`, [['Continue', done]]); } else done();
+          if (!r.text && !r.lines) return done();
+          if (r.lines) this.log(r.lines, r.mood === 'bad' ? 'bad' : r.mood === 'mixed' ? '' : 'good');
+          const head = r.mood ? `<div class="mood ${r.mood}">${{ good: 'Fortune smiles', bad: 'Misfortune', mixed: 'A mixed blessing' }[r.mood]}</div>` : '';
+          show(`${head}${r.text ? `<p class="otext">${this.storyText(r.text, c)}</p>` : ''}${r.lines ? `<p class="result ${r.mood || 'good'}">${r.lines}</p>` : ''}`, [['Continue', done]]);
         }]));
       };
       const done = () => { m.hidden = true; resolve(); };
       Assets.sfx('menu-2', 0.3);
       scene();
+    });
+  },
+
+  // Runs a choice. A choice either has an effect, or outcomes: one is picked at random
+  // by weight (w: a number or (G, c) => number) and has a mood (good / bad / mixed),
+  // a line of story text and an effect. Effects return a line, or a list of lines.
+  resolveChoice(ch, c) {
+    let o = ch;
+    if (ch.outcomes) {
+      const ws = ch.outcomes.map(x => { try { return Math.max(0, typeof x.w === 'function' ? x.w(this, c) : (x.w ?? 1)); } catch (err) { return 0; } });
+      let r = Math.random() * ws.reduce((a, b) => a + b, 0);
+      o = ch.outcomes.find((x, i) => (r -= ws[i]) < 0) || ch.outcomes[ch.outcomes.length - 1];
+    }
+    let res = '';
+    try { res = o.effect ? o.effect(this, c) || '' : ''; } catch (err) { console.warn(err); }
+    if (Array.isArray(res)) res = res.filter(Boolean).join(' ');
+    return { mood: o.mood || null, text: o.text || '', lines: res };
+  },
+
+  // Lasting effects from events: { f, n, turns, name } changes a faction's income each turn.
+  applyMods() {
+    this.mods = (this.mods || []).filter(m => {
+      if (!this.gold[m.f] && this.gold[m.f] !== 0) return false;
+      this.gold[m.f] = Math.max(0, this.gold[m.f] + m.n);
+      m.turns--;
+      if (m.f === this.player) this.log(`${m.name}: ${m.n >= 0 ? '+' : ''}${m.n} gold${m.turns > 0 ? ` (${m.turns} more turn${m.turns > 1 ? 's' : ''})` : ' (last turn)'}.`, m.n >= 0 ? 'good' : 'bad');
+      return m.turns > 0;
     });
   },
 
@@ -746,6 +781,37 @@ const Game = {
         g.spot = town; g.stay = Math.max(g.stay || 0, 4);
         return `${DATA.generals[g.id].name} (Lv ${g.level}) is waiting in ${DATA.spots[town].name} - hire them there.`;
       },
+      // income(n, turns, name): +/- n gold at the start of each of your next turns
+      income(n, turns, name) {
+        G.mods = G.mods || []; G.mods.push({ f, n, turns, name });
+        return `${name}: ${n >= 0 ? '+' : ''}${n} gold a turn for ${turns} turns.`;
+      },
+      // the same for every rival faction (not you, not the Free Towns)
+      rivalIncome(n, turns, name) {
+        G.mods = G.mods || [];
+        for (const r of G.activeFactions()) if (r !== f) G.mods.push({ f: r, n, turns, name });
+        return `Every rival ${n >= 0 ? 'gains' : 'loses'} ${Math.abs(n)} gold a turn for ${turns} turns.`;
+      },
+      rivalGold(n) {
+        for (const r of G.activeFactions()) if (r !== f) G.gold[r] = Math.max(0, G.gold[r] + n);
+        return `Every rival ${n >= 0 ? 'gains' : 'loses'} ${Math.abs(n)} gold.`;
+      },
+      rivalTroops(frac) {
+        let k = 0;
+        for (const g of Object.values(G.gens)) {
+          if (!g.alive || g.free || g.faction === f || DATA.factions[g.faction].neutral) continue;
+          const n = Math.floor(g.troops * frac + Math.random());
+          for (let i = 0; i < n && g.mix.length; i++) { G.dismissSoldier(g, g.mix[Math.floor(Math.random() * g.mix.length)]); k++; }
+        }
+        return `Rival armies lose ${k} soldiers.`;
+      },
+      // xp for one random hero of yours (a hero lost in a dangerous errand comes back wiser)
+      heroXp(n) {
+        const list = mine(); if (!list.length) return '';
+        const g = list[Math.floor(Math.random() * list.length)], before = g.level;
+        G.gainXp(g, n);
+        return `${DATA.generals[g.id].name} gains ${n} XP${g.level > before ? ` and reaches level ${g.level}` : ''}.`;
+      },
     };
   },
 
@@ -779,6 +845,7 @@ const Game = {
     this.wanderTurn();
     const inc = this.spotsOf(this.player).reduce((s, id) => s + DATA.spots[id].income, 0);
     this.log(`Turn ${this.turn}. Income +${inc} gold.`, 'turn');
+    this.applyMods();
     Assets.sfx('gold-1', 0.4);
     this.refreshTop();
     this.renderPanel();

@@ -266,3 +266,11 @@ button.persuade { font-size: 13px; line-height: 1.1; padding: 2px 6px; }
 .fmv { display: flex; flex-direction: column; gap: 2px; }
 .fmv button { padding: 0 6px; font-size: 12px; }
 @media (max-width: 760px) { .frows { grid-template-columns: 1fr; } }
+.story .result.bad { color: var(--bad); }
+.story .result.mixed { color: #ffd84a; }
+.story .mood { font-size: 24px; margin-bottom: 4px; }
+.story .mood.good { color: var(--good); }
+.story .mood.bad { color: var(--bad); }
+.story .mood.mixed { color: #ffd84a; }
+.story .otext { font-style: italic; color: #e6dcc0; font-size: 18px; line-height: 1.35; margin: 4px 0; }
+.story .risk { display: inline-block; margin-left: 4px; padding: 0 5px; border: 1px solid #ffd84a; color: #ffd84a; font-size: 14px; line-height: 1.2; }

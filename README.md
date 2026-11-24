@@ -37,6 +37,21 @@ take a town in each region; random events at the start of some turns (caravans, 
 refugees, plague, festivals, deserters, wanderers, an old drill-master); milestones (first
 victory, first signature ability, 25 and 50 towns, rival factions falling); and endings.
 Choices can give or cost gold, soldiers, XP, promotions or bring a wandering general.
+
+**Conquests** depend on who you are and what you take: each people has its own story when
+it first takes a village, a walled fortress and a rival capital, plus a small dilemma that
+can come back when it takes villages and towns (Aster knights and a tithe barn, Frostmark
+taming wolves, Shadow Order waking a graveyard...). The Crossroads city and the Pinewood
+shrine have events of their own, and some peoples get extra options there.
+
+**Realm events** hit the whole world at once - a comet, the Long Winter, the Grey Cough, a
+dragon, floods, drought, a peasant uprising, a gold rush, the Iron Company, an eclipse,
+locusts, a tournament, an earthquake, shard-fever. You choose how to react; choices marked
+**?** are risky and roll a result: *Fortune smiles* (good), *Misfortune* (bad) or *A mixed
+blessing* (both). Each people has its own option for some of them (Frostmark welcomes the
+winter, the Ember Clan can talk to the dragon). Effects can also last several turns
+(+/- gold each turn) or hit every rival at once.
+
 Add your own events by copying an entry; the format is described at the top of the file.
 
 ## Battles
