@@ -7,10 +7,21 @@
 // =============================================================================
 window.DATA = {
 
-  title: 'Banners of the Realm',
+  title: 'Composite War',
 
   startGold: 150,
   battleTimeLimit: 120,          // seconds; when time runs out the defender holds
+
+  // --- Levels & experience ---------------------------------------------------
+  // Generals earn XP in battle and level up. XP needed for the next level is
+  // xpBase + xpPerLevel * current level. Each level above 1 makes the general
+  // leaderBonus stronger (hp and attack) and their squad squadBonus stronger.
+  leveling: {
+    maxLevel: 20, xpBase: 40, xpPerLevel: 25,
+    leaderBonus: 0.10, squadBonus: 0.04,
+    killSoldier: 4, killGeneral: 25,   // XP to the general whose squad landed the blow
+    fought: 10, won: 15, capture: 5,   // XP for taking part, for winning, for taking an empty town
+  },
 
   // --- Factions ------------------------------------------------------------
   // playable: shown on the faction select screen. neutral: never acts on its own.
@@ -56,30 +67,31 @@ window.DATA = {
   // face/sprite: index of assets/faces and assets/chars. leads: unit type of
   // their squad (the general fights as a much stronger version of it).
   // max: squad size. troops: starting soldiers. lord: faction leader.
+  // level: starting level (default 1).
   generals: {
-    aldric: { name: 'Aldric',  faction: 'aster',  face: 21, leads: 'knight',   max: 10, troops: 10, lord: true },
+    aldric: { name: 'Aldric',  faction: 'aster',  face: 21, leads: 'knight',   max: 10, troops: 10, lord: true, level: 3 },
     tobin:  { name: 'Tobin',   faction: 'aster',  face: 6,  leads: 'knight',   max: 8,  troops: 6 },
     mira:   { name: 'Mira',    faction: 'aster',  face: 17, leads: 'archer',   max: 8,  troops: 6 },
     oren:   { name: 'Oren',    faction: 'aster',  face: 9,  leads: 'mage',     max: 6,  troops: 4 },
 
-    kaen:   { name: 'Kaen',    faction: 'ember',  face: 12, leads: 'ashigaru', max: 10, troops: 10, lord: true },
+    kaen:   { name: 'Kaen',    faction: 'ember',  face: 12, leads: 'ashigaru', max: 10, troops: 10, lord: true, level: 3 },
     garr:   { name: 'Garr',    faction: 'ember',  face: 20, leads: 'brawler',  max: 7,  troops: 5 },
     suzu:   { name: 'Suzu',    faction: 'ember',  face: 5,  leads: 'ashigaru', max: 8,  troops: 6 },
     hoshi:  { name: 'Hoshi',   faction: 'ember',  face: 16, leads: 'flame',    max: 6,  troops: 4 },
 
-    noct:   { name: 'Noct',    faction: 'shadow', face: 13, leads: 'ninja',    max: 10, troops: 10, lord: true },
+    noct:   { name: 'Noct',    faction: 'shadow', face: 13, leads: 'ninja',    max: 10, troops: 10, lord: true, level: 3 },
     ossian: { name: 'Ossian',  faction: 'shadow', face: 23, leads: 'skeleton', max: 10, troops: 7 },
     rin:    { name: 'Rin',     faction: 'shadow', face: 24, leads: 'ninja',    max: 8,  troops: 6 },
     vael:   { name: 'Vael',    faction: 'shadow', face: 11, leads: 'ghost',    max: 6,  troops: 4 },
 
-    grubb:  { name: 'Grubb',   faction: 'horde',  face: 1,  leads: 'beast',    max: 8,  troops: 8, lord: true },
+    grubb:  { name: 'Grubb',   faction: 'horde',  face: 1,  leads: 'beast',    max: 8,  troops: 8, lord: true, level: 3 },
     bruno:  { name: 'Bruno',   faction: 'horde',  face: 22, leads: 'beast',    max: 6,  troops: 4 },
     pip:    { name: 'Pip',     faction: 'horde',  face: 25, leads: 'slime',    max: 10, troops: 8 },
     ada:    { name: 'Ada',     faction: 'horde',  face: 14, leads: 'thorn',    max: 8,  troops: 6 },
 
     wen:    { name: 'Elder Wen',   faction: 'neutral', face: 3,  leads: 'militia', max: 6, troops: 5 },
-    rook:   { name: 'Rook',        faction: 'neutral', face: 10, leads: 'militia', max: 8, troops: 6 },
-    golem:  { name: 'Iron Golem',  faction: 'neutral', face: 15, leads: 'frogman', max: 6, troops: 5 },
+    rook:   { name: 'Rook',        faction: 'neutral', face: 10, leads: 'militia', max: 8, troops: 6, level: 2 },
+    golem:  { name: 'Iron Golem',  faction: 'neutral', face: 15, leads: 'frogman', max: 6, troops: 5, level: 2 },
     ilo:    { name: 'Brother Ilo', faction: 'neutral', face: 19, leads: 'frogman', max: 5, troops: 4 },
     sela:   { name: 'Sela',        faction: 'neutral', face: 4,  leads: 'militia', max: 6, troops: 5 },
   },

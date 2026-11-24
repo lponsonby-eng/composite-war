@@ -171,3 +171,9 @@ button.big { font-size: 22px; padding: 6px 18px; margin-top: 10px; }
   .bh-gen img { width: 22px; height: 22px; }
 }
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }
+
+/* ---------- levels ---------- */
+.lv { font-size: 15px; color: #9fd8ff; vertical-align: 1px; white-space: nowrap; }
+.xbar { height: 3px; background: #1d2440; margin-top: 2px; }
+.xbar i { display: block; height: 100%; background: #6fb6ff; }
+table.res td + td { padding-left: 14px; }

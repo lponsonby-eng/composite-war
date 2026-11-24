@@ -16,6 +16,7 @@ class Battle {
     this.time = 0; this.limit = DATA.battleTimeLimit;
     this.orders = ['advance', this.playerSide === 1 ? 'advance' : 'hold'];
     this.done = false; this.banner = null;
+    this.xp = {};                            // gid -> XP earned from kills this battle
     this.headless = !!opts.headless;
     this.placeSquads(opts.attackers, 0);
     this.placeSquads(opts.defenders, 1);
@@ -39,13 +40,15 @@ class Battle {
 
   makeUnit(g, side, isLeader, x, y) {
     const t = DATA.units[DATA.generals[g.id].leads];
-    const hp = isLeader ? t.hp * 5 : t.hp;
+    const L = DATA.leveling, lv = (g.level || 1) - 1;
+    const boost = 1 + lv * (isLeader ? L.leaderBonus : L.squadBonus);
+    const hp = Math.round((isLeader ? t.hp * 5 : t.hp) * boost);
     return {
       side, gid: g.id, isLeader, t,
       sprite: isLeader ? 'c' + DATA.generals[g.id].face : t.sprite,
       x, y, homeX: x, homeY: y,
       hp, maxHp: hp,
-      atk: isLeader ? t.atk * 1.6 : t.atk,
+      atk: (isLeader ? t.atk * 1.6 : t.atk) * boost,
       def: isLeader ? t.def + 2 : t.def,
       spd: t.spd, range: t.range, cd: t.cd,
       cdLeft: Math.random() * t.cd, retarget: Math.random() * 0.3,
@@ -124,10 +127,10 @@ class Battle {
         p.dead = true;
         if (p.splash) {
           this.addFx('fire', p.tx, p.ty, 0.4);
-          for (const v of this.units) if (v.alive && !v.escaped && v.side !== p.side && Math.hypot(v.x - p.tx, v.y - 6 - p.ty) <= p.splash) this.damage(v, p.dmg);
+          for (const v of this.units) if (v.alive && !v.escaped && v.side !== p.side && Math.hypot(v.x - p.tx, v.y - 6 - p.ty) <= p.splash) this.damage(v, p.dmg, p.gid);
         } else if (p.tg.alive) {
           this.addFx('hit', p.tx, p.ty, 0.25);
-          this.damage(p.tg, p.dmg);
+          this.damage(p.tg, p.dmg, p.gid);
         }
       } else { p.x += dx / d * step; p.y += dy / d * step; }
     }
@@ -167,23 +170,24 @@ class Battle {
 
   attack(u, tg) {
     if (u.t.proj) {
-      this.projs.push({ x: u.x, y: u.y - 6, tx: tg.x, ty: tg.y - 6, tg, side: u.side, dmg: u.atk,
+      this.projs.push({ x: u.x, y: u.y - 6, tx: tg.x, ty: tg.y - 6, tg, side: u.side, gid: u.gid, dmg: u.atk,
         splash: u.t.splash || 0, img: u.t.proj, speed: u.t.proj === 'fireball' ? 120 : 170, angle: 0 });
       if (!this.headless && u.t.proj === 'fireball') Assets.sfx('magic-1', 0.25);
     } else {
       this.addFx('slash', tg.x, tg.y - 6, 0.25);
       if (!this.headless) Assets.sfx('sword', 0.3);
-      this.damage(tg, u.atk);
+      this.damage(tg, u.atk, u.gid);
     }
   }
 
-  damage(v, amount) {
+  damage(v, amount, byGid) {
     if (!v.alive) return;
     const dmg = Math.max(1, Math.round(amount * (0.85 + Math.random() * 0.3) - v.def));
     v.hp -= dmg; v.hitT = 0.12;
     if (!this.headless) this.texts.push({ x: v.x, y: v.y - 16, s: String(dmg), life: 0.6, color: v.isLeader ? '#ffd84a' : '#ffffff' });
     if (v.hp <= 0) {
       v.alive = false;
+      if (byGid) this.xp[byGid] = (this.xp[byGid] || 0) + (v.isLeader ? DATA.leveling.killGeneral : DATA.leveling.killSoldier);
       this.addFx('smoke', v.x, v.y - 6, 0.5);
       if (!this.headless) Assets.sfx('kill', 0.35);
       if (v.isLeader) {
@@ -201,7 +205,9 @@ class Battle {
     const res = side => (side === 0 ? this.opts.attackers : this.opts.defenders).map(g => {
       const leader = this.units.find(u => u.gid === g.id && u.isLeader);
       const troops = this.units.filter(u => u.gid === g.id && !u.isLeader && (u.alive || u.escaped) && !u.routing).length;
-      return { id: g.id, alive: leader.alive || leader.escaped, troops: leader.alive || leader.escaped ? troops : 0, before: g.troops };
+      const L = DATA.leveling, won = (side === 0) === (winnerSide === 0);
+      const xp = (this.xp[g.id] || 0) + L.fought + (won ? L.won : 0);
+      return { id: g.id, alive: leader.alive || leader.escaped, troops: leader.alive || leader.escaped ? troops : 0, before: g.troops, xp };
     });
     this.result = { winner: this.winner, att: res(0), def: res(1), timeout: this.time >= this.limit };
   }

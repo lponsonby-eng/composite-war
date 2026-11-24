@@ -23,7 +23,7 @@ const Game = {
       this.spots[id] = { owner: s.owner };
       for (const gid of s.gens) {
         const g = DATA.generals[gid];
-        this.gens[gid] = { id: gid, faction: g.faction, spot: id, troops: g.troops, acted: false, alive: true };
+        this.gens[gid] = { id: gid, faction: g.faction, spot: id, troops: g.troops, acted: false, alive: true, level: g.level || 1, xp: 0 };
       }
     }
     this.log(`You lead the ${DATA.factions[fid].name}. Unite the realm!`, 'good');
@@ -43,6 +43,10 @@ const Game = {
       const d = JSON.parse(localStorage.getItem(SAVE_KEY));
       if (!d) return false;
       Object.assign(this, d);
+      for (const g of Object.values(this.gens)) {           // saves from before levels existed
+        if (!g.level) g.level = DATA.generals[g.id].level || 1;
+        if (g.xp == null) g.xp = 0;
+      }
       this.startMap();
       this.log('Game loaded.');
       return true;
@@ -70,7 +74,24 @@ const Game = {
   activeFactions() { return Object.keys(DATA.factions).filter(f => !DATA.factions[f].neutral && this.spotsOf(f).length > 0); },
 
   unitPower(type) { const t = DATA.units[type]; return t.hp * t.atk / t.cd / 10 * (t.proj ? 1.2 : 1); },
-  genPower(g) { const p = this.unitPower(DATA.generals[g.id].leads); return p * 8 + g.troops * p; },
+  genPower(g) {
+    const p = this.unitPower(DATA.generals[g.id].leads), L = DATA.leveling, lv = (g.level || 1) - 1;
+    const lead = (1 + lv * L.leaderBonus) ** 2, squad = (1 + lv * L.squadBonus) ** 2;   // hp and attack both scale
+    return p * 8 * lead + g.troops * p * squad;
+  },
+
+  // ======================================================== levels
+  xpNeeded(g) { return DATA.leveling.xpBase + DATA.leveling.xpPerLevel * g.level; },
+  // Adds XP and returns how many levels the general gained.
+  gainXp(g, amount) {
+    const L = DATA.leveling;
+    let ups = 0;
+    if (g.level >= L.maxLevel) return 0;
+    g.xp += Math.round(amount);
+    while (g.level < L.maxLevel && g.xp >= this.xpNeeded(g)) { g.xp -= this.xpNeeded(g); g.level++; ups++; }
+    if (g.level >= L.maxLevel) g.xp = 0;
+    return ups;
+  },
   armyPower(list) { return list.reduce((s, g) => s + this.genPower(g), 0); },
 
   log(text, cls = '') {
@@ -179,10 +200,10 @@ const Game = {
     att.forEach(g => g.acted = true);
     let result;
     if (def.length === 0) {
-      result = { winner: 'att', att: att.map(g => ({ id: g.id, alive: true, troops: g.troops, before: g.troops })), def: [] };
+      result = { winner: 'att', att: att.map(g => ({ id: g.id, alive: true, troops: g.troops, before: g.troops, xp: DATA.leveling.capture })), def: [] };
     } else {
-      const battle = new Battle({ attackers: att.map(g => ({ id: g.id, troops: g.troops })),
-        defenders: def.map(g => ({ id: g.id, troops: g.troops })), attFaction: attF, defFaction: defF,
+      const army = list => list.map(g => ({ id: g.id, troops: g.troops, level: g.level }));
+      const battle = new Battle({ attackers: army(att), defenders: army(def), attFaction: attF, defFaction: defF,
         spotName, playerSide, headless: !playerSide });
       result = playerSide ? await this.playBattle(battle) : battle.runHeadless();
     }
@@ -197,6 +218,15 @@ const Game = {
       const g = this.gens[x.id];
       g.troops = x.troops;
       if (!x.alive) fallen.push(DATA.generals[x.id].name);
+      const before = g.level;
+      x.levelUp = this.gainXp(g, x.xp || 0);
+      x.level = g.level;
+      if (x.levelUp && g.faction === this.player) {
+        this.log(`${DATA.generals[x.id].name} reached level ${g.level}!`, 'good');
+        Assets.sfx('power-up', 0.45);
+      } else if (x.levelUp && before < 5 && g.level >= 5) {
+        this.log(`Enemy general ${DATA.generals[x.id].name} is now level ${g.level}.`, 'muted');
+      }
     }
     if (fallen.length) this.log(`Fallen in battle: ${fallen.join(', ')} (squads scattered).`);
 
@@ -242,7 +272,11 @@ const Game = {
         Assets.sfx(won ? 'succes' : 'game-over', 0.5);
         const mine = battle.playerSide === 0 ? r.att : r.def;
         const theirs = battle.playerSide === 0 ? r.def : r.att;
-        const rows = list => list.map(x => `<tr><td>${DATA.generals[x.id].name}</td><td>${x.before} &gt; ${x.troops} troops</td><td>${x.alive ? '' : '<span class="bad">fallen</span>'}</td></tr>`).join('');
+        const rows = list => list.map(x => {
+          const g = this.gens[x.id], ups = levelsFrom(g, x.xp);
+          return `<tr><td>${DATA.generals[x.id].name} <span class="lv">Lv ${g.level}</span></td><td>${x.before} &gt; ${x.troops} troops</td>
+            <td>+${x.xp} XP${ups ? ` <span class="good">Level up!</span>` : ''}${x.alive ? '' : ' <span class="bad">fallen</span>'}</td></tr>`;
+        }).join('');
         modal(`<h2 class="${won ? 'good' : 'bad'}">${won ? 'Victory!' : 'Defeat'}</h2>
           ${r.timeout ? '<p class="muted">Time ran out: the defenders hold.</p>' : ''}
           <table class="res"><tr><th colspan="3">Your forces</th></tr>${rows(mine)}
@@ -283,7 +317,7 @@ const Game = {
     const b = this.battle; if (!b) return;
     for (const s of [0, 1]) {
       $('#bh-gens-' + s).innerHTML = b.sideInfo(s).map(x => `<div class="bh-gen ${x.alive ? '' : 'dead'}">
-        <img src="assets/faces/${DATA.generals[x.id].face}.png"><div class="bh-bar"><i style="width:${x.hp * 100}%"></i></div>
+        <img src="assets/faces/${DATA.generals[x.id].face}.png" title="${DATA.generals[x.id].name} Lv ${this.gens[x.id].level}"><div class="bh-bar"><i style="width:${x.hp * 100}%"></i></div>
         <span>${x.troops}</span></div>`).join('');
     }
     const left = Math.max(0, Math.ceil(b.limit - b.time));
@@ -468,9 +502,10 @@ const Game = {
       const canPick = own && !g.acted;
       return `<div class="gen ${g.acted && own ? 'acted' : ''} ${this.ui.picked.has(g.id) ? 'picked' : ''}" ${canPick ? `data-g="${g.id}"` : ''}>
         <img src="assets/faces/${d.face}.png">
-        <div class="gi"><div class="gn">${d.name}${d.lord ? ' <span class="lord">Lord</span>' : ''}</div>
+        <div class="gi"><div class="gn">${d.name} <span class="lv">Lv ${g.level}</span>${d.lord ? ' <span class="lord">Lord</span>' : ''}</div>
         <div class="gu">${u.name} - ${g.troops}/${d.max}</div>
-        <div class="tbar"><i style="width:${g.troops / d.max * 100}%"></i></div></div>
+        <div class="tbar"><i style="width:${g.troops / d.max * 100}%"></i></div>
+        ${own ? `<div class="xbar" title="${g.xp}/${this.xpNeeded(g)} XP"><i style="width:${g.level >= DATA.leveling.maxLevel ? 100 : g.xp / this.xpNeeded(g) * 100}%"></i></div>` : ''}</div>
         ${own ? `<div class="gs">${g.acted ? 'done' : this.ui.picked.has(g.id) ? 'ready' : ''}</div>` : ''}</div>`;
     }).join('') || '<p class="muted">No generals here.</p>';
 
@@ -501,7 +536,7 @@ const Game = {
         <div class="fl">Lord ${lord.name} - ${towns} towns</div><div class="fb">${f.blurb}</div></div></button>`;
     }).join('');
     ts.innerHTML = `<div class="title-box"><h1>${DATA.title}</h1>
-      <p class="muted">A Vahren-style strategy prototype</p>
+      <p class="muted">A pixel-art war of generals and towns</p>
       ${this.hasSave() ? '<button id="btn-continue" class="big">Continue saved game</button>' : ''}
       <h3>Choose your faction</h3><div class="fcards">${cards}</div></div>`;
     ts.hidden = false;
@@ -513,8 +548,14 @@ const Game = {
 // ---------------------------------------------------------------- helpers
 function genChip(g) {
   const d = DATA.generals[g.id];
-  return `<div class="chip"><img src="assets/faces/${d.face}.png"><div><b>${d.name}</b><br>
+  return `<div class="chip"><img src="assets/faces/${d.face}.png"><div><b>${d.name}</b> <span class="lv">Lv ${g.level}</span><br>
     <span class="muted">${DATA.units[d.leads].name} x${g.troops}</span></div></div>`;
+}
+
+// How many levels a general would gain from xp, without changing them.
+function levelsFrom(g, xp) {
+  const copy = { level: g.level, xp: g.xp };
+  return Game.gainXp(copy, xp || 0);
 }
 
 // Simple dialog: buttons = [[label, fn|null], ...]
