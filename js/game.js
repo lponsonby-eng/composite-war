@@ -18,9 +18,11 @@ const Game = {
   newGame(fid) {
     this.player = fid; this.turn = 1; this.logLines = [];
     this.gold = {}; this.spots = {}; this.gens = {};
+    this.clearCompanies(); this.coSeq = 0; this.coCount = {};
     for (const f of Object.keys(DATA.factions)) this.gold[f] = DATA.startGold;
     for (const [id, s] of Object.entries(DATA.spots)) this.spots[id] = { owner: s.owner };
     this.placeGenerals();
+    this.startingCompanies();
     this.stock = {}; for (const f of Object.keys(DATA.factions)) this.refillStock(f);
     this.log(`You lead the ${DATA.factions[fid].name}. Unite the realm!`, 'good');
     this.seen = {}; this.evq = []; this.mods = [];
@@ -60,6 +62,20 @@ const Game = {
     const own = this.spotsOf(f);
     return own.find(id => DATA.spots[id].kind === 'capital' && DATA.factions[f].home === DATA.spots[id].region) || own[0];
   },
+  // Each faction starts with a few companies of its most common units in its capital.
+  startingCompanies() {
+    const C = DATA.companies;
+    for (const f of Object.keys(DATA.factions)) {
+      if (DATA.factions[f].neutral) continue;
+      const cap = this.capitalOf(f); if (!cap) continue;
+      const units = Object.entries(DATA.rosters[f] || {}).sort((a, b) => b[1] - a[1]).map(([u]) => u);
+      for (let i = 0; i < C.start && units.length; i++) {
+        const g = this.makeCompany(f, cap, units[i % units.length]);
+        for (let k = 0; k < C.startTroops; k++) this.addSoldier(g, g.co.unit);
+        g.acted = false;
+      }
+    }
+  },
   centerOnHome() {
     const c = this.capitalOf(this.player);
     if (c) MapView.centerOn(DATA.spots[c].x, DATA.spots[c].y);
@@ -67,8 +83,8 @@ const Game = {
 
   save() {
     try {
-      const { player, turn, gold, spots, gens, logLines, stock, seen, mods } = this;
-      localStorage.setItem(SAVE_KEY, JSON.stringify({ player, turn, gold, spots, gens, logLines, stock, seen, mods }));
+      const { player, turn, gold, spots, gens, logLines, stock, seen, mods, coSeq, coCount } = this;
+      localStorage.setItem(SAVE_KEY, JSON.stringify({ player, turn, gold, spots, gens, logLines, stock, seen, mods, coSeq, coCount }));
       return true;
     } catch (e) { return false; }
   },
@@ -77,8 +93,10 @@ const Game = {
     try {
       const d = JSON.parse(localStorage.getItem(SAVE_KEY));
       if (!d) return false;
-      this.mods = [];
+      this.mods = []; this.coSeq = 0; this.coCount = {};
+      this.clearCompanies();
       Object.assign(this, d);
+      for (const g of Object.values(this.gens)) if (g.co) DATA.addCompany(g.id, g.co.unit, g.faction, g.co.name);
       for (const g of Object.values(this.gens)) {           // saves from before levels existed
         if (!g.level) g.level = DATA.generals[g.id].level || 1;
         if (g.xp == null) g.xp = 0;
@@ -112,11 +130,15 @@ const Game = {
     for (const [a, b] of DATA.links) { if (a === id) out.push(b); else if (b === id) out.push(a); }
     return out;
   },
+  heroesOf(f) { return this.gensOf(f).filter(g => !DATA.generals[g.id].company); },
+  companiesOf(f) { return this.gensOf(f).filter(g => DATA.generals[g.id].company); },
+  // Stacks a town can hold (heroes' squads and companies) and how many more fit.
+  room(spot) { return DATA.capOf(spot) - this.generalsAt(spot).length; },
   activeFactions() { return Object.keys(DATA.factions).filter(f => !DATA.factions[f].neutral && this.spotsOf(f).length > 0); },
 
   unitPower(type) { const t = DATA.units[type]; return t.hp * t.atk / t.cd / 10 * (t.proj ? 1.2 : 1); },
   genPower(g) {
-    const p = this.unitPower(DATA.generals[g.id].leads), L = DATA.leveling, lv = (g.level || 1) - 1;
+    const d = DATA.generals[g.id], p = this.unitPower(d.leads) * (d.company ? 3 / 8 : 1), L = DATA.leveling, lv = (g.level || 1) - 1;
     const lead = (1 + lv * L.leaderBonus) ** 2, squad = (1 + lv * L.squadBonus) ** 2;   // hp and attack both scale
     const sigMul = 1 + this.learnedSig(g).reduce((s, x) => s + x.stars, 0) * DATA.signature.valuePerStar;   // strong abilities make a hero worth more
     return p * 8 * lead * sigMul + (g.mix || []).reduce((s, u, i) => { const b = DATA.soldierBoost((g.lv || [])[i]); return s + this.unitPower(u) * b.hp * b.atk; }, 0) * squad;
@@ -143,6 +165,53 @@ const Game = {
     return ups;
   },
 
+  // ======================================================== companies (troop stacks without a hero)
+  clearCompanies() {
+    for (const id of Object.keys(DATA.generals)) if (DATA.generals[id].company) { delete DATA.generals[id]; delete Assets._portraits[id]; }
+  },
+  makeCompany(f, spot, unit) {
+    this.coSeq = (this.coSeq || 0) + 1; this.coCount = this.coCount || {};
+    const key = f + ':' + unit, n = this.coCount[key] = (this.coCount[key] || 0) + 1;
+    const id = 'co_' + this.coSeq, name = `${DATA.ordinal(n)} ${DATA.units[unit].name} Company`;
+    DATA.addCompany(id, unit, f, name);
+    return (this.gens[id] = { id, faction: f, spot, troops: 0, mix: [], lv: [], acted: true, alive: true, level: 1, xp: 0, sig: [], co: { unit, name } });
+  },
+  companyCost(f, u) { return this.unitCost(f, u) * DATA.companies.captainCost; },
+  canRaise(f, spot, u) { return this.room(spot) > 0 && this.stockLeft(f, u) > 0 && this.gold[f] >= this.companyCost(f, u); },
+  // Raise a company of unit u in spot (pays for the captain), then buy up to `fill` soldiers.
+  raiseCompany(f, spot, u, fill = 0) {
+    if (!this.canRaise(f, spot, u)) return null;
+    this.gold[f] -= this.companyCost(f, u);
+    if (this.stockLeft(f, u) !== Infinity) this.stock[f][u]--;
+    const g = this.makeCompany(f, spot, u);
+    for (let i = 0; i < fill && this.buyOne(g, f, u); i++);
+    return g;
+  },
+  disband(g, why) {
+    g.alive = false; g.troops = 0; g.mix = []; g.lv = [];
+    if (g.faction === this.player && why) this.log(`${DATA.generals[g.id].name} ${why}.`, 'bad');
+  },
+
+  // Reinforcements for a battle at `spot`: stacks of faction f from its neighbouring
+  // towns (see DATA.reinforce). Never the last stack in a town, never a lord.
+  reinforcementsFor(spot, f) {
+    const R = DATA.reinforce, out = [];
+    if (!f || DATA.factions[f].neutral) return out;
+    for (const n of this.neighbors(spot)) {
+      if (this.spots[n].owner !== f) continue;
+      const here = this.generalsAt(n).filter(g => g.faction === f);
+      const can = here.filter(g => !DATA.generals[g.id].lord && g.troops > 0).sort((a, b) => this.genPower(b) - this.genPower(a));
+      const k = Math.min(can.length, Math.floor(here.length * R.share), here.length - 1);
+      out.push(...can.slice(0, Math.max(0, k)));
+    }
+    return out.sort((a, b) => this.genPower(b) - this.genPower(a)).slice(0, R.max);
+  },
+  // Faction f's stacks that have not acted, in its towns next to `spot` (to join an attack).
+  joinersFor(spot, f, except = []) {
+    return this.neighbors(spot).filter(n => this.spots[n].owner === f)
+      .flatMap(n => this.generalsAt(n).filter(g => g.faction === f && !g.acted && !except.includes(g)));
+  },
+
   // ======================================================== wandering generals
   hireCost(g) {
     const stars = this.learnedSig(g).reduce((s, x) => s + x.stars, 0);
@@ -155,7 +224,7 @@ const Game = {
   cornered(g) { return !this.neighbors(g.spot).some(n => this.spots[n].owner === g.faction); },
   persuadeCost(g) {
     const d = DATA.generals[g.id], P = DATA.persuade;
-    if (d.lord || g.free || !g.alive || !this.cornered(g)) return null;
+    if (d.lord || d.company || g.free || !g.alive || !this.cornered(g)) return null;
     const mul = d.captain ? P.captainMul : DATA.factions[g.faction].neutral ? 1 : P.factionMul;
     return Math.round((P.base + this.genPower(g) * P.perPower) * mul / 5) * 5;
   },
@@ -425,39 +494,95 @@ const Game = {
     draw();
   },
 
+  // Raise a company in town `spot`: pick a unit type; the captain costs a few soldiers'
+  // pay, and the company can be filled right away or later with Recruit.
+  raiseDialog(spot) {
+    const m = $('#modal'), f = this.player, C = DATA.companies;
+    const draw = () => {
+      const rows = Object.keys(DATA.rosters[f] || {}).map(id => {
+        const u = DATA.units[id], ty = DATA.unitTypes[u.type], stock = this.stockLeft(f, id);
+        const cc = this.companyCost(f, id), full = cc + this.unitCost(f, id) * C.size, ok = this.canRaise(f, spot, id);
+        return `<tr><td><img class="uico" src="${Assets.unitIcon(id)}"></td>
+          <td><b>${u.name}</b> <span class="rar r${DATA.rarity(DATA.weightOf(f, id))[0]}">${DATA.rarity(DATA.weightOf(f, id))}</span><br><span class="role ${ty.role}">${ty.name}</span></td>
+          <td class="st">HP ${u.hp}<br>Atk ${u.atk} Def ${u.def}<br>Range ${u.range}</td>
+          <td class="st">Captain ${cc}g<br>Full ${full}g${stock === Infinity ? '' : `<br><span class="${stock ? '' : 'bad'}">${stock} left this turn</span>`}</td>
+          <td><button data-r="${id}" ${ok ? '' : 'disabled'}>Captain only</button><br>
+            <button data-rf="${id}" ${ok ? '' : 'disabled'}>Raise + fill</button></td></tr>`;
+      }).join('');
+      m.innerHTML = `<div class="box rec"><h2>Raise a company in ${DATA.spots[spot].name}</h2>
+        <p>A company is a stack of troops of one type led by a captain of that type, up to ${C.size} soldiers. It needs no hero,
+          levels up and is promoted like any squad, and can march, attack and reinforce on its own. It has no skills, cannot be
+          persuaded, and disbands if its captain falls or it is cut off. A new company can act from next turn.</p>
+        <p class="muted">Gold ${this.gold[f]} - room for ${this.room(spot)} more stack${this.room(spot) === 1 ? '' : 's'} here (${DATA.capOf(spot)} max).</p>
+        <table class="rect">${rows}</table>
+        <div class="mbtns"><button data-close>Done</button></div></div>`;
+      m.hidden = false;
+      const go = (id, fill) => {
+        const g = this.raiseCompany(f, spot, id, fill);
+        if (g) { Assets.sfx('gold-1', 0.5); this.log(`${DATA.generals[g.id].name} raised in ${DATA.spots[spot].name} (${g.troops} soldiers).`, 'good'); }
+        this.refreshTop(); draw();
+      };
+      m.querySelectorAll('[data-r]').forEach(b => b.onclick = () => go(b.dataset.r, 0));
+      m.querySelectorAll('[data-rf]').forEach(b => b.onclick = () => go(b.dataset.rf, C.size));
+      m.querySelector('[data-close]').onclick = () => { m.hidden = true; this.select(spot); };
+    };
+    m.onclick = e => { if (e.target === m) { m.hidden = true; this.select(spot); } };
+    draw();
+  },
+
   moveGenerals(from, to) {
-    const list = [...this.ui.picked].map(id => this.gens[id]);
+    const all = [...this.ui.picked].map(id => this.gens[id]), room = Math.max(0, this.room(to));
+    const list = all.slice(0, room);
+    if (!list.length) { this.log(`${DATA.spots[to].name} is full (${DATA.capOf(to)} stacks).`, 'bad'); return; }
     for (const g of list) { g.spot = to; g.acted = true; }
+    if (list.length < all.length) this.log(`${DATA.spots[to].name} only had room for ${list.length} more.`, 'muted');
     this.log(`${list.map(g => DATA.generals[g.id].name).join(', ')} marched to ${DATA.spots[to].name}.`);
     Assets.sfx('menu-2', 0.4);
     this.select(to);
   },
 
+  // Attack: the ticked stacks, plus any you add from your other towns next to the
+  // target. The defenders call reinforcements from their own neighbouring towns.
   attackDialog(from, to) {
     const att = [...this.ui.picked].map(id => this.gens[id]);
-    const def = this.generalsAt(to);
     const owner = this.spots[to].owner;
-    const ap = this.armyPower(att), dp = this.defensePower(to);
-    const odds = def.length === 0 ? 'Undefended!' : ap > dp * 1.5 ? 'Favourable' : ap > dp * 0.9 ? 'Even' : 'Risky';
+    const def = this.generalsAt(to), reinf = this.reinforcementsFor(to, owner);
+    const joiners = this.joinersFor(to, this.player, att).filter(g => g.spot !== from || !att.includes(g));
+    const join = new Set();
+    const m = $('#modal');
     const army = list => list.map(g => genChip(g)).join('') || '<div class="muted">No defenders</div>';
-    const buttons = def.length === 0
-      ? [['Capture', () => this.resolveAttack(from, to, att, def, 'auto')]]
-      : [['Fight!', () => this.resolveAttack(from, to, att, def, 'live')],
-         ['Auto-resolve', () => this.resolveAttack(from, to, att, def, 'auto')]];
-    buttons.push(['Cancel', null]);
-    modal(`<h2>Attack ${DATA.spots[to].name}?</h2>
-      <div class="vs">
-        <div><h3 style="color:${DATA.factions[this.player].color}">Your army</h3>${army(att)}</div>
-        <div class="vs-mid">VS<br><span class="odds">${odds}</span></div>
-        <div><h3 style="color:${DATA.factions[owner].color}">${DATA.factions[owner].name}</h3>${army(def)}</div>
-      </div>
-      <p class="terr">Battlefield: ${this.terrainText(to)}.</p>
-      ${formationNote(att)}`, buttons);
+    const draw = () => {
+      const all = att.concat(joiners.filter(g => join.has(g.id)));
+      const ap = this.armyPower(all), dp = this.defensePower(to) + this.armyPower(reinf) * 0.8;
+      const odds = def.length + reinf.length === 0 ? 'Undefended!' : ap > dp * 1.5 ? 'Favourable' : ap > dp * 0.9 ? 'Even' : 'Risky';
+      const byTown = {}; for (const g of joiners) (byTown[g.spot] = byTown[g.spot] || []).push(g);
+      const jhtml = Object.entries(byTown).map(([sp, list]) => `<div class="jtown"><b>From ${DATA.spots[sp].name}</b>${list.map(g =>
+        `<label class="jg ${join.has(g.id) ? 'on' : ''}"><input type="checkbox" data-j="${g.id}" ${join.has(g.id) ? 'checked' : ''}>${genChip(g)}</label>`).join('')}</div>`).join('');
+      const buttons = def.length + reinf.length === 0 ? [['Capture', 'auto']] : [['Fight!', 'live'], ['Auto-resolve', 'auto']];
+      m.innerHTML = `<div class="box"><h2>Attack ${DATA.spots[to].name}?</h2>
+        <div class="vs">
+          <div><h3 style="color:${DATA.factions[this.player].color}">Your army (${all.length})</h3>${army(att)}${army(joiners.filter(g => join.has(g.id))).replace('<div class="muted">No defenders</div>', '')}</div>
+          <div class="vs-mid">VS<br><span class="odds">${odds}</span></div>
+          <div><h3 style="color:${DATA.factions[owner].color}">${DATA.factions[owner].name} (${def.length})</h3>${army(def)}
+            ${reinf.length ? `<h3 class="muted">Reinforcements (${reinf.length}) - arrive during the battle</h3>${army(reinf)}` : ''}</div>
+        </div>
+        ${joiners.length ? `<h3>Join the attack from neighbouring towns <button data-all>${join.size === joiners.length ? 'None' : 'All'}</button></h3><div class="joins">${jhtml}</div>` : ''}
+        <p class="terr">Battlefield: ${this.terrainText(to)}.</p>
+        ${formationNote(all)}
+        <div class="mbtns">${buttons.map(([l, k]) => `<button data-go="${k}">${l}</button>`).join('')}<button data-x>Cancel</button></div></div>`;
+      m.hidden = false; m.onclick = null;
+      m.querySelectorAll('[data-j]').forEach(el => el.onchange = () => { if (el.checked) join.add(el.dataset.j); else join.delete(el.dataset.j); draw(); });
+      const ab = m.querySelector('[data-all]');
+      if (ab) ab.onclick = () => { if (join.size === joiners.length) join.clear(); else for (const g of joiners) join.add(g.id); draw(); };
+      m.querySelectorAll('[data-go]').forEach(b => b.onclick = () => { m.hidden = true; this.resolveAttack(from, to, all, def, b.dataset.go, reinf); });
+      m.querySelector('[data-x]').onclick = () => { m.hidden = true; };
+    };
+    draw();
   },
 
-  async resolveAttack(from, to, att, def, how) {
+  async resolveAttack(from, to, att, def, how, reinf = []) {
     this.busy = true;
-    await this.fight(from, to, att, def, this.player, this.spots[to].owner, how === 'live' ? 'att' : null);
+    await this.fight(from, to, att, def, this.player, this.spots[to].owner, how === 'live' ? 'att' : null, reinf);
     await this.flushEvents();
     this.busy = false;
     this.select(this.spots[to].owner === this.player && this.generalsAt(to).length ? to : from);
@@ -466,9 +591,12 @@ const Game = {
 
   // ======================================================== battles
   // Runs a battle (live or auto) and applies the result to the campaign.
-  async fight(from, to, att, def, attF, defF, playerSide) {
+  // reinf: the defenders' reinforcements (they arrive during the battle; if the town
+  // itself is empty they are there from the start).
+  async fight(from, to, att, def, attF, defF, playerSide, reinf = []) {
     const spotName = DATA.spots[to].name;
     att.forEach(g => g.acted = true);
+    if (!def.length && reinf.length) { def = reinf; reinf = []; }
     let result;
     if (def.length === 0) {
       result = { winner: 'att', att: att.map(g => ({ id: g.id, alive: true, troops: g.troops, mix: g.mix.slice(), lv: g.lv.slice(), before: g.troops, xp: DATA.leveling.capture })), def: [] };
@@ -477,7 +605,7 @@ const Game = {
       if (mineList) await this.formationDialog(mineList, DATA.spots[to].name);
       const army = list => list.map(g => ({ id: g.id, troops: g.troops, mix: g.mix.slice(), lv: g.lv.slice(), level: g.level, sig: g.sig,
         row: list === mineList ? g.row || DATA.roleOf(g.id) : null }));
-      const battle = new Battle({ attackers: army(att), defenders: army(def), attFaction: attF, defFaction: defF,
+      const battle = new Battle({ attackers: army(att), defenders: army(def), reserve: army(reinf), attFaction: attF, defFaction: defF,
         spotName, spotId: to, playerSide, headless: !playerSide });
       result = playerSide ? await this.playBattle(battle) : battle.runHeadless();
     }
@@ -511,15 +639,21 @@ const Game = {
       }
     }
     if (fallen.length) this.log(`Fallen in battle: ${fallen.join(', ')} (squads scattered).`);
+    // a company whose captain fell is gone
+    for (const x of r.att.concat(r.def)) if (!x.alive && DATA.generals[x.id].company) this.disband(this.gens[x.id]);
 
     if (r.winner === 'att') {
       this.spots[to].owner = attF;
-      for (const x of r.att) if (x.alive) this.gens[x.id].spot = to;
-      // defenders retreat to a friendly neighbour, or are captured
+      // the victors move in, as many as the town holds; the rest stay where they came from
+      let room = DATA.capOf(to);
+      for (const x of r.att) if (x.alive && this.gens[x.id].alive && room > 0) { this.gens[x.id].spot = to; room--; }
+      // defenders retreat to a friendly neighbour, or are captured; reinforcements go home
       for (const x of r.def) {
         const g = this.gens[x.id];
-        const escape = this.neighbors(to).filter(n => this.spots[n].owner === defF);
+        if (!g.alive || g.spot !== to) continue;
+        const escape = this.neighbors(to).filter(n => this.spots[n].owner === defF && this.room(n) > 0);
         if (escape.length) { g.spot = escape[Math.floor(Math.random() * escape.length)]; }
+        else if (DATA.generals[g.id].company) this.disband(g, 'was cut off and disbanded');
         else if (DATA.generals[g.id].captain) {
           g.alive = false;                                         // militia captains just go home
         } else if (DATA.factions[defF].neutral && !DATA.generals[g.id].lord) {
@@ -537,7 +671,7 @@ const Game = {
       this.log(`${DATA.factions[attF].name} captured ${spotName}!`, mine ? 'good' : theirs ? 'bad' : '');
       if (mine) { this.queueEvents('won', { spot: to }); this.queueEvents('capture', { spot: to, from: defF }); }
       if (this.spotsOf(defF).length === 0 && !DATA.factions[defF].neutral) {
-        for (const g of this.gensOf(defF)) { if (DATA.generals[g.id].lord) g.alive = false; else this.makeWanderer(g); }
+        for (const g of this.gensOf(defF)) { if (DATA.generals[g.id].lord || DATA.generals[g.id].company) g.alive = false; else this.makeWanderer(g); }
         this.log(`The ${DATA.factions[defF].name} has been destroyed!`, 'big');
         this.queueEvents('fallen', { faction: defF, other: DATA.factions[defF].name });
       }
@@ -879,7 +1013,21 @@ const Game = {
     for (const g of this.wanderers().filter(w => this.spots[w.spot].owner === f).sort((a, b) => b.level - a.level))
       this.hire(g.id, f);
 
-    // 1. Recruit, front-line generals first
+    // 1. Raise companies in towns with room, front towns first, while keeping a reserve
+    const C = DATA.companies, roster = Object.keys(DATA.rosters[f] || {});
+    const spots = this.spotsOf(f).sort((a, b) => (front.has(b) ? 1 : 0) - (front.has(a) ? 1 : 0) || DATA.capOf(b) - DATA.capOf(a));
+    let raised = 0;
+    const maxRaise = 1 + Math.floor(this.spotsOf(f).length / 6);
+    for (const sp of spots) {
+      if (raised >= maxRaise) break;
+      if (this.room(sp) <= (front.has(sp) ? 1 : 3)) continue;
+      const avail = roster.filter(u => this.canRaise(f, sp, u) && this.gold[f] >= this.companyCost(f, u) + this.unitCost(f, u) * C.size * 0.6 + 60);
+      if (!avail.length) continue;
+      const u = DATA.pickWeighted(f, avail);
+      if (this.raiseCompany(f, sp, u, C.size)) raised++;
+    }
+
+    // 2. Recruit, front-line stacks first
     const gens = this.gensOf(f).sort((a, b) => (front.has(b.spot) ? 1 : 0) - (front.has(a.spot) ? 1 : 0));
     for (const g of gens) {
       const ok = DATA.recruitable(g.id, f), pref = this.prefType(g);
@@ -893,48 +1041,43 @@ const Game = {
       }
     }
 
-    // 2. Attack wherever we are clearly stronger
+    // 3. Attack where we are clearly stronger, marching in from every neighbouring town.
+    // A town next to a rival faction keeps someone home: its lord, or else its weakest stack.
     const isThreat = n => this.spots[n].owner !== f && !DATA.factions[this.spots[n].owner].neutral;
-    for (const spot of shuffle(this.spotsOf(f))) {
-      if (this.spots[spot].owner !== f) continue;
-      let pool = this.generalsAt(spot).filter(g => !g.acted && g.faction === f);
-      const enemies = this.neighbors(spot).filter(n => this.spots[n].owner !== f);
-      if (!pool.length || !enemies.length) continue;
-      const here = this.generalsAt(spot).length;
-      const threatened = enemies.some(isThreat);
-      let need = 1.15;
-      // Keep someone home when a rival faction is next door: the lord, or else the weakest general.
-      if (threatened && pool.length === here) {
-        if (here === 1) need = 2;
-        else {
-          const lord = pool.find(g => DATA.generals[g.id].lord);
-          pool.sort((a, b) => this.genPower(b) - this.genPower(a));
-          pool = lord ? pool.filter(g => g !== lord) : pool.slice(0, -1);
-        }
+    const available = sp => {
+      const here = this.generalsAt(sp).filter(g => g.faction === f);
+      let pool = here.filter(g => !g.acted && g.troops > 0);
+      if (this.neighbors(sp).some(isThreat) && pool.length === here.length) {
+        const lord = pool.find(g => DATA.generals[g.id].lord);
+        pool.sort((a, b) => this.genPower(b) - this.genPower(a));
+        pool = lord ? pool.filter(g => g !== lord) : pool.slice(0, -1);
       }
-
-      let best = null, bestRatio = 0;
-      for (const n of enemies) {
-        const dp = this.defensePower(n);
-        const ratio = dp === 0 ? 99 : this.armyPower(pool) / dp;
-        if (ratio > bestRatio) { bestRatio = ratio; best = n; }
-      }
-      if (!best || bestRatio < need) continue;
-
-      const defF = this.spots[best].owner;
-      const def = this.generalsAt(best);
-      this.log(`${DATA.factions[f].name} attacks ${DATA.spots[best].name}!`, defF === this.player ? 'bad' : '');
-      let side = null;
-      if (defF === this.player && def.length) side = await this.defendPrompt(f, best, pool, def);
-      await this.fight(spot, best, pool, def, f, defF, side);
+      return pool;
+    };
+    const border = () => [...new Set(this.spotsOf(f).flatMap(id => this.neighbors(id).filter(n => this.spots[n].owner !== f)))];
+    for (const target of shuffle(border())) {
+      if (this.spots[target].owner === f) continue;
+      const srcs = this.neighbors(target).filter(n => this.spots[n].owner === f);
+      const pool = srcs.flatMap(available);
+      if (!pool.length) continue;
+      const defF = this.spots[target].owner, def = this.generalsAt(target);
+      const reinf = this.reinforcementsFor(target, defF);
+      const dp = this.defensePower(target) + this.armyPower(reinf) * 0.8;
+      const ratio = dp === 0 ? 99 : this.armyPower(pool) / dp;
+      if (ratio < 1.15) continue;
+      const from = srcs.sort((a, b) => pool.filter(g => g.spot === b).length - pool.filter(g => g.spot === a).length)[0];
+      this.log(`${DATA.factions[f].name} attacks ${DATA.spots[target].name}${pool.length > 1 ? ` with ${pool.length} stacks` : ''}!`, defF === this.player ? 'bad' : '');
+      let side = null, help = reinf;
+      if (defF === this.player && (def.length || reinf.length)) ({ side, help } = await this.defendPrompt(f, target, pool, def, reinf));
+      await this.fight(from, target, pool, def, f, defF, side, help);
       if (this.spotsOf(this.player).length === 0) return;
       await sleep(defF === this.player ? 250 : 40);
     }
 
-    // 3. Gather idle generals next to the weakest enemy town on the border, to strike next turn
-    const border = [...new Set(this.spotsOf(f).flatMap(id => this.neighbors(id).filter(n => this.spots[n].owner !== f)))];
-    if (border.length) {
-      const focus = shuffle(border).sort((a, b) => this.armyPower(this.generalsAt(a)) - this.armyPower(this.generalsAt(b)))[0];
+    // 4. Gather idle stacks next to the weakest enemy town on the border, to strike next turn
+    const edge = border();
+    if (edge.length) {
+      const focus = shuffle(edge).sort((a, b) => this.armyPower(this.generalsAt(a)) - this.armyPower(this.generalsAt(b)))[0];
       const dist = this.bfs(f, new Set(this.neighbors(focus).filter(n => this.spots[n].owner === f)));
       for (const g of this.gensOf(f)) {
         const s = g.spot;
@@ -942,21 +1085,41 @@ const Game = {
         if (DATA.generals[g.id].lord && DATA.spots[s].kind === 'capital') continue;
         if (this.neighbors(s).some(isThreat) && this.generalsAt(s).length <= 1) continue;
         const next = this.neighbors(s).find(n => this.spots[n].owner === f && dist[n] === dist[s] - 1);
-        if (next) { g.spot = next; g.acted = true; }
+        if (next && this.room(next) > 0) { g.spot = next; g.acted = true; }
       }
     }
     $('#turn-banner').hidden = true;
   },
 
-  defendPrompt(f, spot, att, def) {
+  // You are attacked: choose which of your stacks in neighbouring towns come to help
+  // (the usual ones are ticked), then fight or auto-resolve.
+  defendPrompt(f, spot, att, def, reinf) {
     MapView.centerOn(DATA.spots[spot].x, DATA.spots[spot].y);
+    const cand = this.neighbors(spot).filter(n => this.spots[n].owner === this.player).flatMap(n => this.generalsAt(n).filter(g => g.faction === this.player && g.troops > 0));
+    const pick = new Set(reinf.map(g => g.id));
     return new Promise(resolve => {
       Assets.sfx('alert', 0.5);
-      modal(`<h2 class="bad">${DATA.factions[f].name} attacks ${DATA.spots[spot].name}!</h2>
-        <div class="vs"><div><h3 style="color:${DATA.factions[f].color}">Attackers</h3>${att.map(genChip).join('')}</div>
-        <div class="vs-mid">VS</div><div><h3 style="color:${DATA.factions[this.player].color}">Your defenders</h3>${def.map(genChip).join('')}</div></div>
-        <p class="terr">Battlefield: ${this.terrainText(spot)}.</p>`,
-        [['Defend!', () => resolve('def')], ['Auto-resolve', () => resolve(null)]], true);
+      const m = $('#modal');
+      const draw = () => {
+        m.innerHTML = `<div class="box"><h2 class="bad">${DATA.factions[f].name} attacks ${DATA.spots[spot].name}!</h2>
+          <div class="vs"><div><h3 style="color:${DATA.factions[f].color}">Attackers (${att.length})</h3>${att.map(genChip).join('')}</div>
+          <div class="vs-mid">VS</div><div><h3 style="color:${DATA.factions[this.player].color}">Your defenders (${def.length})</h3>${def.map(genChip).join('') || '<div class="muted">The town is empty</div>'}</div></div>
+          ${cand.length ? `<h3>Send reinforcements from neighbouring towns <span class="muted">(${pick.size} chosen, max ${DATA.reinforce.max}; they arrive after about ${DATA.reinforce.delay}s and go home afterwards)</span></h3>
+            <div class="joins">${cand.map(g => `<label class="jg ${pick.has(g.id) ? 'on' : ''}"><input type="checkbox" data-j="${g.id}" ${pick.has(g.id) ? 'checked' : ''}>${genChip(g)}<span class="muted">${DATA.spots[g.spot].name}</span></label>`).join('')}</div>` : ''}
+          <p class="terr">Battlefield: ${this.terrainText(spot)}.</p>
+          <div class="mbtns"><button data-go="def">Defend!</button><button data-go="auto">Auto-resolve</button></div></div>`;
+        m.hidden = false; m.onclick = null;
+        m.querySelectorAll('[data-j]').forEach(el => el.onchange = () => {
+          if (el.checked && pick.size < DATA.reinforce.max) pick.add(el.dataset.j); else pick.delete(el.dataset.j);
+          draw();
+        });
+        m.querySelectorAll('[data-go]').forEach(b => b.onclick = () => {
+          m.hidden = true;
+          const help = cand.filter(g => pick.has(g.id));
+          resolve({ side: b.dataset.go === 'def' && (def.length || help.length) ? 'def' : null, help });
+        });
+      };
+      draw();
     });
   },
 
@@ -1008,9 +1171,9 @@ const Game = {
       const rows = Object.keys(DATA.factions).filter(f => this.spotsOf(f).length).map(f => {
         const fa = DATA.factions[f];
         return `<tr><td><i class="dot" style="background:${fa.color}"></i>${fa.name}${f === this.player ? ' (you)' : ''}</td>
-          <td>${this.spotsOf(f).length}</td><td>${this.gensOf(f).length}</td></tr>`;
+          <td>${this.spotsOf(f).length}</td><td>${this.heroesOf(f).length}</td><td>${this.companiesOf(f).length}</td></tr>`;
       }).join('');
-      p.innerHTML = `<h2>The Realm</h2><table class="realm"><tr><th>Faction</th><th>Towns</th><th>Generals</th></tr>${rows}</table>
+      p.innerHTML = `<h2>The Realm</h2><table class="realm"><tr><th>Faction</th><th>Towns</th><th>Heroes</th><th>Co.</th></tr>${rows}</table>
         <p class="hint">Click one of your towns (yellow names) to command the generals there.
         Then click a road neighbour: <b>white</b> = move, <b>red</b> = attack.</p>
         ${this.wanderers().length ? `<h3 class="wh">Wandering generals</h3>${this.wanderers().map(g =>
@@ -1028,13 +1191,13 @@ const Game = {
       const pc = own ? null : this.persuadeCost(g);
       return `<div class="gen ${g.acted && own ? 'acted' : ''} ${this.ui.picked.has(g.id) ? 'picked' : ''}" ${canPick ? `data-g="${g.id}"` : ''}>
         <img src="${Assets.portrait(g.id)}">
-        <div class="gi"><div class="gn">${d.name} <span class="lv">Lv ${g.level}</span>${d.lord ? ' <span class="lord">Lord</span>' : ''}</div>
+        <div class="gi"><div class="gn">${d.name} <span class="lv">Lv ${g.level}</span>${d.lord ? ' <span class="lord">Lord</span>' : ''}${d.company ? ' <span class="coy">Company</span>' : ''}</div>
         <div class="gu">${roleTag(g.id)} ${g.troops}/${d.max} ${own ? `<button class="mini" data-rec="${g.id}">Recruit</button>` : ''}</div>
         <div class="gu sq">${squadText(g) || 'No troops'}</div>
         <div class="tbar"><i style="width:${g.troops / d.max * 100}%"></i></div>
         ${own ? `<div class="xbar" title="${g.xp}/${this.xpNeeded(g)} XP"><i style="width:${g.level >= DATA.leveling.maxLevel ? 100 : g.xp / this.xpNeeded(g) * 100}%"></i></div>` : ''}</div>
         ${own ? `<div class="gs">${g.acted ? 'done' : this.ui.picked.has(g.id) ? 'ready' : ''}</div>`
-          : pc == null ? (d.lord ? '<div class="gs muted" title="Lords cannot be persuaded">loyal</div>'
+          : pc == null ? (d.lord || d.company ? `<div class="gs muted" title="${d.company ? 'Companies' : 'Lords'} cannot be persuaded">loyal</div>`
             : '<div class="gs muted" title="Can still fall back to a neighbouring town of their own side. Cut them off first.">can retreat</div>')
           : `<button class="persuade" data-per="${g.id}" ${!envoy || this.gold[this.player] < pc ? 'disabled' : ''}
               title="${envoy ? `Envoy: ${DATA.generals[envoy.id].name} from ${DATA.spots[envoy.spot].name}` : 'Needs one of your generals who has not acted, in a town next to this one'}">Persuade<br>${pc}g</button>`}</div>`;
@@ -1053,10 +1216,11 @@ const Game = {
     const picked = [...this.ui.picked].map(g => this.gens[g]);
     const cost = this.recruitCost(picked);
     p.innerHTML = `<h2 style="color:${fa.color}">${s.name}</h2>
-      <div class="sub">${fa.name} - ${s.kind} - +${s.income} gold</div>
+      <div class="sub">${fa.name} - ${s.kind} - +${s.income} gold - stacks ${gens.length}/${DATA.capOf(id)}</div>
       <div class="gens">${list}</div>
       ${own ? `<div class="actions">
         <button id="btn-recruit" ${cost === 0 || !picked.length ? 'disabled' : ''}>Recruit (${cost}g)</button>
+        <button id="btn-raise" ${this.room(id) > 0 ? '' : 'disabled'} title="Hire troops as their own stack, led by a captain">Raise company</button>
       </div>
       <p class="hint">${picked.length ? 'Click a highlighted neighbour: <b>white</b> to move, <b>red</b> to attack with the ticked generals.' : 'Tick generals (click them) to give orders.'}
       Recruiting does not use up a general's turn.</p>`
@@ -1077,6 +1241,7 @@ const Game = {
     p.querySelectorAll('[data-g]').forEach(el => el.onclick = () => this.togglePick(el.dataset.g));
     p.querySelectorAll('[data-rec]').forEach(el => el.onclick = e => { e.stopPropagation(); this.recruitDialog(el.dataset.rec); });
     const rb = $('#btn-recruit'); if (rb) rb.onclick = () => this.recruit();
+    const cb = $('#btn-raise'); if (cb) cb.onclick = () => this.raiseDialog(id);
   },
 
   showTitle() {

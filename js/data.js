@@ -22,6 +22,8 @@ window.DATA = {
     width: 1120, height: 720,
     vision: { soldier: 90, hero: 140, cavalry: 30, shooter: 25 },   // cavalry and shooters see further
     mp: { base: 60, perLevel: 5, regen: 3, start: 0.6 },
+    // the field grows by `per` for every squad beyond `from` on the bigger side, up to `max` times
+    scale: { from: 5, per: 0.07, max: 1.8 },
   },
 
   // --- Hero skills -----------------------------------------------------------
@@ -346,6 +348,31 @@ window.DATA = {
   // to give them their own size. Starting troops are scaled by startTroops.
   squadSize: { lord: 24, hero: 16, wanderer: 12, startTroops: 1.5 },
 
+  // --- Companies (troop stacks without a hero) ----------------------------------
+  // As in Vahren-style games, troops can be hired as their own stack in any town you
+  // own: a captain of that unit type leading soldiers of the same type. Companies
+  // level up and their soldiers are promoted like anyone else's, but they have no
+  // skills, can't be persuaded, and disband if their captain falls or they are cut off.
+  // size: soldiers under the captain. captainCost: price of the captain (x unit price).
+  // captain: how much stronger the captain is than a soldier (heroes are 5 / 1.6).
+  // start: each faction's starting companies in its capital (unit, soldiers).
+  companies: {
+    size: 10, captainCost: 2, captain: { hp: 2.5, atk: 1.3, def: 1 },
+    start: 3, startTroops: 6,
+  },
+
+  // --- Town capacity ------------------------------------------------------------
+  // How many stacks (heroes' squads and companies) can be stationed in one town.
+  townCap: { village: 6, town: 8, shrine: 6, city: 12, capital: 12 },
+
+  // --- Big battles ----------------------------------------------------------------
+  // Attackers can march in from every neighbouring town at once. Defenders call
+  // reinforcements from their neighbouring towns: up to `share` of the stacks in each
+  // (never the last one, never a lord), at most `max` stacks; they enter the field from
+  // the defenders' edge after `delay` seconds (plus up to `stagger` more each) and go
+  // home after the battle. The Free Towns do not reinforce each other.
+  reinforce: { share: 0.5, max: 8, delay: 25, stagger: 10 },
+
   // --- Persuasion -----------------------------------------------------------
   // Pay a general of another side to join you. Like a general who loses a battle
   // with nowhere to retreat, only a CORNERED general can be bought: one whose town
@@ -517,11 +544,24 @@ DATA.skillsOf = gid => {
 // Units a hero can recruit while serving faction f.
 DATA.recruitable = (gid, f) => {
   const d = DATA.generals[gid];
+  if (d.company) return [d.leads];
   const roster = Object.keys(DATA.rosters[f] || {});
   if (d.lord && d.faction === f) return roster.length ? roster : [d.leads];   // the lord can field anything the faction has
   const types = DATA.heroClasses[DATA.classOf(gid)].types;
   const list = roster.filter(u => types.includes(DATA.units[u].type));
   return list.length ? list : [DATA.generals[gid].leads];
+};
+
+DATA.capOf = spot => DATA.townCap[DATA.spots[spot].kind] || 8;
+
+// Registers a company (a troop stack with a generic captain) as a "general", so every
+// lookup works. Called when one is raised and again when a saved game is loaded.
+DATA.ordinal = n => n + (n % 100 >= 11 && n % 100 <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] || 'th');
+DATA.addCompany = (id, unit, faction, name) => {
+  const u = DATA.units[unit];
+  DATA.generals[id] = { name: name || u.name + ' Company', faction, company: true, leads: unit, usprite: true,
+    max: DATA.companies.size, maxFixed: true, troops: 0, skills: [] };
+  return DATA.generals[id];
 };
 
 // The map comes from js/map.js.

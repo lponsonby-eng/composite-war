@@ -62,6 +62,7 @@ const Assets = {
   unitSprite(t) { return this.tint(t.sprite, t.hue); },
   genSprite(gid) {
     const d = DATA.generals[gid];
+    if (d.usprite) return this.unitSprite(DATA.units[d.leads]);
     return this.tint(d.mface ? 'm' + d.mface : 'c' + d.face, d.hue);
   },
 
@@ -87,15 +88,19 @@ const Assets = {
     cv.width = 38; cv.height = 38;
     const c = cv.getContext('2d');
     c.imageSmoothingEnabled = false;
-    if (d.mface) {
+    if (d.mface || d.usprite) {
       const f = DATA.factions[d.faction];
       c.fillStyle = '#1c2034'; c.fillRect(0, 0, 38, 38);
       c.fillStyle = (f ? f.color : '#888') + '55'; c.fillRect(0, 20, 38, 18);
-      const im = this.img[this.tint('m' + d.mface, d.hue)];
+      const im = this.img[d.usprite ? this.genSprite(gid) : this.tint('m' + d.mface, d.hue)];
       if (im && im.width) c.drawImage(im, 0, 0, 16, 16, 3, 2, 32, 32);
     } else {
       const im = this.img[this.tint('face' + d.face, d.hue)];
       if (im && im.width) c.drawImage(im, 0, 0, 38, 38);
+    }
+    if (d.usprite) {                                    // companies: a banner corner in the faction colour
+      const f = DATA.factions[d.faction];
+      c.fillStyle = f ? f.color : '#888'; c.beginPath(); c.moveTo(0, 0); c.lineTo(12, 0); c.lineTo(0, 12); c.fill();
     }
     return (this._portraits[gid] = cv.toDataURL());
   },

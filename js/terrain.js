@@ -114,7 +114,7 @@ class Terrain {
 
     if (this.walls) {
       // The town sits behind a stone wall with two open gates.
-      this.wallX = W - 280;
+      this.wallX = W - Math.round(280 * Math.max(1, W / 1120));   // the town inside grows with the field
       const wx = Math.floor(this.wallX / C);
       const gates = [H * 0.3, H * 0.7].map(g => Math.round((g + (rng() - 0.5) * 60) / 8) * 8);
       this.gates = gates;

@@ -11,19 +11,24 @@
 class Battle {
   constructor(opts) {
     const B = DATA.battle;
-    this.W = B.width; this.H = B.height;
-    this.opts = opts;      // { attackers, defenders, attFaction, defFaction, spotName, spotId, playerSide, headless }
+    // Bigger armies get a bigger field and more time (see DATA.battle.scale).
+    const n = Math.max(opts.attackers.length, opts.defenders.length + (opts.reserve || []).length);
+    this.scale = Math.min(B.scale.max, 1 + Math.max(0, n - B.scale.from) * B.scale.per);
+    this.W = Math.round(B.width * this.scale / 16) * 16; this.H = Math.round(B.height * this.scale / 16) * 16;
+    this.opts = opts;      // { attackers, defenders, reserve, attFaction, defFaction, spotName, spotId, playerSide, headless }
     this.factions = [opts.attFaction, opts.defFaction];
     this.playerSide = opts.playerSide === 'att' ? 0 : opts.playerSide === 'def' ? 1 : -1;
     this.headless = !!opts.headless;
     this.units = []; this.squads = []; this.projs = []; this.fx = []; this.texts = [];
     this.zones = []; this.pending = []; this.custom = {};
-    this.time = 0; this.limit = DATA.battleTimeLimit;
+    this.time = 0; this.limit = Math.round(DATA.battleTimeLimit * (0.5 + 0.5 * this.scale) / 10) * 10;
     this.done = false; this.banner = null;
     this.xp = {};                            // gid -> XP earned from kills this battle
     this.terrain = new Terrain(opts.spotId, this.W, this.H);
     this.placeSquads(opts.attackers, 0);
     this.placeSquads(opts.defenders, 1);
+    this.reserveSq = [];                     // defenders' reinforcements, waiting to arrive
+    this.placeReserve(opts.reserve || [], 1);
     // where each side expects to find the enemy before it has seen them
     this.home = [0, 1].map(s => centroid(this.squads.filter(q => q.side === s).map(q => q.leader)));
     this.lastSeen = [null, null];
@@ -50,35 +55,74 @@ class Battle {
     // rows: the formation chosen on the formation screen (g.row), or by class
     const rowOf = g => g.row || DATA.roleOf(g.id);
     const front = gens.filter(g => rowOf(g) === 'front'), back = gens.filter(g => rowOf(g) === 'back');
+    // a big army stands in several lines, each with up to `per` squads
+    const per = Math.max(3, Math.floor((H - 120) / 72));
+    const lines = list => { const k = Math.ceil(list.length / per), out = []; for (let i = 0; i < k; i++) out.push(list.slice(Math.round(i * list.length / k), Math.round((i + 1) * list.length / k))); return out; };
+    const fl = lines(front), bl = lines(back);
     const walled = side === 1 && T.walls;
-    const rows = walled ? [[back, T.wallX + 40], [front, T.wallX + 110]]
-      : [[front, 230], [back, 150]].filter(r => r[0].length);
-    const face = side === 0 ? 1 : -1;
+    const face = side === 0 ? 1 : -1, step = 62;
+    let rows;
+    if (walled) rows = bl.concat(fl).map((l, i) => [l, Math.min(W - 30, T.wallX + 40 + i * step)]);        // from the wall inwards
+    else {
+      const all = fl.concat(bl), base = Math.max(230, 70 + (all.length - 1) * step);
+      rows = all.map((l, i) => [l, base - i * step]);                                                   // front line nearest the enemy
+    }
     for (const [list, depth] of rows) list.forEach((g, i) => {
       const n = list.length;
       const cy = H * 0.5 + (i - (n - 1) / 2) * Math.min(80, (H - 160) / Math.max(1, n));
       const x = walled ? depth : side === 0 ? depth : W - depth;
-      const sq = {
-        id: g.id, side, members: [], order: side === 1 ? 'hold' : 'advance', tx: x, ty: cy,
-        face: [face, 0], auto: true, cd: {}, castT: Math.random(), skills: DATA.skillsOf(g.id).slice(),
-        back: DATA.roleOf(g.id) === 'back', row: rowOf(g), level: g.level || 1,
-      };
-      const L = DATA.battle.mp;
-      sq.maxMp = L.base + L.perLevel * sq.level; sq.mp = sq.maxMp * L.start;
-      // signature abilities the hero has learned (level 15 and 30)
-      (g.sig || []).forEach((s, t) => { if (s && sq.level >= DATA.signature.levels[t]) { this.custom[s.id] = s; sq.skills.push(s.id); } });
-      sq.leader = this.makeUnit(g, side, true, x, cy, null, 1, sq);
-      this.units.push(sq.leader);
-      const mix = g.mix || [], lv = g.lv || [];
-      for (let k = 0; k < g.troops; k++) {
-        const u = this.makeUnit(g, side, false, x, cy, mix[k], lv[k] || 1, sq);
-        u.slotK = k;
-        sq.members.push(u); this.units.push(u);
-      }
-      this.rank(sq);
-      for (const u of sq.members) { const [ox, oy] = this.slot(sq, u.slotK); u.x += ox; u.y += oy; }
-      this.squads.push(sq);
+      const sq = this.buildSquad(g, side, x, cy, rowOf(g));
+      this.squads.push(sq); this.units.push(sq.leader, ...sq.members);
     });
+  }
+
+  // Reinforcements wait off the field and march in from their side's edge later.
+  placeReserve(gens, side) {
+    const R = DATA.reinforce, H = this.H;
+    gens.forEach((g, i) => {
+      const y = H * (0.2 + 0.6 * ((i + 0.5) / gens.length)), x = side === 0 ? 14 : this.W - 14;
+      const sq = this.buildSquad(g, side, x, y, g.row || DATA.roleOf(g.id));
+      sq.arriveAt = R.delay + Math.random() * R.stagger;
+      sq.order = 'advance';
+      this.reserveSq.push(sq);
+    });
+  }
+
+  // Brings in reinforcements that are due (or all of a side's, if it has nobody left).
+  arrive() {
+    if (!this.reserveSq.length) return;
+    const active = s => this.units.some(u => u.side === s && u.alive && !u.escaped && !u.routing);
+    const now = this.reserveSq.filter(q => q.arriveAt <= this.time || !active(q.side));
+    if (!now.length) return;
+    for (const q of now) { this.squads.push(q); this.units.push(q.leader, ...q.members); }
+    this.reserveSq = this.reserveSq.filter(q => !now.includes(q));
+    const names = now.map(q => DATA.generals[q.id].name);
+    this.banner = { text: `Reinforcements arrive: ${names.length > 2 ? names.length + ' stacks' : names.join(', ')}!`, t: 3, side: now[0].side === this.playerSide ? 1 - this.playerSide : this.playerSide };
+    if (!this.headless) Assets.sfx('alert', 0.4);
+  }
+
+  // One squad: the general (or company captain) and their soldiers, standing at x, y.
+  buildSquad(g, side, x, cy, row) {
+    const face = side === 0 ? 1 : -1;
+    const sq = {
+      id: g.id, side, members: [], order: side === 1 ? 'hold' : 'advance', tx: x, ty: cy,
+      face: [face, 0], auto: true, cd: {}, castT: Math.random(), skills: DATA.skillsOf(g.id).slice(),
+      back: DATA.roleOf(g.id) === 'back', row, level: g.level || 1,
+    };
+    const L = DATA.battle.mp;
+    sq.maxMp = L.base + L.perLevel * sq.level; sq.mp = sq.maxMp * L.start;
+    // signature abilities the hero has learned (level 15 and 30)
+    (g.sig || []).forEach((s, t) => { if (s && sq.level >= DATA.signature.levels[t]) { this.custom[s.id] = s; sq.skills.push(s.id); } });
+    sq.leader = this.makeUnit(g, side, true, x, cy, null, 1, sq);
+    const mix = g.mix || [], lv = g.lv || [];
+    for (let k = 0; k < g.troops; k++) {
+      const u = this.makeUnit(g, side, false, x, cy, mix[k], lv[k] || 1, sq);
+      u.slotK = k;
+      sq.members.push(u);
+    }
+    this.rank(sq);
+    for (const u of sq.members) { const [ox, oy] = this.slot(sq, u.slotK); u.x += ox; u.y += oy; }
+    return sq;
   }
 
   // Where soldier k stands relative to their general: a block of rows of 3 in
@@ -108,15 +152,16 @@ class Battle {
     const L = DATA.leveling, lv = (g.level || 1) - 1;
     const boost = 1 + lv * (isLeader ? L.leaderBonus : L.squadBonus);
     const sb = isLeader ? { hp: 1, atk: 1, def: 0 } : DATA.soldierBoost(slv);       // soldier level and tier
-    const hp = Math.round((isLeader ? t.hp * 5 : t.hp) * boost * sb.hp);
+    const co = isLeader && DATA.generals[g.id].company, CC = DATA.companies.captain;   // a company captain is weaker than a hero
+    const hp = Math.round((isLeader ? t.hp * (co ? CC.hp : 5) : t.hp) * boost * sb.hp);
     const V = DATA.battle.vision;
     return {
       side, gid: g.id, sq, isLeader, t, back: isLeader ? DATA.roleOf(g.id) === 'back' : t.role === 'back',
       heal: t.type === 'healer', cav: t.type === 'cavalry', run: 0,
       sprite: isLeader ? Assets.genSprite(g.id) : Assets.unitSprite(t),
       x, y, hp, maxHp: hp,
-      atk: (isLeader ? t.atk * 1.6 : t.atk) * boost * sb.atk,
-      def: isLeader ? t.def + 2 : t.def + sb.def,
+      atk: (isLeader ? t.atk * (co ? CC.atk : 1.6) : t.atk) * boost * sb.atk,
+      def: isLeader ? t.def + (co ? CC.def : 2) : t.def + sb.def,
       lv: slv, tier: isLeader ? 0 : DATA.tierOf(slv), kills: 0,
       spd: t.spd, range: t.range, cd: t.cd,
       view: (isLeader ? V.hero : V.soldier) + (t.type === 'cavalry' ? V.cavalry : 0) + (t.type === 'shooter' ? V.shooter : 0),
@@ -385,6 +430,7 @@ class Battle {
     if (this.banner) { this.banner.t -= dt; if (this.banner.t <= 0) this.banner = null; }
     if (!this.headless) this.updateFog();
 
+    this.arrive();
     // victory check
     const active = s => this.units.some(u => u.side === s && u.alive && !u.escaped && !u.routing);
     if (!active(0)) this.finish(1);
@@ -657,7 +703,9 @@ class Battle {
   finish(winnerSide) {
     this.done = true;
     this.winner = winnerSide === 0 ? 'att' : 'def';
-    const res = side => (side === 0 ? this.opts.attackers : this.opts.defenders).map(g => {
+    const res = side => (side === 0 ? this.opts.attackers : this.opts.defenders.concat(this.opts.reserve || [])).map(g => {
+      const waiting = this.reserveSq.find(s => s.id === g.id);          // reinforcements that never arrived
+      if (waiting) return { id: g.id, alive: true, troops: g.troops, mix: (g.mix || []).slice(), lv: (g.lv || []).slice(), promoted: [], before: g.troops, xp: 0 };
       const q = this.squads.find(s => s.id === g.id), leader = q.leader;
       const left = q.members.filter(u => (u.alive || u.escaped) && !u.routing);
       const troops = left.length;

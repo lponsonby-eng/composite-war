@@ -54,6 +54,27 @@ winter, the Ember Clan can talk to the dragon). Effects can also last several tu
 
 Add your own events by copying an entry; the format is described at the top of the file.
 
+## Companies and big battles (Vahren-style)
+- **Companies**: besides heroes' squads, troops can be hired as their own stack. Click one of
+  your towns and press **Raise company**: pick a unit type, pay for a captain (2x a soldier's
+  price), then fill it with up to 10 soldiers of that type (now, or later with Recruit). A
+  company levels up and its soldiers are promoted like any squad; it moves, attacks and
+  reinforces on its own, but has no skills, can't be persuaded, and disbands if its captain
+  falls or it is cut off. Each faction starts with three companies in its capital.
+- **Town capacity**: each town holds a limited number of stacks (village 6, town 8, capital
+  and city 12; `DATA.townCap`). The panel shows "stacks 5/8".
+- **Attacking from several towns**: when you attack, the dialog lists your stacks that have not
+  acted in *every* town next to the target; tick them (or press All) to bring them in.
+  The winners move into the town as far as it has room; the rest stay home.
+- **Reinforcements**: defenders call help from their neighbouring towns (up to half the stacks
+  in each, never the last one or a lord, at most 8; `DATA.reinforce`). They march onto the
+  field from the defenders' edge about 25 seconds into the battle and go home afterwards.
+  When you are attacked you choose which of your stacks come. The Free Towns don't reinforce.
+- **Bigger battlefields**: the field and the time limit grow with the size of the armies (up to
+  1.8x, `DATA.battle.scale`), and big armies deploy in several lines.
+- The computer raises companies, attacks from all its neighbouring towns at once and
+  reinforces its towns too.
+
 ## Battles
 Battles are fought on a large field (1120 x 720) with scrolling, zoom, a minimap and
 **fog of war**: you only see (and your units only target) what your squads can see.
