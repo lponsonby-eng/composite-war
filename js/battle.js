@@ -18,6 +18,7 @@ class Battle {
     this.done = false; this.banner = null;
     this.xp = {};                            // gid -> XP earned from kills this battle
     this.headless = !!opts.headless;
+    this.terrain = new Terrain(opts.spotId, this.W, this.H);
     this.placeSquads(opts.attackers, 0);
     this.placeSquads(opts.defenders, 1);
     if (!this.headless) this.bg = this.buildBackground();
@@ -26,8 +27,10 @@ class Battle {
   // ------------------------------------------------------------------ setup
   placeSquads(gens, side) {
     const n = gens.length;
+    const gate = side === 1 && this.terrain.walls ? this.terrain.gates[0] : null;
     gens.forEach((g, i) => {
-      const cy = 52 + (i + 0.5) * (186 / n);
+      // Wall defenders gather around their gate; everyone else spreads down the field.
+      const cy = gate ? Math.max(52, Math.min(232, gate + (i - (n - 1) / 2) * 42)) : 52 + (i + 0.5) * (186 / n);
       const dirX = side === 0 ? 1 : -1;
       const baseX = side === 0 ? 30 : this.W - 30;
       this.units.push(this.makeUnit(g, side, true, baseX, cy));
@@ -73,7 +76,9 @@ class Battle {
         vx = (u.side === 0 ? -1 : 1) * u.spd * 1.3;
         if (u.routT <= 0) { u.alive = false; this.addFx('smoke', u.x, u.y - 6, 0.5); }
       } else if (this.orders[u.side] === 'retreat') {      // run for the edge of the field
-        vx = (u.side === 0 ? -1 : 1) * u.spd * 1.2;
+        const ex = u.side === 0 ? -20 : this.W + 20, wp = this.terrain.gateWaypoint(u.x, u.y, ex, u.y);
+        if (wp) { const d = Math.hypot(wp[0] - u.x, wp[1] - u.y) || 1; vx = (wp[0] - u.x) / d * u.spd * 1.2; vy = (wp[1] - u.y) / d * u.spd * 1.2; }
+        else vx = (u.side === 0 ? -1 : 1) * u.spd * 1.2;
         if (u.x < -6 || u.x > this.W + 6) u.escaped = true;
       } else {
         if (u.retarget <= 0 || !u.target || !u.target.alive || u.target.routing || u.target.escaped) {
@@ -82,13 +87,21 @@ class Battle {
         }
         const tg = u.target;
         const d = tg ? Math.hypot(tg.x - u.x, tg.y - u.y) : 1e9;
-        const engage = tg && (this.orders[u.side] === 'advance' || d <= u.range + 50);
+        // Holding units only step out for nearby enemies; behind a wall they never leave it.
+        // Behind a wall they fight anyone who gets inside, and shoot at the rest.
+        const walled = u.side === 1 && this.terrain.walls;
+        const reach = walled && tg && tg.x < this.terrain.wallX + 6 ? u.range + 4 : u.range + 50;
+        // Holding units also defend the ground around their starting spot (unless that means leaving the walls).
+        const guard = tg && !(walled && tg.x < this.terrain.wallX + 6) && Math.hypot(tg.x - u.homeX, tg.y - u.homeY) <= 110;
+        const engage = tg && (this.orders[u.side] === 'advance' || d <= reach || guard);
         if (engage) {
           if (d <= u.range + 4) {
             u.dir = faceDir(tg.x - u.x, tg.y - u.y);
             if (u.cdLeft <= 0) { this.attack(u, tg); u.cdLeft = u.cd; u.atkT = 0.25; }
           } else {
-            vx = (tg.x - u.x) / d * u.spd; vy = (tg.y - u.y) / d * u.spd;
+            const wp = this.terrain.gateWaypoint(u.x, u.y, tg.x, tg.y);
+            const gx = wp ? wp[0] : tg.x, gy = wp ? wp[1] : tg.y, gd = Math.hypot(gx - u.x, gy - u.y) || 1;
+            vx = (gx - u.x) / gd * u.spd; vy = (gy - u.y) / gd * u.spd;
           }
         } else {                                          // hold: return to starting position
           const hd = Math.hypot(u.homeX - u.x, u.homeY - u.y);
@@ -96,9 +109,14 @@ class Battle {
         }
       }
 
+      if ((vx || vy) && !u.routing) [vx, vy] = this.steer(u, vx, vy);
+      if (vx || vy) { const sp = this.terrain.speedAt(u.x, u.y); vx *= sp; vy *= sp; }
       u.moving = !!(vx || vy);
       if (vx || vy) {
-        u.x += vx * dt; u.y += vy * dt;
+        const T = this.terrain, nx = u.x + vx * dt, ny = u.y + vy * dt;   // solid ground (walls) blocks; slide along it
+        if (T.speedAt(nx, ny) > 0) { u.x = nx; u.y = ny; }
+        else if (T.speedAt(nx, u.y) > 0) u.x = nx;
+        else if (T.speedAt(u.x, ny) > 0) u.y = ny;
         u.walkT += dt;
         if (u.atkT <= 0) u.dir = faceDir(vx, vy);
       }
@@ -116,6 +134,8 @@ class Battle {
         a.x -= dx / d * push; a.y -= dy / d * push; b.x += dx / d * push; b.y += dy / d * push;
       }
     }
+    if (this.terrain.walls) for (const u of live)                 // nobody gets shoved into a wall
+      if (this.terrain.speedAt(u.x, u.y) === 0) u.x = u.x < this.terrain.wallX + 4 ? this.terrain.wallX - 1 : this.terrain.wallX + 9;
 
     // projectiles fly toward their target (homing) and hit on arrival
     for (const p of this.projs) {
@@ -127,10 +147,10 @@ class Battle {
         p.dead = true;
         if (p.splash) {
           this.addFx('fire', p.tx, p.ty, 0.4);
-          for (const v of this.units) if (v.alive && !v.escaped && v.side !== p.side && Math.hypot(v.x - p.tx, v.y - 6 - p.ty) <= p.splash) this.damage(v, p.dmg, p.gid);
+          for (const v of this.units) if (v.alive && !v.escaped && v.side !== p.side && Math.hypot(v.x - p.tx, v.y - 6 - p.ty) <= p.splash) this.damage(v, p.dmg, p.gid, true);
         } else if (p.tg.alive) {
           this.addFx('hit', p.tx, p.ty, 0.25);
-          this.damage(p.tg, p.dmg, p.gid);
+          this.damage(p.tg, p.dmg, p.gid, true);
         }
       } else { p.x += dx / d * step; p.y += dy / d * step; }
     }
@@ -153,36 +173,57 @@ class Battle {
   aiOrders() {
     for (const s of [0, 1]) {
       if (s === this.playerSide || this.orders[s] !== 'hold') continue;
+      if (s === 1 && this.terrain.walls) continue;         // defenders man their wall for the whole battle
       const near = this.units.some(e => e.side !== s && e.alive && this.units.some(u => u.side === s && u.alive && Math.hypot(u.x - e.x, u.y - e.y) < 150));
       if (near || this.time > 10) this.orders[s] = 'advance';
     }
   }
 
+  // Picks a heading near the wanted one that avoids slow ground (rivers, walls, mud)
+  // when a quicker way is close by, e.g. a ford or a gate.
+  steer(u, vx, vy) {
+    const T = this.terrain, base = Math.atan2(vy, vx), sp = Math.hypot(vx, vy);
+    let best = base, bestScore = -1;
+    for (const da of [0, 0.5, -0.5, 1, -1, 1.4, -1.4]) {
+      const a = base + da;
+      let s = 1;
+      for (const look of [6, 14, 24]) s = Math.min(s, T.speedAt(u.x + Math.cos(a) * look, u.y + Math.sin(a) * look));
+      const score = s * Math.cos(da) - Math.abs(da) * 0.02;
+      if (score > bestScore + 0.05) { bestScore = score; best = a; }
+    }
+    return [Math.cos(best) * sp, Math.sin(best) * sp];
+  }
+
   nearestEnemy(u) {
     let best = null, bd = 1e9;
+    // Wall defenders deal with anyone who got inside before anyone still outside.
+    const walled = u.side === 1 && this.terrain.walls, inside = e => e.x > this.terrain.wallX + 6;
     for (const e of this.units) {
       if (e.side === u.side || !e.alive || e.escaped || e.routing) continue;
-      const d = (e.x - u.x) ** 2 + (e.y - u.y) ** 2;
+      const d = (e.x - u.x) ** 2 + (e.y - u.y) ** 2 + (walled && !inside(e) ? 1e6 : 0);
       if (d < bd) { bd = d; best = e; }
     }
     return best;
   }
 
   attack(u, tg) {
+    const dmg = u.atk * this.terrain.footingAt(u.x, u.y);      // poor footing (water, mud) weakens blows
     if (u.t.proj) {
-      this.projs.push({ x: u.x, y: u.y - 6, tx: tg.x, ty: tg.y - 6, tg, side: u.side, gid: u.gid, dmg: u.atk,
+      this.projs.push({ x: u.x, y: u.y - 6, tx: tg.x, ty: tg.y - 6, tg, side: u.side, gid: u.gid, dmg,
         splash: u.t.splash || 0, img: u.t.proj, speed: u.t.proj === 'fireball' ? 120 : 170, angle: 0 });
       if (!this.headless && u.t.proj === 'fireball') Assets.sfx('magic-1', 0.25);
     } else {
       this.addFx('slash', tg.x, tg.y - 6, 0.25);
       if (!this.headless) Assets.sfx('sword', 0.3);
-      this.damage(tg, u.atk, u.gid);
+      this.damage(tg, dmg, u.gid);
     }
   }
 
-  damage(v, amount, byGid) {
+  damage(v, amount, byGid, ranged) {
     if (!v.alive) return;
-    const dmg = Math.max(1, Math.round(amount * (0.85 + Math.random() * 0.3) - v.def));
+    if (ranged) amount *= 1 - this.terrain.coverAt(v.x, v.y);
+    const fort = v.side === 1 && this.terrain.walls && v.x > this.terrain.wallX ? DATA.ground.wall.fortify : 0;
+    const dmg = Math.max(1, Math.round(amount * (0.85 + Math.random() * 0.3) - v.def - fort));
     v.hp -= dmg; v.hitT = 0.12;
     if (!this.headless) this.texts.push({ x: v.x, y: v.y - 16, s: String(dmg), life: 0.6, color: v.isLeader ? '#ffd84a' : '#ffffff' });
     if (v.hp <= 0) {
@@ -238,8 +279,10 @@ class Battle {
       ctx.drawImage(rng() < 0.7 ? T['tile:ground_grass'] : T['tile:ground_grass2'], x, y);
     for (let i = 0; i < 40; i++) {
       const n = ['grass_tuft', 'grass_tuft', 'bush'][Math.floor(rng() * 3)];
-      ctx.drawImage(T['tile:' + n], Math.floor(rng() * (this.W - 16)), 40 + Math.floor(rng() * 200));
+      const x = Math.floor(rng() * (this.W - 16)), y = 40 + Math.floor(rng() * 200);
+      if (this.terrain.kindAt(x + 8, y + 8) === GROUND.grass) ctx.drawImage(T['tile:' + n], x, y);
     }
+    this.terrain.draw(ctx);
     // tree line along the top of the field
     for (let x = -8; x < this.W; x += 18 + rng() * 10) {
       const n = rng() < 0.5 ? 'tree_round' : 'tree_pine';

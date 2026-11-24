@@ -108,30 +108,45 @@ window.DATA = {
     fenn:    { name: 'Old Fenn', face: 18, leads: 'mage',   max: 6, troops: 0, level: 4, wanderer: true },
   },
 
+  // --- Battlefield ground --------------------------------------------------
+  // speed: movement multiplier. cover: share of arrow/spell damage blocked.
+  // footing: attack multiplier for units standing in it (default 1).
+  // behindCover: protection from arrows for units standing just behind a town wall.
+  // fortify: extra defence for defenders while they are inside their walls.
+  ground: {
+    grass:  { speed: 1,    cover: 0 },
+    forest: { speed: 0.6,  cover: 0.4 },
+    water:  { speed: 0.3,  cover: 0, footing: 0.6 },
+    ford:   { speed: 0.8,  cover: 0, footing: 0.85 },
+    mud:    { speed: 0.5,  cover: 0 },
+    wall:   { speed: 0,    cover: 0,   behindCover: 0.35, fortify: 1.5 },   // solid: go through the gate
+  },
+
   // --- Map -----------------------------------------------------------------
   // The map is 640 x 360 pixels. kind: capital | town | village | shrine.
   // income: gold per turn. gens: generals stationed there at the start.
+  // terrain: battlefield type (plains | forest | river | swamp). walls: defenders get a wall.
   spots: {
-    asterhold:  { name: 'Asterhold',  x: 95,  y: 165, kind: 'capital', income: 30, owner: 'aster',   gens: ['aldric', 'tobin'] },
-    brookfield: { name: 'Brookfield', x: 80,  y: 262, kind: 'town',    income: 15, owner: 'aster',   gens: ['mira'] },
-    westwatch:  { name: 'Westwatch',  x: 150, y: 72,  kind: 'village', income: 10, owner: 'aster',   gens: ['oren'] },
+    asterhold:  { name: 'Asterhold',  x: 95,  y: 165, kind: 'capital', income: 30, owner: 'aster',   gens: ['aldric', 'tobin'], terrain: 'plains', walls: true },
+    brookfield: { name: 'Brookfield', x: 80,  y: 262, kind: 'town',    income: 15, owner: 'aster',   gens: ['mira'], terrain: 'river' },
+    westwatch:  { name: 'Westwatch',  x: 150, y: 72,  kind: 'village', income: 10, owner: 'aster',   gens: ['oren'], terrain: 'forest' },
 
-    bogmire:    { name: 'Bogmire',    x: 165, y: 318, kind: 'capital', income: 25, owner: 'horde',   gens: ['grubb', 'bruno'] },
-    mosshollow: { name: 'Mosshollow', x: 268, y: 285, kind: 'village', income: 12, owner: 'horde',   gens: ['pip', 'ada'] },
+    bogmire:    { name: 'Bogmire',    x: 165, y: 318, kind: 'capital', income: 25, owner: 'horde',   gens: ['grubb', 'bruno'], terrain: 'swamp', walls: true },
+    mosshollow: { name: 'Mosshollow', x: 268, y: 285, kind: 'village', income: 12, owner: 'horde',   gens: ['pip', 'ada'], terrain: 'swamp' },
 
-    emberkeep:  { name: 'Emberkeep',  x: 565, y: 78,  kind: 'capital', income: 30, owner: 'ember',   gens: ['kaen', 'garr'] },
-    ashford:    { name: 'Ashford',    x: 455, y: 52,  kind: 'village', income: 10, owner: 'ember',   gens: ['suzu'] },
-    redpine:    { name: 'Redpine',    x: 462, y: 155, kind: 'town',    income: 15, owner: 'ember',   gens: ['hoshi'] },
+    emberkeep:  { name: 'Emberkeep',  x: 565, y: 78,  kind: 'capital', income: 30, owner: 'ember',   gens: ['kaen', 'garr'], terrain: 'forest', walls: true },
+    ashford:    { name: 'Ashford',    x: 455, y: 52,  kind: 'village', income: 10, owner: 'ember',   gens: ['suzu'], terrain: 'forest' },
+    redpine:    { name: 'Redpine',    x: 462, y: 155, kind: 'town',    income: 15, owner: 'ember',   gens: ['hoshi'], terrain: 'forest' },
 
-    nightspire: { name: 'Nightspire', x: 565, y: 305, kind: 'capital', income: 30, owner: 'shadow',  gens: ['noct', 'ossian'] },
-    gloomvale:  { name: 'Gloomvale',  x: 462, y: 280, kind: 'village', income: 10, owner: 'shadow',  gens: ['rin'] },
-    mistfen:    { name: 'Mistfen',    x: 565, y: 195, kind: 'town',    income: 15, owner: 'shadow',  gens: ['vael'] },
+    nightspire: { name: 'Nightspire', x: 565, y: 305, kind: 'capital', income: 30, owner: 'shadow',  gens: ['noct', 'ossian'], terrain: 'swamp', walls: true },
+    gloomvale:  { name: 'Gloomvale',  x: 462, y: 280, kind: 'village', income: 10, owner: 'shadow',  gens: ['rin'], terrain: 'swamp' },
+    mistfen:    { name: 'Mistfen',    x: 565, y: 195, kind: 'town',    income: 15, owner: 'shadow',  gens: ['vael'], terrain: 'river' },
 
-    millcross:  { name: 'Millcross',  x: 200, y: 182, kind: 'town',    income: 15, owner: 'neutral', gens: ['wen'] },
-    pinewood:   { name: 'Pinewood',   x: 258, y: 95,  kind: 'village', income: 10, owner: 'neutral', gens: ['rook'] },
-    crossroads: { name: 'Crossroads', x: 335, y: 190, kind: 'town',    income: 25, owner: 'neutral', gens: ['golem'] },
-    oldshrine:  { name: 'Old Shrine', x: 360, y: 72,  kind: 'shrine',  income: 10, owner: 'neutral', gens: ['ilo'] },
-    stonegate:  { name: 'Stonegate',  x: 370, y: 300, kind: 'village', income: 12, owner: 'neutral', gens: ['sela'] },
+    millcross:  { name: 'Millcross',  x: 200, y: 182, kind: 'town',    income: 15, owner: 'neutral', gens: ['wen'], terrain: 'river' },
+    pinewood:   { name: 'Pinewood',   x: 258, y: 95,  kind: 'village', income: 10, owner: 'neutral', gens: ['rook'], terrain: 'forest' },
+    crossroads: { name: 'Crossroads', x: 335, y: 190, kind: 'town',    income: 25, owner: 'neutral', gens: ['golem'], terrain: 'plains', walls: true },
+    oldshrine:  { name: 'Old Shrine', x: 360, y: 72,  kind: 'shrine',  income: 10, owner: 'neutral', gens: ['ilo'], terrain: 'forest' },
+    stonegate:  { name: 'Stonegate',  x: 370, y: 300, kind: 'village', income: 12, owner: 'neutral', gens: ['sela'], terrain: 'plains', walls: true },
   },
 
   // Roads between spots. Armies can only move or attack along roads.

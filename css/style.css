@@ -179,3 +179,5 @@ button.big { font-size: 22px; padding: 6px 18px; margin-top: 10px; }
 table.res td + td { padding-left: 14px; }
 .wh { font-weight: normal; font-size: 19px; margin: 14px 0 6px; color: var(--accent); }
 .gen button { font-size: 15px; padding: 2px 6px; }
+.terr { color: var(--muted); font-size: 16px; }
+.bh-terr { font-size: 14px; }

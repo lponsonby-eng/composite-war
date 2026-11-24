@@ -141,6 +141,14 @@ const Game = {
     }
   },
   armyPower(list) { return list.reduce((s, g) => s + this.genPower(g), 0); },
+  // Defenders fight better behind walls; the computer takes that into account.
+  defensePower(spot) { return this.armyPower(this.generalsAt(spot)) * (DATA.spots[spot].walls ? 1.3 : 1); },
+  terrainText(spot) {
+    const s = DATA.spots[spot];
+    const t = { plains: 'Open plains', forest: 'Forest: slows units, cover from arrows',
+      river: 'River: wade slowly or cross at the fords', swamp: 'Swamp: mud slows units' }[s.terrain || 'plains'];
+    return t + (s.walls ? '. Walls: defenders shelter behind them, attackers must use the gates' : '');
+  },
 
   log(text, cls = '') {
     this.logLines.push({ text, cls, turn: this.turn });
@@ -217,7 +225,7 @@ const Game = {
     const att = [...this.ui.picked].map(id => this.gens[id]);
     const def = this.generalsAt(to);
     const owner = this.spots[to].owner;
-    const ap = this.armyPower(att), dp = this.armyPower(def);
+    const ap = this.armyPower(att), dp = this.defensePower(to);
     const odds = def.length === 0 ? 'Undefended!' : ap > dp * 1.5 ? 'Favourable' : ap > dp * 0.9 ? 'Even' : 'Risky';
     const army = list => list.map(g => genChip(g)).join('') || '<div class="muted">No defenders</div>';
     const buttons = def.length === 0
@@ -230,7 +238,8 @@ const Game = {
         <div><h3 style="color:${DATA.factions[this.player].color}">Your army</h3>${army(att)}</div>
         <div class="vs-mid">VS<br><span class="odds">${odds}</span></div>
         <div><h3 style="color:${DATA.factions[owner].color}">${DATA.factions[owner].name}</h3>${army(def)}</div>
-      </div>`, buttons);
+      </div>
+      <p class="terr">Battlefield: ${this.terrainText(to)}.</p>`, buttons);
   },
 
   async resolveAttack(from, to, att, def, how) {
@@ -252,7 +261,7 @@ const Game = {
     } else {
       const army = list => list.map(g => ({ id: g.id, troops: g.troops, level: g.level }));
       const battle = new Battle({ attackers: army(att), defenders: army(def), attFaction: attF, defFaction: defF,
-        spotName, playerSide, headless: !playerSide });
+        spotName, spotId: to, playerSide, headless: !playerSide });
       result = playerSide ? await this.playBattle(battle) : battle.runHeadless();
     }
     this.applyResult(from, to, attF, defF, result);
@@ -349,7 +358,7 @@ const Game = {
         <div class="bh-gens" id="bh-gens-${s}"></div></div>`;
     };
     $('#battle-hud').innerHTML = `${side(0)}<div class="bh-mid"><div id="bh-time"></div>
-      <div class="bh-where">${b.opts.spotName}</div></div>${side(1)}`;
+      <div class="bh-where">${b.opts.spotName}<br><span class="bh-terr">${b.terrain.describe()}</span></div></div>${side(1)}`;
     const ctr = $('#battle-ctrl');
     ctr.innerHTML = `<span class="muted">You are ${b.playerSide === 0 ? 'attacking' : 'defending'}:</span>
       <button data-o="advance">Advance</button><button data-o="hold">Hold</button><button data-o="retreat">Retreat</button>
@@ -455,7 +464,7 @@ const Game = {
 
       let best = null, bestRatio = 0;
       for (const n of enemies) {
-        const dp = this.armyPower(this.generalsAt(n));
+        const dp = this.defensePower(n);
         const ratio = dp === 0 ? 99 : this.armyPower(pool) / dp;
         if (ratio > bestRatio) { bestRatio = ratio; best = n; }
       }
@@ -493,7 +502,8 @@ const Game = {
       Assets.sfx('alert', 0.5);
       modal(`<h2 class="bad">${DATA.factions[f].name} attacks ${DATA.spots[spot].name}!</h2>
         <div class="vs"><div><h3 style="color:${DATA.factions[f].color}">Attackers</h3>${att.map(genChip).join('')}</div>
-        <div class="vs-mid">VS</div><div><h3 style="color:${DATA.factions[this.player].color}">Your defenders</h3>${def.map(genChip).join('')}</div></div>`,
+        <div class="vs-mid">VS</div><div><h3 style="color:${DATA.factions[this.player].color}">Your defenders</h3>${def.map(genChip).join('')}</div></div>
+        <p class="terr">Battlefield: ${this.terrainText(spot)}.</p>`,
         [['Defend!', () => resolve('def')], ['Auto-resolve', () => resolve(null)]], true);
     });
   },
