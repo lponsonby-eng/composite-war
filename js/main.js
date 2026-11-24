@@ -24,7 +24,17 @@
   // ---- map: drag to scroll, wheel / pinch to zoom, click a town ----
   MapView.attach(canvas,
     id => { if (Game.mode === 'map') Game.clickSpot(id); },
-    id => { if (Game.mode === 'map') Game.ui.hover = id; });
+    id => { if (Game.mode === 'map') Game.ui.hover = id; },
+    () => Game.mode !== 'battle');
+  BattleUI.attach(canvas);
+  // battle minimap: click or drag to look there
+  const bmini = $('#bminimap');
+  const bjump = e => { const b = Game.battle; if (!b) return; const r = bmini.getBoundingClientRect();
+    b.cam.x = (e.clientX - r.left) / r.width * b.W; b.cam.y = (e.clientY - r.top) / r.height * b.H; };
+  let bdrag = false;
+  bmini.addEventListener('pointerdown', e => { bdrag = true; bjump(e); try { bmini.setPointerCapture(e.pointerId); } catch (err) {} });
+  bmini.addEventListener('pointermove', e => { if (bdrag) bjump(e); });
+  bmini.addEventListener('pointerup', () => { bdrag = false; });
   window.addEventListener('keydown', e => {
     if (e.key === 'Escape' && Game.mode === 'map' && !Game.busy) Game.clearSelection();
     if ((e.key === '+' || e.key === '=') && Game.mode === 'map') MapView.zoomAt(1.25, canvas.width / 2, canvas.height / 2);
@@ -62,9 +72,10 @@
       const b = Game.battle;
       const steps = Game.battleSpeed;                 // run the simulation several times per frame to speed up
       for (let i = 0; i < steps && !b.done; i++) b.update(dt);
+      BattleUI.scrollKeys(dt);
       b.render(ctx, canvas);
       hudT -= dt;
-      if (hudT <= 0) { Game.updateBattleHud(); hudT = 0.15; }
+      if (hudT <= 0) { Game.updateBattleHud(); b.drawMinimap(bmini); hudT = 0.15; }
       if (b.done && !b.notified) { b.notified = true; Game.updateBattleHud(); b.onDone(); }
     } else {
       const title = Game.mode === 'title';

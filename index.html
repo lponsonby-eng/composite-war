@@ -22,6 +22,7 @@
     <div id="battle-hud"></div>
     <div id="battle-ctrl"></div>
     <div id="turn-banner" hidden></div>
+    <canvas id="bminimap" width="200" height="128" title="Click to look there"></canvas>
     <div id="map-ctrl">
       <canvas id="minimap" width="200" height="120" title="Click to jump there"></canvas>
       <div class="zbtns"><button id="zoom-in" type="button" title="Zoom in">+</button><button id="zoom-out" type="button" title="Zoom out">-</button><button id="zoom-home" type="button" title="Back to your capital">Home</button></div>
@@ -54,7 +55,12 @@
     (silver pip) and at level 30 again (two gold pips), getting much stronger each time. Heroes of level 10+ can recruit
     veterans for 3x the price. Keep your veterans alive!</p>
   <p>Each general can move or attack once per turn. <b>Recruiting</b> refills a general's squad for gold and is free to do any time.</p>
-  <p><b>Battles</b> play out in real time. Give your army orders: <b>Advance</b>, <b>Hold</b> (stay put until enemies come close) or <b>Retreat</b>.
+  <p><b>Battles</b> are fought on a large field under <b>fog of war</b>: you only see what your squads can see. A battle starts paused.
+    Click a squad to select it (Shift-click or drag a box for several, or click its portrait at the top). <b>Right-click</b> the ground
+    to move there (on touch: tap the ground), or an enemy to attack it. Several squads move in the chosen <b>formation</b>
+    (Auto: frontline in front, backline behind; Line; Column; Wedge). <b>Advance</b>, <b>Hold</b> and <b>Retreat</b> apply to the
+    selected squads (or all). Each hero has <b>skills</b> that cost MP (Z / X / C, or the buttons); area skills land where you click,
+    and <b>Auto</b> lets the hero cast by themself. Space pauses; arrow keys or WASD scroll; the wheel zooms.
     If a general falls, their squad scatters. <b>Terrain</b> matters: forests slow units and shelter them from arrows,
     rivers can be crossed quickly only at the fords, mud slows everyone, and walled towns must be entered through the gates. When time runs out the defenders keep the town.</p>
   <p><b>Wandering generals</b> (marked with a gold coin on the map) drift between towns. Hire one while they are in a town you own.
@@ -70,5 +76,6 @@
 <script src="js/mapview.js"></script>
 <script src="js/terrain.js"></script>
 <script src="js/battle.js"></script>
+<script src="js/battleui.js"></script>
 <script src="js/game.js"></script>
 <script src="js/main.js"></script>

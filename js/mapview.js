@@ -209,17 +209,19 @@ const MapView = {
 
   // ---------------------------------------------------------------- input
   // Drag to scroll, wheel or pinch to zoom, click a town. Arrow keys / WASD scroll.
-  attach(canvas, onClick, onHover) {
+  attach(canvas, onClick, onHover, active = () => true) {
     const pts = new Map();
     let drag = null, pinch = null;
     const dev = e => { const r = canvas.getBoundingClientRect(), dpr = window.devicePixelRatio || 1; return [(e.clientX - r.left) * dpr, (e.clientY - r.top) * dpr]; };
     canvas.addEventListener('pointerdown', e => {
+      if (!active()) return;
       try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
       pts.set(e.pointerId, dev(e));
       if (pts.size === 1) drag = { start: dev(e), cam: { ...this.cam }, moved: false };
       if (pts.size === 2) { const [a, b] = [...pts.values()]; pinch = { d: Math.hypot(a[0] - b[0], a[1] - b[1]), z: this.cam.z }; drag = null; }
     });
     canvas.addEventListener('pointermove', e => {
+      if (!active()) return;
       const p = dev(e);
       if (pts.has(e.pointerId)) pts.set(e.pointerId, p);
       if (pinch && pts.size === 2) {
@@ -239,6 +241,7 @@ const MapView = {
       }
     });
     const up = e => {
+      if (!active()) { pts.clear(); drag = null; pinch = null; return; }
       const wasClick = drag && !drag.moved;
       pts.delete(e.pointerId);
       if (pts.size < 2) pinch = null;
@@ -249,6 +252,7 @@ const MapView = {
     canvas.addEventListener('pointerup', up);
     canvas.addEventListener('pointercancel', up);
     canvas.addEventListener('wheel', e => {
+      if (!active()) return;
       e.preventDefault();
       if (!this.fitAll) this.zoomAt(e.deltaY < 0 ? 1.15 : 1 / 1.15, ...dev(e));
     }, { passive: false });

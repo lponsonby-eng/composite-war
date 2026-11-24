@@ -12,6 +12,7 @@ Open `index.html` through any local web server (for example `python3 -m http.ser
 - `js/game.js` – campaign state, turns, AI opponents, panels and dialogs.
 - `js/battle.js` – the real-time battle simulation and drawing.
 - `js/terrain.js` – battlefield ground: forests, rivers, swamps and town walls.
+- `js/battleui.js` – battle controls: selecting squads, orders, formations, skills, battle minimap.
 - `js/mapview.js` – draws the strategy map, scrolling, zoom and the minimap.
 - `js/assets.js` – loads images and sounds.
 - `js/main.js` – startup, frame loop, mouse input.
@@ -26,6 +27,19 @@ with its capital and three towns; the other 60 towns are free towns held by mili
 Win by defeating every rival faction.
 
 To make a different map: `python3 tools/genmap.py 42` (any number gives a new layout).
+
+## Battles
+Battles are fought on a large field (1120 x 720) with scrolling, zoom, a minimap and
+**fog of war**: you only see (and your units only target) what your squads can see.
+Battles start paused. Select squads by clicking (Shift adds), dragging a box, or clicking
+their portraits; right-click the ground to move (tap on touch screens), right-click an
+enemy to attack. Groups move in a **formation** (Auto: frontline in front and backline
+behind; Line; Column; Wedge) at the slowest squad's pace. Orders: Advance, Hold, Retreat.
+Each hero has **skills** paid with MP (Charge, Rally, Shield Wall for warriors; Volley,
+Eagle Eye for marksmen; Meteor, Frost Field or Mass Heal, Blessing for mages): use the
+buttons or Z / X / C, and area skills land where you click. **Auto** lets a hero cast by
+themself; computer heroes always do. Space pauses. Tune it in `DATA.battle` and
+`DATA.skills`. Auto-resolved battles run the same simulation without drawing.
 
 ## Hero classes, unit types and recruiting
 Modelled on the class/recruit system of Vahren-engine games such as Kinoko Takenoko War

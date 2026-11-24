@@ -66,24 +66,27 @@ class Terrain {
     }
   }
 
+  // n clumps of ground kind k, scattered over the middle of the field. n is given for
+  // the old 480x270 field and scaled up with the field's area.
   clumps(n, k, rMin, rMax) {
-    const rng = this.rng;
-    for (let i = 0; i < n; i++)
-      this.setCircle(110 + rng() * 260, 50 + rng() * 190, rMin + rng() * (rMax - rMin), k);
+    const rng = this.rng, A = this.W * this.H / (480 * 270);
+    const count = Math.round(n * A * 0.55);
+    for (let i = 0; i < count; i++)
+      this.setCircle(this.W * (0.18 + rng() * 0.64), this.H * (0.08 + rng() * 0.84), (rMin + rng() * (rMax - rMin)) * 1.4, k);
   }
 
   generate() {
-    const rng = this.rng, C = this.C;
+    const rng = this.rng, C = this.C, W = this.W, H = this.H;
     if (this.type === 'river') {
-      // A winding river down the middle, with two shallow fords.
-      const x0 = 215 + rng() * 50, phase = rng() * 6, amp = 10 + rng() * 14;
-      const fords = [60 + rng() * 50, 160 + rng() * 60];
+      // A winding river across the middle, with shallow fords.
+      const x0 = W * (0.44 + rng() * 0.12), phase = rng() * 6, amp = 20 + rng() * 30;
+      const fords = [0.2, 0.5, 0.8].map(f => H * (f + (rng() - 0.5) * 0.1));
       for (let y = 0; y < this.rows; y++) {
-        const py = y * C + 4, cx = x0 + Math.sin(py / 38 + phase) * amp;
-        const ford = fords.some(f => Math.abs(py - f) < 13);
+        const py = y * C + 4, cx = x0 + Math.sin(py / 70 + phase) * amp;
+        const ford = fords.some(f => Math.abs(py - f) < 16);
         for (let x = 0; x < this.cols; x++) {
           const px = x * C + 4;
-          if (Math.abs(px - cx) < 13) this.kind[y * this.cols + x] = ford ? GROUND.ford : GROUND.water;
+          if (Math.abs(px - cx) < 18) this.kind[y * this.cols + x] = ford ? GROUND.ford : GROUND.water;
         }
       }
       this.clumps(2, GROUND.forest, 14, 22);
@@ -106,30 +109,32 @@ class Terrain {
       this.clumps(7, GROUND.mud, 16, 30);
       this.clumps(2, GROUND.forest, 12, 20);
     } else {
-      this.clumps(2, GROUND.forest, 12, 20);
+      this.clumps(3, GROUND.forest, 12, 20);
     }
 
     if (this.walls) {
-      // A stone wall in front of the defenders, with one open gate.
-      this.wallX = this.W - 112;
+      // The town sits behind a stone wall with two open gates.
+      this.wallX = W - 280;
       const wx = Math.floor(this.wallX / C);
-      const gates = [128 + Math.floor(rng() * 4) * 8];                   // one gate: attackers must squeeze through
+      const gates = [H * 0.3, H * 0.7].map(g => Math.round((g + (rng() - 0.5) * 60) / 8) * 8);
       this.gates = gates;
       for (let y = 0; y < this.rows; y++) {
         const py = y * C + 4;
         const i = y * this.cols + wx;
-        if (py < 30 || py > 262) continue;
-        if (gates.some(g => Math.abs(py - g) < 10)) { this.kind[i] = GROUND.grass; continue; }
+        if (py < 12 || py > H - 12) continue;
+        if (gates.some(g => Math.abs(py - g) < 12)) { this.kind[i] = GROUND.grass; continue; }
         this.kind[i] = GROUND.wall;
-        for (let k = 1; k <= 5; k++) this.cover[i + k] = DATA.ground.wall.behindCover;  // shelter behind the wall
+        for (let k = 1; k <= 6; k++) this.cover[i + k] = DATA.ground.wall.behindCover;  // shelter behind the wall
       }
-      // keep the ground right behind the wall clear so defenders can stand there
-      for (let y = 0; y < this.rows; y++) for (let x = wx + 1; x < this.cols; x++)
-        if (this.kind[y * this.cols + x] !== GROUND.grass && x < wx + 6) this.kind[y * this.cols + x] = GROUND.grass;
+      // inside the walls: clear ground for the town
+      for (let y = 0; y < this.rows; y++) for (let x = wx + 1; x < this.cols; x++) this.kind[y * this.cols + x] = GROUND.grass;
     }
     // never block the starting areas
-    for (let y = 0; y < this.rows; y++) for (let x = 0; x < this.cols; x++)
-      if ((x * C < 96 || x * C > this.W - 96) && this.kind[y * this.cols + x] === GROUND.water) this.kind[y * this.cols + x] = GROUND.grass;
+    for (let y = 0; y < this.rows; y++) for (let x = 0; x < this.cols; x++) {
+      const i = y * this.cols + x;
+      const k = this.kind[i];
+      if ((x * C < 200 || x * C > W - 200) && k !== GROUND.wall && k !== GROUND.forest && k !== GROUND.snow && k !== GROUND.sand) this.kind[i] = GROUND.grass;
+    }
   }
 
   // ---------------------------------------------------------------- drawing
@@ -196,7 +201,17 @@ class Terrain {
       const im = Art.deco(rockArt);
       ctx.drawImage(im, Math.round(x - 8), Math.round(y - im.height + 2));
     }
-    if (this.walls) this.drawWall(ctx);
+    if (this.walls) {
+      this.drawWall(ctx);
+      // the town itself, behind the wall
+      const style = (DATA.regions[this.region] || DATA.regions.free).building;
+      const r2 = makeRng(7);
+      for (let i = 0; i < 7; i++) {
+        const im = Art.building(style, i === 0 ? 2 : (i % 3 === 0 ? 1 : 0));
+        const x = this.wallX + 70 + (i % 3) * 70 + r2() * 20, y = this.H * (0.18 + Math.floor(i / 3) * 0.32) + r2() * 30 + 40;
+        ctx.drawImage(im, Math.round(x - 24), Math.round(y - 34));
+      }
+    }
   }
 
   drawWall(ctx) {
@@ -211,7 +226,7 @@ class Terrain {
       ctx.fillRect(x + (y % 2 ? 2 : 5), py - 3, 1, 5);
     }
     // gate posts
-    for (const g of this.gates) for (const gy of [g - 18, g + 8]) {
+    for (const g of this.gates) for (const gy of [g - 22, g + 12]) {
       ctx.fillStyle = '#2a2630'; ctx.fillRect(x - 2, gy - 2, C + 4, 12);
       ctx.fillStyle = '#6b4a2a'; ctx.fillRect(x - 1, gy - 1, C + 2, 10);
       ctx.fillStyle = '#8a6438'; ctx.fillRect(x - 1, gy - 1, C + 2, 1);

@@ -178,7 +178,10 @@ const Game = {
     return list.reduce((s, g) => s + this.genPower(g) * (!hasFront && DATA.roleOf(g.id) === 'back' ? DATA.roles.back.noFrontPower : 1), 0);
   },
   // Defenders fight better behind walls; the computer takes that into account.
-  defensePower(spot) { return this.armyPower(this.generalsAt(spot)) * (DATA.spots[spot].walls ? 1.3 : 1); },
+  defensePower(spot) {
+    const s = DATA.spots[spot];
+    return this.armyPower(this.generalsAt(spot)) * (s.walls ? 1.4 : 1) * (s.terrain === 'river' ? 1.25 : 1);
+  },
   terrainText(spot) {
     const s = DATA.spots[spot];
     const t = { plains: 'Open plains', forest: 'Forest: slows units, cover from arrows',
@@ -466,43 +469,8 @@ const Game = {
     });
   },
 
-  buildBattleHud() {
-    const b = this.battle;
-    const side = s => {
-      const f = b.factions[s];
-      return `<div class="bh-side bh-${s}"><div class="bh-name" style="color:${DATA.factions[f].color}">${DATA.factions[f].name}</div>
-        <div class="bh-gens" id="bh-gens-${s}"></div></div>`;
-    };
-    $('#battle-hud').innerHTML = `${side(0)}<div class="bh-mid"><div id="bh-time"></div>
-      <div class="bh-where">${b.opts.spotName}<br><span class="bh-terr">${b.terrain.describe()}</span></div></div>${side(1)}`;
-    const ctr = $('#battle-ctrl');
-    ctr.innerHTML = `<span class="muted">You are ${b.playerSide === 0 ? 'attacking' : 'defending'}:</span>
-      <button data-o="advance">Advance</button><button data-o="hold">Hold</button><button data-o="retreat">Retreat</button>
-      <span class="sep"></span><button data-s="1">x1</button><button data-s="2">x2</button><button data-s="4">x4</button>`;
-    const setOrder = o => { b.orders[b.playerSide] = o; this.updateBattleHud(true); };
-    ctr.querySelectorAll('[data-o]').forEach(bt => bt.onclick = () => {
-      if (bt.dataset.o !== 'retreat') return setOrder(bt.dataset.o);
-      modal('<h2>Retreat?</h2><p>Your units run for the edge of the field. Those who escape survive, but the battle is lost.</p>',
-        [['Retreat', () => setOrder('retreat')], ['Keep fighting', null]]);
-    });
-    ctr.querySelectorAll('[data-s]').forEach(bt => bt.onclick = () => { this.battleSpeed = +bt.dataset.s; this.updateBattleHud(true); });
-    this.updateBattleHud(true);
-  },
-
-  updateBattleHud(force) {
-    const b = this.battle; if (!b) return;
-    for (const s of [0, 1]) {
-      $('#bh-gens-' + s).innerHTML = b.sideInfo(s).map(x => `<div class="bh-gen ${x.alive ? '' : 'dead'}">
-        <img src="${Assets.portrait(x.id)}" title="${DATA.generals[x.id].name} Lv ${this.gens[x.id].level}"><div class="bh-bar"><i style="width:${x.hp * 100}%"></i></div>
-        <span>${x.troops}</span></div>`).join('');
-    }
-    const left = Math.max(0, Math.ceil(b.limit - b.time));
-    $('#bh-time').textContent = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
-    if (force) {
-      document.querySelectorAll('#battle-ctrl [data-o]').forEach(bt => bt.classList.toggle('on', b.orders[b.playerSide] === bt.dataset.o));
-      document.querySelectorAll('#battle-ctrl [data-s]').forEach(bt => bt.classList.toggle('on', this.battleSpeed === +bt.dataset.s));
-    }
-  },
+  buildBattleHud() { BattleUI.start(this.battle); },
+  updateBattleHud() { BattleUI.updateHud(); },
 
   // ======================================================== turns & computer players
   async endTurn() {

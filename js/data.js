@@ -13,7 +13,32 @@ window.DATA = {
   title: 'Composite War',
 
   startGold: 150,
-  battleTimeLimit: 120,          // seconds; when time runs out the defender holds
+  battleTimeLimit: 180,          // seconds; when time runs out the defender holds
+
+  // --- Battles ---------------------------------------------------------------
+  // The battlefield (world pixels), how far units see through the fog of war,
+  // and heroes' magic points (MP) for skills.
+  battle: {
+    width: 1120, height: 720,
+    vision: { soldier: 90, hero: 140, cavalry: 30, shooter: 25 },   // cavalry and shooters see further
+    mp: { base: 60, perLevel: 5, regen: 3, start: 0.6 },
+  },
+
+  // --- Hero skills -----------------------------------------------------------
+  // target: 'self' (around the hero) or 'ground' (click a spot within range).
+  // Damage, healing and buffs grow 6% per hero level. dur: seconds.
+  skills: {
+    charge:     { name: 'Charge',      mp: 30, cd: 15, target: 'self', dur: 4, desc: 'The squad sprints and its next blows hit twice as hard.' },
+    rally:      { name: 'Rally',       mp: 40, cd: 20, target: 'self', dur: 8, heal: 0.3, def: 2, desc: 'Heals the squad 30% and steadies it (+2 defence).' },
+    shieldwall: { name: 'Shield Wall', mp: 30, cd: 18, target: 'self', dur: 8, def: 4, spd: 0.5, desc: '+4 defence but half speed.' },
+    volley:     { name: 'Volley',      mp: 40, cd: 18, target: 'ground', range: 230, radius: 50, arrows: 14, dmg: 9, desc: 'A rain of arrows on an area.' },
+    eagleeye:   { name: 'Eagle Eye',   mp: 30, cd: 20, target: 'self', dur: 12, range: 40, view: 120, desc: 'The squad shoots further and sees much further.' },
+    meteor:     { name: 'Meteor',      mp: 60, cd: 25, target: 'ground', range: 210, radius: 45, dmg: 50, delay: 1, desc: 'A meteor strikes an area after a moment.' },
+    frostfield: { name: 'Frost Field', mp: 40, cd: 20, target: 'ground', range: 210, radius: 55, dur: 6, slow: 0.4, dps: 4, desc: 'Enemies in the area are slowed and chilled.' },
+    massheal:   { name: 'Mass Heal',   mp: 50, cd: 20, target: 'self', radius: 100, heal: 40, desc: 'Heals every ally nearby.' },
+    bless:      { name: 'Blessing',    mp: 40, cd: 22, target: 'self', radius: 100, dur: 10, atk: 1.3, desc: 'Allies nearby hit 30% harder.' },
+  },
+
 
   // --- Levels & experience ---------------------------------------------------
   // Generals earn XP in battle and level up. XP needed for the next level is
@@ -375,6 +400,16 @@ DATA.classOf = gid => {
   return ['shooter', 'artillery'].includes(ty) ? 'marksman' : ['mage', 'healer'].includes(ty) ? 'mage' : 'warrior';
 };
 DATA.roleOf = gid => DATA.heroClasses[DATA.classOf(gid)].role;
+// A hero's skills: set `skills` on the general, or from their class and troops.
+DATA.skillsOf = gid => {
+  const d = DATA.generals[gid];
+  if (d.skills) return d.skills;
+  const cls = DATA.classOf(gid), ty = DATA.units[d.leads].type;
+  if (cls === 'marksman') return ['volley', 'eagleeye'];
+  if (cls === 'mage') return ty === 'healer' ? ['massheal', 'bless'] : ['meteor', 'frostfield'];
+  return ty === 'cavalry' ? ['charge', 'rally'] : ['rally', 'shieldwall', 'charge'];
+};
+
 // Units a hero can recruit while serving faction f.
 DATA.recruitable = (gid, f) => {
   const types = DATA.heroClasses[DATA.classOf(gid)].types;
