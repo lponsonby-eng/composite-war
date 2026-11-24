@@ -38,6 +38,15 @@ squad can mix types. Cavalry charge for double damage after a run; spearmen (`an
 hit cavalry hard; artillery has long range and big blasts; healers mend the most hurt ally
 in reach. Set `cls` on a general to give them a different class.
 
+## Soldier levels and promotion
+Every soldier has a level. After a battle each survivor gains a level, another if their
+side won, and one per kill. At **level 15** a soldier is promoted to tier 2 (e.g. Knight →
+Knight Captain: +30% hp, +25% attack, +1 defence) and at **level 30** to tier 3 (Paladin:
++60% hp, +50% attack, +2 defence); every level also adds 1%. Promoted soldiers wear a
+silver pip (tier 2) or two gold pips (tier 3) in battle. Heroes of level 10+ can recruit
+veterans that start at level 15 for 3x the price. Dismissing removes the lowest-level
+soldier first. Tune it in `DATA.promotion` (tier names are in `DATA.promotion.names`).
+
 ## Frontline and backline
 Every unit type is **frontline** (melee) or **backline** (archers and casters); a general
 takes the role of the squad they lead. In battle the frontline deploys in front, holds up

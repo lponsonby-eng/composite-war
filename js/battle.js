@@ -37,28 +37,31 @@ class Battle {
       const dirX = side === 0 ? 1 : -1;
       const baseX = side === 0 ? depth : this.W - depth;
       this.units.push(this.makeUnit(g, side, true, baseX, cy));
-      const mix = g.mix || [];
+      const mix = g.mix || [], lv = g.lv || [];
       for (let k = 0; k < g.troops; k++) {
         const col = Math.floor(k / 3), row = (k % 3) - 1;
-        this.units.push(this.makeUnit(g, side, false, baseX + dirX * (20 + col * 13), cy + row * 13 + (col % 2) * 3, mix[k]));
+        const u = this.makeUnit(g, side, false, baseX + dirX * (20 + col * 13), cy + row * 13 + (col % 2) * 3, mix[k], lv[k] || 1);
+        this.units.push(u);
       }
     });
   }
 
   // A soldier of unit type `type` (default: the type the general leads), or the general.
-  makeUnit(g, side, isLeader, x, y, type) {
+  makeUnit(g, side, isLeader, x, y, type, slv = 1) {
     const t = DATA.units[(!isLeader && type) || DATA.generals[g.id].leads];
     const L = DATA.leveling, lv = (g.level || 1) - 1;
     const boost = 1 + lv * (isLeader ? L.leaderBonus : L.squadBonus);
-    const hp = Math.round((isLeader ? t.hp * 5 : t.hp) * boost);
+    const sb = isLeader ? { hp: 1, atk: 1, def: 0 } : DATA.soldierBoost(slv);       // soldier level and tier
+    const hp = Math.round((isLeader ? t.hp * 5 : t.hp) * boost * sb.hp);
     return {
       side, gid: g.id, isLeader, t, back: isLeader ? DATA.roleOf(g.id) === 'back' : t.role === 'back',
       heal: t.type === 'healer', cav: t.type === 'cavalry', run: 0,
       sprite: isLeader ? Assets.genSprite(g.id) : Assets.unitSprite(t),
       x, y, homeX: x, homeY: y,
       hp, maxHp: hp,
-      atk: (isLeader ? t.atk * 1.6 : t.atk) * boost,
-      def: isLeader ? t.def + 2 : t.def,
+      atk: (isLeader ? t.atk * 1.6 : t.atk) * boost * sb.atk,
+      def: isLeader ? t.def + 2 : t.def + sb.def,
+      lv: slv, tier: isLeader ? 0 : DATA.tierOf(slv), kills: 0,
       spd: t.spd, range: t.range, cd: t.cd,
       cdLeft: Math.random() * t.cd, retarget: Math.random() * 0.3,
       target: null, dir: side === 0 ? 3 : 2, walkT: Math.random(), atkT: 0, hitT: 0,
@@ -173,10 +176,10 @@ class Battle {
         p.dead = true;
         if (p.splash) {
           this.addFx('fire', p.tx, p.ty, 0.4);
-          for (const v of this.units) if (v.alive && !v.escaped && v.side !== p.side && Math.hypot(v.x - p.tx, v.y - 6 - p.ty) <= p.splash) this.damage(v, p.dmg, p.gid, true);
+          for (const v of this.units) if (v.alive && !v.escaped && v.side !== p.side && Math.hypot(v.x - p.tx, v.y - 6 - p.ty) <= p.splash) this.damage(v, p.dmg, p.gid, true, p.src);
         } else if (p.tg.alive) {
           this.addFx('hit', p.tx, p.ty, 0.25);
-          this.damage(p.tg, p.dmg, p.gid, true);
+          this.damage(p.tg, p.dmg, p.gid, true, p.src);
         }
       } else { p.x += dx / d * step; p.y += dy / d * step; }
     }
@@ -287,17 +290,17 @@ class Battle {
     if (u.back) dmg *= R.power;                                    // shooting from safety hits hard...
     if (u.back && u.closestD < R.exposedRange) dmg *= R.meleePenalty;   // ...but caught in melee, much less
     if (u.t.proj) {
-      this.projs.push({ x: u.x, y: u.y - 6, tx: tg.x, ty: tg.y - 6, tg, side: u.side, gid: u.gid, dmg,
+      this.projs.push({ x: u.x, y: u.y - 6, tx: tg.x, ty: tg.y - 6, tg, side: u.side, gid: u.gid, src: u, dmg,
         splash: u.t.splash || 0, img: u.t.proj, speed: u.t.splash ? 120 : 170, angle: 0 });
       if (!this.headless && u.t.splash) Assets.sfx('magic-1', 0.25);
     } else {
       this.addFx('slash', tg.x, tg.y - 6, 0.25);
       if (!this.headless) Assets.sfx('sword', 0.3);
-      this.damage(tg, dmg, u.gid);
+      this.damage(tg, dmg, u.gid, false, u);
     }
   }
 
-  damage(v, amount, byGid, ranged) {
+  damage(v, amount, byGid, ranged, src) {
     if (!v.alive) return;
     if (ranged) amount *= 1 - this.terrain.coverAt(v.x, v.y);
     const fort = v.side === 1 && this.terrain.walls && v.x > this.terrain.wallX ? DATA.ground.wall.fortify : 0;
@@ -308,6 +311,7 @@ class Battle {
     if (v.hp <= 0) {
       v.alive = false;
       if (byGid) this.xp[byGid] = (this.xp[byGid] || 0) + (v.isLeader ? DATA.leveling.killGeneral : DATA.leveling.killSoldier);
+      if (src) src.kills++;
       this.addFx('smoke', v.x, v.y - 6, 0.5);
       if (!this.headless) Assets.sfx('kill', 0.35);
       if (v.isLeader) {
@@ -329,7 +333,10 @@ class Battle {
       const L = DATA.leveling, won = (side === 0) === (winnerSide === 0);
       const xp = (this.xp[g.id] || 0) + L.fought + (won ? L.won : 0);
       const ok = leader.alive || leader.escaped;
-      return { id: g.id, alive: ok, troops: ok ? troops : 0, mix: ok ? left.map(u => u.t.id) : [], before: g.troops, xp };
+      const P = DATA.promotion;
+      const lv = left.map(u => Math.min(P.maxLevel, u.lv + P.survive + (won ? P.win : 0) + u.kills * P.kill));
+      return { id: g.id, alive: ok, troops: ok ? troops : 0, mix: ok ? left.map(u => u.t.id) : [], lv: ok ? lv : [],
+        promoted: ok ? left.map((u, i) => DATA.tierOf(lv[i]) > u.tier ? DATA.unitName(u.t.id, lv[i]) : null).filter(Boolean) : [], before: g.troops, xp };
     });
     this.result = { winner: this.winner, att: res(0), def: res(1), timeout: this.time >= this.limit };
   }
@@ -417,6 +424,10 @@ class Battle {
         hpBar(ctx, u.x - 7, u.y - 18, 14, u.hp / u.maxHp, '#ffd84a');
       } else if (u.hp < u.maxHp) {
         hpBar(ctx, u.x - 5, u.y - 17, 10, u.hp / u.maxHp, u.side === 0 ? '#7cf07c' : '#ff7a6a');
+      }
+      if (u.tier > 1) {                                   // promoted soldiers: silver pip (tier 2), two gold pips (tier 3)
+        const col = u.tier === 3 ? '#ffd84a' : '#d8e0ec', px = Math.round(u.x) + 5, py = Math.round(u.y) - 15;
+        for (let k = 0; k < u.tier - 1; k++) { ctx.fillStyle = '#1a1020'; ctx.fillRect(px - 1, py - 1 + k * 3, 4, 4); ctx.fillStyle = col; ctx.fillRect(px, py + k * 3, 2, 2); }
       }
     }
     for (const p of this.projs) {

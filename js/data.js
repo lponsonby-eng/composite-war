@@ -180,6 +180,34 @@ window.DATA = {
   },
   antiCavMul: 1.6,
 
+  // --- Soldier levels and promotion -------------------------------------------
+  // Every soldier has a level. After a battle each survivor gains `survive` levels,
+  // `win` more if their side won, and `kill` per enemy they killed. At level 15 a
+  // soldier is promoted to tier 2, at level 30 to tier 3. Each tier multiplies hp
+  // and attack and adds defence; every level also adds `perLevel` to hp and attack.
+  // Heroes of level `veteranHeroLevel` or more can recruit soldiers that start at
+  // level 15 (tier 2) for `veteranCost` times the price.
+  promotion: {
+    tierLevels: [15, 30], maxLevel: 40,
+    tiers: [{ hp: 1, atk: 1, def: 0 }, { hp: 1.3, atk: 1.25, def: 1 }, { hp: 1.6, atk: 1.5, def: 2 }],
+    perLevel: 0.01,
+    survive: 1, win: 1, kill: 1,
+    veteranHeroLevel: 10, veteranCost: 3,
+    // Tier 2 and 3 names; any unit not listed becomes "Veteran ..." and "Elite ...".
+    names: {
+      knight: ['Knight Captain', 'Paladin'], lancer: ['Cuirassier', 'Royal Lancer'], archer: ['Longbowman', 'Master Archer'],
+      cannon: ['Field Gun', 'Great Cannon'], mage: ['Battlemage', 'Archmage'], cleric: ['Priest', 'High Priest'],
+      yeti: ['Great Yeti', 'Yeti King'], hunter: ['Frost Stalker', 'Winter Sniper'], shaman: ['Frost Seer', 'Snow Oracle'],
+      ranger: ['Pathfinder', 'Forest Warden'], witch: ['Hex Witch', 'Coven Mother'], druid: ['Grove Keeper', 'Archdruid'],
+      ashigaru: ['Spear Sergeant', 'Samurai'], brawler: ['Bruiser', 'Champion'], flame: ['Blaze Spirit', 'Inferno'],
+      ninja: ['Shinobi', 'Shadow Master'], skeleton: ['Bone Warrior', 'Death Knight'], ghost: ['Wraith', 'Banshee'],
+      slime: ['Big Slime', 'King Slime'], beast: ['Bog Brute', 'Bog Titan'], thorn: ['Briar Shooter', 'Thorn Lord'],
+      fishfolk: ['Reef Guard', 'Tide Champion'], tidemage: ['Wave Caller', 'Storm Tide'], crystal: ['Prism Eye', 'Diamond Eye'],
+      nomad: ['Dune Lancer', 'Desert Lion'], sunguard: ['Sun Sentinel', 'Solar Paladin'], hawk: ['Blaze Hawk', 'Phoenix'],
+      militia: ['Town Guard', 'Captain of the Watch'],
+    },
+  },
+
   // --- Hero classes: what a hero can recruit ----------------------------------
   // A hero's class comes from the unit type they lead (or set `cls` on the general).
   // They can recruit their faction's units of the listed types (see rosters).
@@ -325,6 +353,20 @@ for (const [id, t] of Object.entries(DATA.units)) {
   if (!t.type) t.type = t.range > 30 ? 'shooter' : 'infantry';
   if (!t.role) t.role = DATA.unitTypes[t.type].role;
 }
+// Soldier tiers: 1, 2 or 3 from a soldier's level; and the name of a unit at a tier.
+DATA.tierOf = lv => 1 + DATA.promotion.tierLevels.filter(l => (lv || 1) >= l).length;
+DATA.unitName = (type, lv) => {
+  const t = DATA.tierOf(lv), u = DATA.units[type];
+  if (t === 1) return u.name;
+  const n = DATA.promotion.names[type];
+  return n ? n[t - 2] : (t === 2 ? 'Veteran ' : 'Elite ') + u.name;
+};
+// Stat multipliers for a soldier of level lv.
+DATA.soldierBoost = lv => {
+  const P = DATA.promotion, T = P.tiers[DATA.tierOf(lv) - 1], k = 1 + ((lv || 1) - 1) * P.perLevel;
+  return { hp: T.hp * k, atk: T.atk * k, def: T.def };
+};
+
 // A hero's class: set with `cls`, or from the type of unit they lead.
 DATA.classOf = gid => {
   const d = DATA.generals[gid];

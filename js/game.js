@@ -32,7 +32,7 @@ const Game = {
   placeGenerals() {
     const place = (gid, spot) => {
       const g = DATA.generals[gid];
-      this.gens[gid] = { id: gid, faction: g.faction, spot, troops: g.troops, mix: Array(g.troops).fill(g.leads), acted: false, alive: true, level: g.level || 1, xp: 0 };
+      this.gens[gid] = { id: gid, faction: g.faction, spot, troops: g.troops, mix: Array(g.troops).fill(g.leads), lv: Array(g.troops).fill(1), acted: false, alive: true, level: g.level || 1, xp: 0 };
     };
     for (const [id, s] of Object.entries(DATA.spots)) for (const gid of s.gens || []) place(gid, id);
     const unplaced = f => Object.keys(DATA.generals).filter(gid => DATA.generals[gid].faction === f && !this.gens[gid] && !DATA.generals[gid].captain);
@@ -77,6 +77,7 @@ const Game = {
         if (!g.level) g.level = DATA.generals[g.id].level || 1;
         if (g.xp == null) g.xp = 0;
         if (!g.mix) g.mix = Array(g.troops).fill(DATA.generals[g.id].leads);
+        if (!g.lv) g.lv = Array(g.mix.length).fill(1);
       }
       this.startMap();
       this.log('Game loaded.');
@@ -110,7 +111,7 @@ const Game = {
   genPower(g) {
     const p = this.unitPower(DATA.generals[g.id].leads), L = DATA.leveling, lv = (g.level || 1) - 1;
     const lead = (1 + lv * L.leaderBonus) ** 2, squad = (1 + lv * L.squadBonus) ** 2;   // hp and attack both scale
-    return p * 8 * lead + (g.mix || []).reduce((s, u) => s + this.unitPower(u), 0) * squad;
+    return p * 8 * lead + (g.mix || []).reduce((s, u, i) => { const b = DATA.soldierBoost((g.lv || [])[i]); return s + this.unitPower(u) * b.hp * b.atk; }, 0) * squad;
   },
 
   // ======================================================== levels
@@ -133,7 +134,7 @@ const Game = {
   // Turns a general into a wanderer at a random town (other than `avoid`).
   makeWanderer(g, avoid) {
     const towns = Object.keys(this.spots).filter(id => id !== avoid);
-    g.free = true; g.faction = null; g.troops = 0; g.mix = []; g.acted = false;
+    g.free = true; g.faction = null; g.troops = 0; g.mix = []; g.lv = []; g.acted = false;
     g.spot = towns[Math.floor(Math.random() * towns.length)];
     g.stay = this.stayTurns();
   },
@@ -165,7 +166,7 @@ const Game = {
     const pool = Object.keys(DATA.wanderers).filter(id => !this.gens[id]);
     if (pool.length && this.wanderers().length < H.maxOnMap && Math.random() < H.appearChance) {
       const id = pool[Math.floor(Math.random() * pool.length)], d = DATA.generals[id];
-      const g = this.gens[id] = { id, faction: null, troops: 0, mix: [], acted: false, alive: true, level: d.level || 1, xp: 0 };
+      const g = this.gens[id] = { id, faction: null, troops: 0, mix: [], lv: [], acted: false, alive: true, level: d.level || 1, xp: 0 };
       this.makeWanderer(g);
       const mine = this.spots[g.spot].owner === this.player;
       this.log(`A wandering ${DATA.units[d.leads].name.toLowerCase()}, ${d.name} (Lv ${g.level}), has appeared at ${DATA.spots[g.spot].name}.${mine ? ' Hire them!' : ''}`, mine ? 'good' : 'muted');
@@ -239,7 +240,14 @@ const Game = {
     const ok = DATA.recruitable(g.id, g.faction), d = DATA.generals[g.id];
     return ok.includes(g.pref) ? g.pref : ok.includes(d.leads) ? d.leads : ok[0];
   },
-  addSoldier(g, type) { g.mix.push(type); g.troops = g.mix.length; },
+  addSoldier(g, type, lv = 1) { g.mix.push(type); (g.lv = g.lv || []).push(lv); g.troops = g.mix.length; },
+  // Dismiss the lowest-level soldier of a type (veterans are kept).
+  dismissSoldier(g, type) {
+    let best = -1;
+    g.mix.forEach((u, i) => { if (u === type && (best < 0 || (g.lv[i] || 1) < (g.lv[best] || 1))) best = i; });
+    if (best >= 0) { g.mix.splice(best, 1); g.lv.splice(best, 1); g.troops = g.mix.length; }
+  },
+  canBuyVeterans(g) { return g.level >= DATA.promotion.veteranHeroLevel; },
   recruitCost(list) {
     return list.reduce((s, g) => s + (DATA.generals[g.id].max - g.troops) * DATA.units[this.prefType(g)].cost, 0);
   },
@@ -265,6 +273,7 @@ const Game = {
     const draw = () => {
       const gold = this.gold[this.player], room = d.max - g.troops;
       const counts = {}; for (const u of g.mix) counts[u] = (counts[u] || 0) + 1;
+      const P = DATA.promotion, vet = this.canBuyVeterans(g);
       const rows = DATA.recruitable(gid, this.player).map(id => {
         const u = DATA.units[id], ty = DATA.unitTypes[u.type];
         const extra = [u.splash ? 'area damage' : '', u.antiCav ? 'anti-cavalry' : '', u.type === 'cavalry' ? 'charge' : '', u.type === 'healer' ? 'heals allies' : ''].filter(Boolean).join(', ');
@@ -273,9 +282,10 @@ const Game = {
           <td><b>${u.name}</b><br><span class="role ${ty.role}">${ty.name}</span> <span class="muted">${extra}</span></td>
           <td class="st">HP ${u.hp}<br>${u.type === 'healer' ? 'Heal' : 'Atk'} ${u.atk} Def ${u.def}<br>Range ${u.range}</td>
           <td class="st">${u.cost}g</td>
-          <td>${counts[id] ? `<button data-dis="${id}" title="Dismiss one">-</button>` : ''} <b>${counts[id] || 0}</b>
+          <td>${counts[id] ? `<button data-dis="${id}" title="Dismiss one (lowest level first)">-</button>` : ''} <b>${counts[id] || 0}</b>
             <button data-add="${id}" ${room < 1 || gold < u.cost ? 'disabled' : ''}>+1</button>
-            <button data-fill="${id}" ${room < 1 || gold < u.cost ? 'disabled' : ''}>Fill</button></td></tr>`;
+            <button data-fill="${id}" ${room < 1 || gold < u.cost ? 'disabled' : ''}>Fill</button>
+            ${vet ? `<br><button data-vet="${id}" ${room < 1 || gold < u.cost * P.veteranCost ? 'disabled' : ''} title="Starts at level ${P.tierLevels[0]}">+1 ${DATA.unitName(id, P.tierLevels[0])} ${u.cost * P.veteranCost}g</button>` : ''}</td></tr>`;
       }).join('');
       // soldiers of types this general can no longer recruit (e.g. after changing sides)
       const others = Object.keys(counts).filter(id => !DATA.recruitable(gid, this.player).includes(id))
@@ -283,6 +293,9 @@ const Game = {
       m.innerHTML = `<div class="box rec"><h2>Recruit for ${d.name}</h2>
         <p><span class="role ${cls.role}">${cls.name}</span> ${cls.blurb}</p>
         <p class="muted">Squad ${g.troops}/${d.max} - Gold ${gold}. Fill sets the type the quick Recruit button uses.</p>
+        <p class="muted">Squad: ${squadText(g, true) || 'empty'}</p>
+        <p class="muted">Soldiers level up in battle and are promoted at level ${P.tierLevels[0]} and ${P.tierLevels[1]}.
+          ${vet ? `As a level ${g.level} hero, ${d.name} can also recruit veterans.` : `From hero level ${P.veteranHeroLevel}, ${d.name} can recruit veterans.`}</p>
         <table class="rect">${rows}</table>${others ? `<p class="muted">Other troops: ${others}</p>` : ''}
         <div class="mbtns"><button data-close>Done</button></div></div>`;
       m.hidden = false;
@@ -292,10 +305,14 @@ const Game = {
         Assets.sfx('gold-1', 0.4); this.refreshTop(); draw();
       };
       m.querySelectorAll('[data-add]').forEach(b => b.onclick = () => buy(b.dataset.add, 1));
+      m.querySelectorAll('[data-vet]').forEach(b => b.onclick = () => {
+        const id = b.dataset.vet, c = DATA.units[id].cost * DATA.promotion.veteranCost;
+        if (g.troops < d.max && this.gold[this.player] >= c) { this.addSoldier(g, id, DATA.promotion.tierLevels[0]); this.gold[this.player] -= c; }
+        Assets.sfx('gold-1', 0.4); this.refreshTop(); draw();
+      });
       m.querySelectorAll('[data-fill]').forEach(b => b.onclick = () => { g.pref = b.dataset.fill; buy(b.dataset.fill, 99); });
       m.querySelectorAll('[data-dis]').forEach(b => b.onclick = () => {
-        const i = g.mix.lastIndexOf(b.dataset.dis);
-        if (i >= 0) { g.mix.splice(i, 1); g.troops = g.mix.length; }
+        this.dismissSoldier(g, b.dataset.dis);
         draw();
       });
       m.querySelector('[data-close]').onclick = () => { m.hidden = true; this.renderPanel(); };
@@ -349,9 +366,9 @@ const Game = {
     att.forEach(g => g.acted = true);
     let result;
     if (def.length === 0) {
-      result = { winner: 'att', att: att.map(g => ({ id: g.id, alive: true, troops: g.troops, mix: g.mix.slice(), before: g.troops, xp: DATA.leveling.capture })), def: [] };
+      result = { winner: 'att', att: att.map(g => ({ id: g.id, alive: true, troops: g.troops, mix: g.mix.slice(), lv: g.lv.slice(), before: g.troops, xp: DATA.leveling.capture })), def: [] };
     } else {
-      const army = list => list.map(g => ({ id: g.id, troops: g.troops, mix: g.mix.slice(), level: g.level }));
+      const army = list => list.map(g => ({ id: g.id, troops: g.troops, mix: g.mix.slice(), lv: g.lv.slice(), level: g.level }));
       const battle = new Battle({ attackers: army(att), defenders: army(def), attFaction: attF, defFaction: defF,
         spotName, spotId: to, playerSide, headless: !playerSide });
       result = playerSide ? await this.playBattle(battle) : battle.runHeadless();
@@ -365,7 +382,12 @@ const Game = {
     const fallen = [];
     for (const x of r.att.concat(r.def)) {
       const g = this.gens[x.id];
-      g.troops = x.troops; g.mix = x.mix || [];
+      g.troops = x.troops; g.mix = x.mix || []; g.lv = x.lv || g.mix.map(() => 1);
+      if (x.promoted && x.promoted.length && g.faction === this.player) {
+        const c = {}; for (const n of x.promoted) c[n] = (c[n] || 0) + 1;
+        this.log(`${DATA.generals[x.id].name}'s soldiers promoted: ${Object.entries(c).map(([n, k]) => `${k} ${n}`).join(', ')}!`, 'good');
+        Assets.sfx('power-up', 0.4);
+      }
       if (!x.alive) fallen.push(DATA.generals[x.id].name);
       const before = g.level;
       x.levelUp = this.gainXp(g, x.xp || 0);
@@ -429,7 +451,7 @@ const Game = {
         const rows = list => list.map(x => {
           const g = this.gens[x.id], ups = levelsFrom(g, x.xp);
           return `<tr><td>${DATA.generals[x.id].name} <span class="lv">Lv ${g.level}</span></td><td>${x.before} &gt; ${x.troops} troops</td>
-            <td>+${x.xp} XP${ups ? ` <span class="good">Level up!</span>` : ''}${x.alive ? '' : ' <span class="bad">fallen</span>'}</td></tr>`;
+            <td>+${x.xp} XP${ups ? ` <span class="good">Level up!</span>` : ''}${x.promoted && x.promoted.length ? ` <span class="good">${x.promoted.length} promoted</span>` : ''}${x.alive ? '' : ' <span class="bad">fallen</span>'}</td></tr>`;
         }).join('');
         modal(`<h2 class="${won ? 'good' : 'bad'}">${won ? 'Victory!' : 'Defeat'}</h2>
           ${r.timeout ? '<p class="muted">Time ran out: the defenders hold.</p>' : ''}
@@ -536,6 +558,10 @@ const Game = {
       while (g.troops < DATA.generals[g.id].max) {
         // mostly the hero's own type, with some of the others mixed in
         let type = Math.random() < 0.55 ? pref : ok[Math.floor(Math.random() * ok.length)];
+        const vc = DATA.units[type].cost * DATA.promotion.veteranCost;
+        if (this.canBuyVeterans(g) && this.gold[f] >= vc + 300) {         // rich: hire a veteran
+          this.addSoldier(g, type, DATA.promotion.tierLevels[0]); this.gold[f] -= vc; continue;
+        }
         if (this.gold[f] < DATA.units[type].cost) type = ok.filter(u => DATA.units[u].cost <= this.gold[f]).sort((a, b) => DATA.units[a].cost - DATA.units[b].cost)[0];
         if (!type) break;
         this.addSoldier(g, type); this.gold[f] -= DATA.units[type].cost;
@@ -772,11 +798,14 @@ function roleTag(gid) {
   return `<span class="role ${c.role}" title="${c.name} (${DATA.roles[c.role].name}): ${c.blurb}">${c.name}</span>`;
 }
 
-// "Knight x4, Lancer x2"
-function squadText(g) {
-  const counts = {};
-  for (const u of g.mix || []) counts[u] = (counts[u] || 0) + 1;
-  return Object.entries(counts).map(([u, n]) => `${DATA.units[u].name} x${n}`).join(', ');
+// "Knight x4, Paladin x1" (promoted soldiers under their tier name; with levels, the average level)
+function squadText(g, levels) {
+  const counts = {}, sum = {};
+  (g.mix || []).forEach((u, i) => {
+    const lv = (g.lv || [])[i] || 1, n = DATA.unitName(u, lv);
+    counts[n] = (counts[n] || 0) + 1; sum[n] = (sum[n] || 0) + lv;
+  });
+  return Object.entries(counts).map(([n, k]) => `${n} x${k}${levels ? ` (Lv ${Math.round(sum[n] / k)})` : ''}`).join(', ');
 }
 
 // One line about an army's formation, with a warning when the backline is unprotected.
