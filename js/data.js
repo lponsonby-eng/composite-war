@@ -247,16 +247,19 @@ window.DATA = {
   },
 
   // Which units each faction can field.
+  // Which units each faction can field, with hiring weights (as in Vahren-style
+  // games: "infantry*4, artillery*2..."). Weights decide how computer armies are
+  // made up and the "Faction mix" button; 4+ is common, 2-3 uncommon, 1 rare.
   rosters: {
-    aster:   ['knight', 'lancer', 'archer', 'cannon', 'mage', 'cleric'],
-    frost:   ['warden', 'yeti', 'bearrider', 'hunter', 'frosteye', 'shaman'],
-    thorn:   ['beetle', 'stagrider', 'ranger', 'mortar', 'witch', 'druid'],
-    ember:   ['ashigaru', 'brawler', 'emberider', 'firecannon', 'flame'],
-    shadow:  ['skeleton', 'nightmare', 'ninja', 'ghost', 'bonepriest'],
-    horde:   ['slime', 'beast', 'boarrider', 'thorn', 'bogshaman'],
-    azure:   ['fishfolk', 'bulwark', 'waverider', 'crystal', 'catapult', 'tidemage', 'seapriest'],
-    sun:     ['nomad', 'sunguard', 'camelrider', 'hawk', 'suncannon', 'sunpriest'],
-    neutral: ['militia', 'bandit', 'frogman'],
+    aster:   { knight: 4, archer: 4, lancer: 2, cannon: 2, cleric: 2, mage: 1 },
+    frost:   { yeti: 4, hunter: 4, warden: 3, bearrider: 2, frosteye: 2, shaman: 1 },
+    thorn:   { ranger: 5, beetle: 3, witch: 3, stagrider: 2, druid: 2, mortar: 1 },
+    ember:   { ashigaru: 5, brawler: 3, emberider: 3, flame: 3, firecannon: 2 },
+    shadow:  { skeleton: 5, ninja: 4, ghost: 3, nightmare: 2, bonepriest: 1 },
+    horde:   { slime: 4, beast: 3, boarrider: 3, thorn: 3, bogshaman: 2 },
+    azure:   { fishfolk: 4, crystal: 3, tidemage: 3, bulwark: 2, waverider: 2, seapriest: 2, catapult: 1 },
+    sun:     { nomad: 4, camelrider: 4, sunguard: 3, hawk: 3, suncannon: 2, sunpriest: 1 },
+    neutral: { militia: 5, bandit: 3, frogman: 2 },
   },
 
   // --- Generals ------------------------------------------------------------
@@ -419,6 +422,17 @@ DATA.classOf = gid => {
   return ['shooter', 'artillery'].includes(ty) ? 'marksman' : ['mage', 'healer'].includes(ty) ? 'mage' : 'warrior';
 };
 DATA.roleOf = gid => DATA.heroClasses[DATA.classOf(gid)].role;
+// Hiring weight of a unit for faction f (0 if not on the roster), and its label.
+DATA.weightOf = (f, u) => (DATA.rosters[f] || {})[u] || 0;
+DATA.rarity = w => w >= 4 ? 'Common' : w >= 2 ? 'Uncommon' : 'Rare';
+// Picks a unit from `list` at random by faction f's weights (bonus: extra weight for one type).
+DATA.pickWeighted = (f, list, bonus, rnd = Math.random) => {
+  const ws = list.map(u => Math.max(1, DATA.weightOf(f, u)) * (u === bonus ? 2 : 1));
+  let r = rnd() * ws.reduce((a, b) => a + b, 0);
+  for (let i = 0; i < list.length; i++) if ((r -= ws[i]) < 0) return list[i];
+  return list[list.length - 1];
+};
+
 // A hero's skills: set `skills` on the general, or from their class and troops.
 // --- Signature abilities ------------------------------------------------------
 // Every hero gets two abilities of their own, rolled at random when they first
@@ -496,9 +510,10 @@ DATA.skillsOf = gid => {
 // Units a hero can recruit while serving faction f.
 DATA.recruitable = (gid, f) => {
   const d = DATA.generals[gid];
-  if (d.lord && d.faction === f) return (DATA.rosters[f] || [d.leads]).slice();   // the lord can field anything the faction has
+  const roster = Object.keys(DATA.rosters[f] || {});
+  if (d.lord && d.faction === f) return roster.length ? roster : [d.leads];   // the lord can field anything the faction has
   const types = DATA.heroClasses[DATA.classOf(gid)].types;
-  const list = (DATA.rosters[f] || []).filter(u => types.includes(DATA.units[u].type));
+  const list = roster.filter(u => types.includes(DATA.units[u].type));
   return list.length ? list : [DATA.generals[gid].leads];
 };
 

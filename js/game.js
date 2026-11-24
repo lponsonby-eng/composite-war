@@ -330,7 +330,7 @@ const Game = {
         const extra = [u.splash ? 'area damage' : '', u.antiCav ? 'anti-cavalry' : '', u.type === 'cavalry' ? 'charge' : '', u.type === 'healer' ? 'heals allies' : ''].filter(Boolean).join(', ');
         return `<tr class="${g.pref === id || (!g.pref && d.leads === id) ? 'pref' : ''}">
           <td><img class="uico" src="${Assets.unitIcon(id)}"></td>
-          <td><b>${u.name}</b><br><span class="role ${ty.role}">${ty.name}</span> <span class="muted">${extra}</span></td>
+          <td><b>${u.name}</b> <span class="rar r${DATA.rarity(DATA.weightOf(this.player, id))[0]}">${DATA.rarity(DATA.weightOf(this.player, id))}</span><br><span class="role ${ty.role}">${ty.name}</span> <span class="muted">${extra}</span></td>
           <td class="st">HP ${u.hp}<br>${u.type === 'healer' ? 'Heal' : 'Atk'} ${u.atk} Def ${u.def}<br>Range ${u.range}</td>
           <td class="st">${u.cost}g</td>
           <td>${counts[id] ? `<button data-dis="${id}" title="Dismiss one (lowest level first)">-</button>` : ''} <b>${counts[id] || 0}</b>
@@ -350,6 +350,8 @@ const Game = {
           <span class="muted">${g.level >= DATA.signature.levels[t] ? 'learned' : 'at level ' + DATA.signature.levels[t]} - ${s.desc} ${DATA.sigText(s)}</span></div>`).join('')}</div>
         <p class="muted">Soldiers level up in battle and are promoted at level ${P.tierLevels[0]} and ${P.tierLevels[1]}.
           ${vet ? `As a level ${g.level} hero, ${d.name} can also recruit veterans.` : `From hero level ${P.veteranHeroLevel}, ${d.name} can recruit veterans.`}</p>
+        ${DATA.recruitable(gid, this.player).length > 1 ? `<p><button data-mix ${room < 1 ? 'disabled' : ''}>Fill with faction mix</button>
+          <span class="muted">${Object.entries(DATA.rosters[this.player] || {}).filter(([u]) => DATA.recruitable(gid, this.player).includes(u)).map(([u, w]) => `${DATA.units[u].name} ${w}`).join(', ')}</span></p>` : ''}
         <table class="rect">${rows}</table>${others ? `<p class="muted">Other troops: ${others}</p>` : ''}
         <div class="mbtns"><button data-close>Done</button></div></div>`;
       m.hidden = false;
@@ -359,6 +361,21 @@ const Game = {
         Assets.sfx('gold-1', 0.4); this.refreshTop(); draw();
       };
       m.querySelectorAll('[data-add]').forEach(b => b.onclick = () => buy(b.dataset.add, 1));
+      const mixBtn = m.querySelector('[data-mix]');
+      if (mixBtn) mixBtn.onclick = () => {                  // fill the free slots in the faction's usual proportions
+        const ok = DATA.recruitable(gid, this.player), want = {}, have = {};
+        for (const u of g.mix) have[u] = (have[u] || 0) + 1;
+        const total = ok.reduce((s, u) => s + Math.max(1, DATA.weightOf(this.player, u)), 0);
+        for (const u of ok) want[u] = Math.max(1, DATA.weightOf(this.player, u)) / total * d.max;
+        let bought = 0;
+        while (g.troops < d.max) {
+          const u = ok.filter(x => this.gold[this.player] >= DATA.units[x].cost).sort((a, b) => ((have[a] || 0) - want[a]) - ((have[b] || 0) - want[b]))[0];
+          if (!u) break;
+          this.addSoldier(g, u); this.gold[this.player] -= DATA.units[u].cost; have[u] = (have[u] || 0) + 1; bought++;
+        }
+        if (bought) Assets.sfx('gold-1', 0.4);
+        this.refreshTop(); draw();
+      };
       m.querySelectorAll('[data-vet]').forEach(b => b.onclick = () => {
         const id = b.dataset.vet, c = DATA.units[id].cost * DATA.promotion.veteranCost;
         if (g.troops < d.max && this.gold[this.player] >= c) { this.addSoldier(g, id, DATA.promotion.tierLevels[0]); this.gold[this.player] -= c; }
@@ -590,8 +607,8 @@ const Game = {
     for (const g of gens) {
       const ok = DATA.recruitable(g.id, f), pref = this.prefType(g);
       while (g.troops < DATA.generals[g.id].max) {
-        // mostly the hero's own type, with some of the others mixed in
-        let type = Math.random() < 0.55 ? pref : ok[Math.floor(Math.random() * ok.length)];
+        // by the faction's hiring weights (the hero's own type counts double)
+        let type = DATA.pickWeighted(f, ok, pref);
         const vc = DATA.units[type].cost * DATA.promotion.veteranCost;
         if (this.canBuyVeterans(g) && this.gold[f] >= vc + 300) {         // rich: hire a veteran
           this.addSoldier(g, type, DATA.promotion.tierLevels[0]); this.gold[f] -= vc; continue;
