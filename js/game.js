@@ -132,9 +132,11 @@ const Game = {
 
   // ======================================================== persuasion
   // Gold it takes to win general g over (null if they cannot be persuaded).
+  // A general is cornered when no neighbouring town belongs to their own side.
+  cornered(g) { return !this.neighbors(g.spot).some(n => this.spots[n].owner === g.faction); },
   persuadeCost(g) {
     const d = DATA.generals[g.id], P = DATA.persuade;
-    if (d.lord || g.free || !g.alive) return null;
+    if (d.lord || g.free || !g.alive || !this.cornered(g)) return null;
     const mul = d.captain ? P.captainMul : DATA.factions[g.faction].neutral ? 1 : P.factionMul;
     return Math.round((P.base + this.genPower(g) * P.perPower) * mul / 5) * 5;
   },
@@ -155,7 +157,8 @@ const Game = {
     g.faction = f; g.spot = envoy.spot; g.acted = true; envoy.acted = true;
     const name = DATA.generals[gid].name, who = DATA.factions[f].name;
     if (f === this.player) { this.log(`${name} was persuaded to join you for ${cost} gold!`, 'good'); Assets.sfx('gold-1', 0.5); }
-    else this.log(`${name} of the ${DATA.factions[was].name} was persuaded to join the ${who}.`, was === this.player ? 'bad' : 'muted');
+    else if (was === this.player) this.log(`Your general ${name} was bribed away by the ${who} (cut off at ${DATA.spots[from].name})!`, 'bad');
+    else this.log(`${name} of the ${DATA.factions[was].name} was persuaded to join the ${who}.`, 'muted');
     if (this.spotsOf(was).length && !this.gensOf(was).length && !DATA.factions[was].neutral) this.log(`The ${DATA.factions[was].name} has no generals left!`, 'muted');
     return { from };
   },
@@ -545,14 +548,18 @@ const Game = {
     // Spots that touch an enemy are the "front". Interior armies march toward it.
     const front = new Set(this.spotsOf(f).filter(id => this.neighbors(id).some(n => this.spots[n].owner !== f)));
 
-    // 0a. Persuade one good-value general next to our towns (never the player's)
+    // 0a. Persuade every cornered general next to our towns that is worth it and affordable
     const P = DATA.persuade;
     const targets = [...new Set(this.spotsOf(f).flatMap(id => this.neighbors(id)))]
-      .filter(n => this.spots[n].owner !== f && this.spots[n].owner !== this.player)
-      .flatMap(n => this.generalsAt(n)).filter(g => g.faction !== this.player)
-      .map(g => ({ g, c: this.persuadeCost(g) })).filter(x => x.c != null && this.gold[f] >= x.c + P.aiReserve)
+      .filter(n => this.spots[n].owner !== f)
+      .flatMap(n => this.generalsAt(n))
+      .map(g => ({ g, c: this.persuadeCost(g) })).filter(x => x.c != null && this.genPower(x.g) / x.c >= P.aiMinValue)
       .sort((a, b) => this.genPower(b.g) / b.c - this.genPower(a.g) / a.c);
-    for (const { g } of targets) if (this.persuade(g.id, f)) break;
+    for (const { g, c } of targets) {
+      if (this.gold[f] < c + P.aiReserve) continue;
+      const mine = g.faction === this.player;
+      if (this.persuade(g.id, f) && mine) Assets.sfx('alert', 0.5);
+    }
 
     // 0. Hire any wandering general in our towns we can afford, best first
     for (const g of this.wanderers().filter(w => this.spots[w.spot].owner === f).sort((a, b) => b.level - a.level))
@@ -714,7 +721,8 @@ const Game = {
         <div class="tbar"><i style="width:${g.troops / d.max * 100}%"></i></div>
         ${own ? `<div class="xbar" title="${g.xp}/${this.xpNeeded(g)} XP"><i style="width:${g.level >= DATA.leveling.maxLevel ? 100 : g.xp / this.xpNeeded(g) * 100}%"></i></div>` : ''}</div>
         ${own ? `<div class="gs">${g.acted ? 'done' : this.ui.picked.has(g.id) ? 'ready' : ''}</div>`
-          : pc == null ? (d.lord ? '<div class="gs muted" title="Lords cannot be persuaded">loyal</div>' : '')
+          : pc == null ? (d.lord ? '<div class="gs muted" title="Lords cannot be persuaded">loyal</div>'
+            : '<div class="gs muted" title="Can still fall back to a neighbouring town of their own side. Cut them off first.">can retreat</div>')
           : `<button class="persuade" data-per="${g.id}" ${!envoy || this.gold[this.player] < pc ? 'disabled' : ''}
               title="${envoy ? `Envoy: ${DATA.generals[envoy.id].name} from ${DATA.spots[envoy.spot].name}` : 'Needs one of your generals who has not acted, in a town next to this one'}">Persuade<br>${pc}g</button>`}</div>`;
     }).join('') || '<p class="muted">No generals here.</p>';
@@ -740,8 +748,9 @@ const Game = {
       <p class="hint">${picked.length ? 'Click a highlighted neighbour: <b>white</b> to move, <b>red</b> to attack with the ticked generals.' : 'Tick generals (click them) to give orders.'}
       Recruiting does not use up a general's turn.</p>`
       : `<p class="hint">Strength: ${Math.round(this.armyPower(gens))}</p>
-         ${gens.length ? `<p class="hint">${envoy ? `Persuade a general to join you: <b>${DATA.generals[envoy.id].name}</b> (${DATA.spots[envoy.spot].name}) goes as envoy and uses their turn.`
-           : 'To persuade a general here you need a general who has not acted, in one of your towns next to this one.'}</p>` : ''}`}
+         ${gens.length ? `<p class="hint">Only cornered generals (no neighbouring town of their own side) can be persuaded.
+           ${envoy ? `Envoy: <b>${DATA.generals[envoy.id].name}</b> (${DATA.spots[envoy.spot].name}), who uses their turn.`
+           : 'You also need a general who has not acted, in one of your towns next to this one, to go as envoy.'}</p>` : ''}`}
       ${wlist}`;
     p.querySelectorAll('[data-per]').forEach(el => el.onclick = () => {
       if (this.busy) return;
