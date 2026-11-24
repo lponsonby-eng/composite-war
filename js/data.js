@@ -75,10 +75,26 @@ window.DATA = {
                 landmark: 'pyramid', deco: ['cactus', 'cactus', 'dune', 'bones'], battle: '#e8cc84', garrison: ['nomad', 'bandit'] },
   },
 
+  // --- Frontline and backline ----------------------------------------------
+  // Every unit type is frontline (melee) or backline (archers and casters).
+  // Frontline: deploys in front; enemies within pinRadius of a frontline unit are
+  //   held up (their speed x pinSlow), and frontline units go first for enemies
+  //   threatening their own backline (within guardRadius of it).
+  // Backline: deploys behind and stays behindFront pixels behind its own front line;
+  //   steps back (at kiteSpeed) from frontline enemies within kiteRange when it can; and hits
+  //   at meleePenalty strength while an enemy is within exposedRange.
+  //   Arrows and spells ignore `pierce` of the target's defence, and hit `power` times harder.
+  //   An army with backline but no frontline counts as weaker (noFrontPower).
+  roles: {
+    front: { name: 'Frontline', pinRadius: 16, pinSlow: 0.4, guardRadius: 60 },
+    back:  { name: 'Backline', behindFront: 18, kiteRange: 30, exposedRange: 20, meleePenalty: 0.45, noFrontPower: 0.75, pierce: 0.5, power: 1.4, kiteSpeed: 0.7 },
+  },
+
   // --- Unit types ----------------------------------------------------------
   // hp, atk (damage), def (damage reduction), spd (pixels/sec), range (pixels),
   // cd (seconds between attacks), cost (gold per soldier).
   // proj = projectile image for ranged units, splash = area damage radius.
+  // role: 'front' or 'back'; if left out, ranged units (range over 30) are backline.
   units: {
     knight:   { name: 'Knight',      sprite: 'c18', hp: 34, atk: 6, def: 2, spd: 24, range: 12, cd: 1.0, cost: 22 },
     archer:   { name: 'Archer',      sprite: 'c8',  hp: 18, atk: 5, def: 0, spd: 24, range: 95, cd: 1.6, cost: 24, proj: 'arrow' },
@@ -231,6 +247,10 @@ window.DATA = {
     rock:   { speed: 0,    cover: 0 },                    // crystal pillars and boulders: solid
   },
 };
+
+// Fill in each unit type's role: ranged units are backline, melee units frontline.
+for (const t of Object.values(DATA.units)) if (!t.role) t.role = t.range > 30 ? 'back' : 'front';
+DATA.roleOf = gid => DATA.units[DATA.generals[gid].leads].role;
 
 // The map comes from js/map.js.
 DATA.spots = MAP.spots;

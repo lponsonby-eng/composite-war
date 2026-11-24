@@ -191,3 +191,9 @@ table.res td + td { padding-left: 14px; }
 body[data-mode="battle"] #map-ctrl, body[data-mode="title"] #map-ctrl { display: none; }
 #view { touch-action: none; cursor: grab; }
 @media (max-width: 760px) { #minimap { width: 140px; height: 84px; } }
+
+/* ---------- frontline / backline tags ---------- */
+.role { font-size: 13px; padding: 0 4px; border-radius: 2px; vertical-align: 1px; color: #1c2034; }
+.role.front { background: #e8a25a; }
+.role.back { background: #8ac8f0; }
+.warn { color: var(--bad); font-size: 16px; }

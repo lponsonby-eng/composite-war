@@ -170,7 +170,11 @@ const Game = {
       this.log(`A wandering ${DATA.units[d.leads].name.toLowerCase()}, ${d.name} (Lv ${g.level}), has appeared at ${DATA.spots[g.spot].name}.${mine ? ' Hire them!' : ''}`, mine ? 'good' : 'muted');
     }
   },
-  armyPower(list) { return list.reduce((s, g) => s + this.genPower(g), 0); },
+  // An army whose archers and casters have no frontline to shield them counts as weaker.
+  armyPower(list) {
+    const hasFront = list.some(g => DATA.roleOf(g.id) === 'front');
+    return list.reduce((s, g) => s + this.genPower(g) * (!hasFront && DATA.roleOf(g.id) === 'back' ? DATA.roles.back.noFrontPower : 1), 0);
+  },
   // Defenders fight better behind walls; the computer takes that into account.
   defensePower(spot) { return this.armyPower(this.generalsAt(spot)) * (DATA.spots[spot].walls ? 1.3 : 1); },
   terrainText(spot) {
@@ -271,7 +275,8 @@ const Game = {
         <div class="vs-mid">VS<br><span class="odds">${odds}</span></div>
         <div><h3 style="color:${DATA.factions[owner].color}">${DATA.factions[owner].name}</h3>${army(def)}</div>
       </div>
-      <p class="terr">Battlefield: ${this.terrainText(to)}.</p>`, buttons);
+      <p class="terr">Battlefield: ${this.terrainText(to)}.</p>
+      ${formationNote(att)}`, buttons);
   },
 
   async resolveAttack(from, to, att, def, how) {
@@ -608,7 +613,7 @@ const Game = {
       return `<div class="gen ${g.acted && own ? 'acted' : ''} ${this.ui.picked.has(g.id) ? 'picked' : ''}" ${canPick ? `data-g="${g.id}"` : ''}>
         <img src="${Assets.portrait(g.id)}">
         <div class="gi"><div class="gn">${d.name} <span class="lv">Lv ${g.level}</span>${d.lord ? ' <span class="lord">Lord</span>' : ''}</div>
-        <div class="gu">${u.name} - ${g.troops}/${d.max}</div>
+        <div class="gu">${roleTag(g.id)} ${u.name} - ${g.troops}/${d.max}</div>
         <div class="tbar"><i style="width:${g.troops / d.max * 100}%"></i></div>
         ${own ? `<div class="xbar" title="${g.xp}/${this.xpNeeded(g)} XP"><i style="width:${g.level >= DATA.leveling.maxLevel ? 100 : g.xp / this.xpNeeded(g) * 100}%"></i></div>` : ''}</div>
         ${own ? `<div class="gs">${g.acted ? 'done' : this.ui.picked.has(g.id) ? 'ready' : ''}</div>` : ''}</div>`;
@@ -619,7 +624,7 @@ const Game = {
       const d = DATA.generals[g.id], c = this.hireCost(g);
       return `<div class="gen"><img src="${Assets.portrait(g.id)}">
         <div class="gi"><div class="gn">${d.name} <span class="lv">Lv ${g.level}</span></div>
-        <div class="gu">${DATA.units[d.leads].name} - squad ${Math.ceil(d.max / 2)}/${d.max}</div>
+        <div class="gu">${roleTag(g.id)} ${DATA.units[d.leads].name} - squad ${Math.ceil(d.max / 2)}/${d.max}</div>
         <div class="gu">Leaves in ${g.stay} turn${g.stay === 1 ? '' : 's'}</div></div>
         ${own ? `<button data-hire="${g.id}" ${this.gold[this.player] < c ? 'disabled' : ''}>Hire ${c}g</button>` : ''}</div>`;
     }).join('')}</div>${own ? '' : '<p class="hint">Capture this town to hire them.</p>'}` : '';
@@ -669,7 +674,7 @@ const Game = {
 function genChip(g) {
   const d = DATA.generals[g.id];
   return `<div class="chip"><img src="${Assets.portrait(g.id)}"><div><b>${d.name}</b> <span class="lv">Lv ${g.level}</span><br>
-    <span class="muted">${DATA.units[d.leads].name} x${g.troops}</span></div></div>`;
+    ${roleTag(g.id)} <span class="muted">${DATA.units[d.leads].name} x${g.troops}</span></div></div>`;
 }
 
 // How many levels a general would gain from xp, without changing them.
@@ -697,3 +702,17 @@ function shuffle(a) {
 }
 
 function dist(a, b) { const p = DATA.spots[a], q = DATA.spots[b]; return Math.hypot(p.x - q.x, p.y - q.y); }
+
+// Small Front / Back tag for a general's role.
+function roleTag(gid) {
+  const r = DATA.roleOf(gid);
+  return `<span class="role ${r}" title="${DATA.roles[r].name}">${r === 'front' ? 'Front' : 'Back'}</span>`;
+}
+
+// One line about an army's formation, with a warning when the backline is unprotected.
+function formationNote(list) {
+  const f = list.filter(g => DATA.roleOf(g.id) === 'front').length, b = list.length - f;
+  if (b && !f) return `<p class="warn">No frontline: your ${b > 1 ? 'archers and casters are' : 'backline general is'} exposed to melee and fight weaker.</p>`;
+  if (f && !b) return `<p class="terr">Formation: ${f} frontline, no backline support.</p>`;
+  return `<p class="terr">Formation: ${f} frontline in front, ${b} backline behind.</p>`;
+}

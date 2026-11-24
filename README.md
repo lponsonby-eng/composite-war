@@ -27,6 +27,16 @@ Win by defeating every rival faction.
 
 To make a different map: `python3 tools/genmap.py 42` (any number gives a new layout).
 
+## Frontline and backline
+Every unit type is **frontline** (melee) or **backline** (archers and casters); a general
+takes the role of the squad they lead. In battle the frontline deploys in front, holds up
+enemies that pass close (slowing them), and goes first for enemies threatening its own
+backline. The backline deploys behind, stays behind its own front line, steps back from
+melee when it can, and its arrows and spells hit hard and pierce armour - but caught in
+melee it fights at under half strength. In testing, a frontline army beats a lone backline
+almost every time, a mixed army beats a lone backline about 3 times in 4, and mixed vs
+all-frontline is about even. Tune it in `DATA.roles`; set a unit's `role` to override.
+
 ## Levels & experience
 Generals earn XP in battle: per kill by their squad, for taking part, and for winning.
 Each level makes the general 10% stronger and their squad 4% stronger. Tune it in

@@ -25,14 +25,17 @@ class Battle {
   }
 
   // ------------------------------------------------------------------ setup
+  // Frontline squads deploy in front, backline squads behind them. Wall defenders
+  // gather around their gate instead (their archers shoot over the wall).
   placeSquads(gens, side) {
-    const n = gens.length;
     const gate = side === 1 && this.terrain.walls ? this.terrain.gates[0] : null;
-    gens.forEach((g, i) => {
-      // Wall defenders gather around their gate; everyone else spreads down the field.
+    const front = gens.filter(g => DATA.roleOf(g.id) === 'front'), back = gens.filter(g => DATA.roleOf(g.id) === 'back');
+    const rows = gate ? [[gens, 30]] : !front.length || !back.length ? [[gens, 30]] : [[front, 84], [back, 22]];
+    for (const [list, depth] of rows) list.forEach((g, i) => {
+      const n = list.length;
       const cy = gate ? Math.max(52, Math.min(232, gate + (i - (n - 1) / 2) * 42)) : 52 + (i + 0.5) * (186 / n);
       const dirX = side === 0 ? 1 : -1;
-      const baseX = side === 0 ? 30 : this.W - 30;
+      const baseX = side === 0 ? depth : this.W - depth;
       this.units.push(this.makeUnit(g, side, true, baseX, cy));
       for (let k = 0; k < g.troops; k++) {
         const col = Math.floor(k / 3), row = (k % 3) - 1;
@@ -47,7 +50,7 @@ class Battle {
     const boost = 1 + lv * (isLeader ? L.leaderBonus : L.squadBonus);
     const hp = Math.round((isLeader ? t.hp * 5 : t.hp) * boost);
     return {
-      side, gid: g.id, isLeader, t,
+      side, gid: g.id, isLeader, t, back: t.role === 'back',
       sprite: isLeader ? Assets.genSprite(g.id) : Assets.unitSprite(t),
       x, y, homeX: x, homeY: y,
       hp, maxHp: hp,
@@ -65,6 +68,7 @@ class Battle {
     if (this.done) return;
     this.time += dt;
     this.aiOrders();
+    this.sizeUp();
 
     for (const u of this.units) {
       if (!u.alive || u.escaped) continue;
@@ -94,7 +98,13 @@ class Battle {
         // Holding units also defend the ground around their starting spot (unless that means leaving the walls).
         const guard = tg && !(walled && tg.x < this.terrain.wallX + 6) && Math.hypot(tg.x - u.homeX, tg.y - u.homeY) <= 110;
         const engage = tg && (this.orders[u.side] === 'advance' || d <= reach || guard);
-        if (engage) {
+        const R = DATA.roles.back;
+        // Backline: step away from a frontline enemy that gets close, while reloading.
+        const kite = u.back && u.frontFoe && u.frontFoeD < R.kiteRange && u.cdLeft > 0.15 && !(walled && u.x > this.terrain.wallX);
+        if (kite) {
+          const f = u.frontFoe, fd = u.frontFoeD || 1;
+          vx = (u.x - f.x) / fd * u.spd * R.kiteSpeed; vy = (u.y - f.y) / fd * u.spd * R.kiteSpeed;
+        } else if (engage) {
           if (d <= u.range + 4) {
             u.dir = faceDir(tg.x - u.x, tg.y - u.y);
             if (u.cdLeft <= 0) { this.attack(u, tg); u.cdLeft = u.cd; u.atkT = 0.25; }
@@ -102,6 +112,9 @@ class Battle {
             const wp = this.terrain.gateWaypoint(u.x, u.y, tg.x, tg.y);
             const gx = wp ? wp[0] : tg.x, gy = wp ? wp[1] : tg.y, gd = Math.hypot(gx - u.x, gy - u.y) || 1;
             vx = (gx - u.x) / gd * u.spd; vy = (gy - u.y) / gd * u.spd;
+            // Backline: don't walk out in front of your own front line.
+            const fx = this.frontX[u.side];
+            if (u.back && fx != null && (u.side === 0 ? u.x > fx - R.behindFront && vx > 0 : u.x < fx + R.behindFront && vx < 0)) vx = 0;
           }
         } else {                                          // hold: return to starting position
           const hd = Math.hypot(u.homeX - u.x, u.homeY - u.y);
@@ -110,7 +123,11 @@ class Battle {
       }
 
       if ((vx || vy) && !u.routing) [vx, vy] = this.steer(u, vx, vy);
-      if (vx || vy) { const sp = this.terrain.speedAt(u.x, u.y); vx *= sp; vy *= sp; }
+      if (vx || vy) {
+        let sp = this.terrain.speedAt(u.x, u.y);
+        if (u.frontFoe && u.frontFoeD < DATA.roles.front.pinRadius && !u.routing) sp *= DATA.roles.front.pinSlow;   // held up by a frontline enemy
+        vx *= sp; vy *= sp;
+      }
       u.moving = !!(vx || vy);
       if (vx || vy) {
         const T = this.terrain, nx = u.x + vx * dt, ny = u.y + vy * dt;   // solid ground (walls) blocks; slide along it
@@ -179,6 +196,25 @@ class Battle {
     }
   }
 
+  // Once per step: for every unit, the nearest enemy (any) and the nearest frontline
+  // enemy; and for each side, where its front line is (average x of frontline units).
+  sizeUp() {
+    const live = this.units.filter(u => u.alive && !u.escaped && !u.routing);
+    for (const u of live) {
+      u.closestD = 1e9; u.frontFoe = null; u.frontFoeD = 1e9;
+      for (const e of live) {
+        if (e.side === u.side) continue;
+        const d = Math.hypot(e.x - u.x, e.y - u.y);
+        if (d < u.closestD) u.closestD = d;
+        if (!e.back && d < u.frontFoeD) { u.frontFoeD = d; u.frontFoe = e; }
+      }
+    }
+    this.frontX = [0, 1].map(s => {
+      const f = live.filter(u => u.side === s && !u.back);
+      return f.length ? f.reduce((a, u) => a + u.x, 0) / f.length : null;
+    });
+  }
+
   // Picks a heading near the wanted one that avoids slow ground (rivers, walls, mud)
   // when a quicker way is close by, e.g. a ford or a gate.
   steer(u, vx, vy) {
@@ -198,16 +234,23 @@ class Battle {
     let best = null, bd = 1e9;
     // Wall defenders deal with anyone who got inside before anyone still outside.
     const walled = u.side === 1 && this.terrain.walls, inside = e => e.x > this.terrain.wallX + 6;
+    // Frontline units go first for enemies that threaten their own backline.
+    const G = DATA.roles.front.guardRadius;
+    const mine = u.back ? [] : this.units.filter(a => a.side === u.side && a.back && a.alive && !a.routing);
+    const threat = e => mine.some(a => Math.abs(a.x - e.x) < G && Math.abs(a.y - e.y) < G);
     for (const e of this.units) {
       if (e.side === u.side || !e.alive || e.escaped || e.routing) continue;
-      const d = (e.x - u.x) ** 2 + (e.y - u.y) ** 2 + (walled && !inside(e) ? 1e6 : 0);
+      const d = (e.x - u.x) ** 2 + (e.y - u.y) ** 2 + (walled && !inside(e) ? 1e6 : 0) - (mine.length && threat(e) ? G * G : 0);
       if (d < bd) { bd = d; best = e; }
     }
     return best;
   }
 
   attack(u, tg) {
-    const dmg = u.atk * this.terrain.footingAt(u.x, u.y);      // poor footing (water, mud) weakens blows
+    let dmg = u.atk * this.terrain.footingAt(u.x, u.y);        // poor footing (water, mud) weakens blows
+    const R = DATA.roles.back;
+    if (u.back) dmg *= R.power;                                    // shooting from safety hits hard...
+    if (u.back && u.closestD < R.exposedRange) dmg *= R.meleePenalty;   // ...but caught in melee, much less
     if (u.t.proj) {
       this.projs.push({ x: u.x, y: u.y - 6, tx: tg.x, ty: tg.y - 6, tg, side: u.side, gid: u.gid, dmg,
         splash: u.t.splash || 0, img: u.t.proj, speed: u.t.splash ? 120 : 170, angle: 0 });
@@ -223,7 +266,8 @@ class Battle {
     if (!v.alive) return;
     if (ranged) amount *= 1 - this.terrain.coverAt(v.x, v.y);
     const fort = v.side === 1 && this.terrain.walls && v.x > this.terrain.wallX ? DATA.ground.wall.fortify : 0;
-    const dmg = Math.max(1, Math.round(amount * (0.85 + Math.random() * 0.3) - v.def - fort));
+    const def = (v.def + fort) * (ranged ? 1 - DATA.roles.back.pierce : 1);       // arrows and spells pierce armour
+    const dmg = Math.max(1, Math.round(amount * (0.85 + Math.random() * 0.3) - def));
     v.hp -= dmg; v.hitT = 0.12;
     if (!this.headless) this.texts.push({ x: v.x, y: v.y - 16, s: String(dmg), life: 0.6, color: v.isLeader ? '#ffd84a' : '#ffffff' });
     if (v.hp <= 0) {
