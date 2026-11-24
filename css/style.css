@@ -181,3 +181,13 @@ table.res td + td { padding-left: 14px; }
 .gen button { font-size: 15px; padding: 2px 6px; }
 .terr { color: var(--muted); font-size: 16px; }
 .bh-terr { font-size: 14px; }
+
+/* ---------- minimap & zoom ---------- */
+#map-ctrl { position: absolute; right: 8px; bottom: 8px; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+#minimap { width: 200px; height: 120px; image-rendering: auto; border: 2px solid var(--edge); box-shadow: 0 0 0 2px var(--edge-dark);
+  border-radius: 3px; cursor: crosshair; background: #1d3557; touch-action: none; }
+.zbtns { display: flex; gap: 4px; }
+.zbtns button { min-width: 34px; padding: 2px 8px; }
+body[data-mode="battle"] #map-ctrl, body[data-mode="title"] #map-ctrl { display: none; }
+#view { touch-action: none; cursor: grab; }
+@media (max-width: 760px) { #minimap { width: 140px; height: 84px; } }

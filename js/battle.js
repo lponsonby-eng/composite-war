@@ -48,7 +48,7 @@ class Battle {
     const hp = Math.round((isLeader ? t.hp * 5 : t.hp) * boost);
     return {
       side, gid: g.id, isLeader, t,
-      sprite: isLeader ? 'c' + DATA.generals[g.id].face : t.sprite,
+      sprite: isLeader ? Assets.genSprite(g.id) : Assets.unitSprite(t),
       x, y, homeX: x, homeY: y,
       hp, maxHp: hp,
       atk: (isLeader ? t.atk * 1.6 : t.atk) * boost,
@@ -210,8 +210,8 @@ class Battle {
     const dmg = u.atk * this.terrain.footingAt(u.x, u.y);      // poor footing (water, mud) weakens blows
     if (u.t.proj) {
       this.projs.push({ x: u.x, y: u.y - 6, tx: tg.x, ty: tg.y - 6, tg, side: u.side, gid: u.gid, dmg,
-        splash: u.t.splash || 0, img: u.t.proj, speed: u.t.proj === 'fireball' ? 120 : 170, angle: 0 });
-      if (!this.headless && u.t.proj === 'fireball') Assets.sfx('magic-1', 0.25);
+        splash: u.t.splash || 0, img: u.t.proj, speed: u.t.splash ? 120 : 170, angle: 0 });
+      if (!this.headless && u.t.splash) Assets.sfx('magic-1', 0.25);
     } else {
       this.addFx('slash', tg.x, tg.y - 6, 0.25);
       if (!this.headless) Assets.sfx('sword', 0.3);
@@ -277,20 +277,27 @@ class Battle {
     const T = Assets.img;
     for (let y = 0; y < this.H; y += 16) for (let x = 0; x < this.W; x += 16)
       ctx.drawImage(rng() < 0.7 ? T['tile:ground_grass'] : T['tile:ground_grass2'], x, y);
+    const tint = (DATA.regions[this.terrain.region] || {}).battle;
+    if (tint) {                                    // recolour the grass to the region's ground (snow, sand, ash...)
+      ctx.globalCompositeOperation = 'color'; ctx.fillStyle = tint; ctx.fillRect(0, 0, this.W, this.H);
+      ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = this.terrain.region === 'frost' ? 0.8 : 0.55; ctx.fillRect(0, 0, this.W, this.H);
+      ctx.globalAlpha = 1;
+    }
+    const lush = !['frost', 'sun', 'ember'].includes(this.terrain.region);
     for (let i = 0; i < 40; i++) {
       const n = ['grass_tuft', 'grass_tuft', 'bush'][Math.floor(rng() * 3)];
       const x = Math.floor(rng() * (this.W - 16)), y = 40 + Math.floor(rng() * 200);
-      if (this.terrain.kindAt(x + 8, y + 8) === GROUND.grass) ctx.drawImage(T['tile:' + n], x, y);
+      if (lush && this.terrain.kindAt(x + 8, y + 8) === GROUND.grass) ctx.drawImage(T['tile:' + n], x, y);
     }
     this.terrain.draw(ctx);
     // tree line along the top of the field
-    for (let x = -8; x < this.W; x += 18 + rng() * 10) {
-      const n = rng() < 0.5 ? 'tree_round' : 'tree_pine';
-      ctx.drawImage(T['tile:' + n], Math.floor(x), Math.floor(-6 + rng() * 10));
+    const trees = this.terrain.trees, pick = () => trees[Math.floor(rng() * trees.length)];
+    for (let x = -8; x < this.W; x += 14 + rng() * 10) {
+      const im = Art.deco(pick());
+      ctx.drawImage(im, Math.floor(x), Math.floor(-6 + rng() * 10 - (im.height - 16)));
     }
     this.bottomTrees = [];
-    for (let x = -8; x < this.W; x += 18 + rng() * 10)
-      this.bottomTrees.push([rng() < 0.5 ? 'tree_round' : (rng() < 0.2 ? 'rock' : 'tree_pine'), Math.floor(x), 246 + Math.floor(rng() * 10)]);
+    for (let x = -8; x < this.W; x += 14 + rng() * 10) this.bottomTrees.push([pick(), Math.floor(x), 246 + Math.floor(rng() * 10)]);
     return cv;
   }
 
@@ -340,7 +347,7 @@ class Battle {
       ctx.restore();
     }
     for (const [n, x, y] of this.bottomTrees) {
-      const im = Assets.img['tile:' + n]; ctx.drawImage(im, x, y);
+      const im = Art.deco(n); ctx.drawImage(im, x, y - (im.height - 16));
     }
     for (const f of this.fx) Assets.drawFx(ctx, f.name, f.t, f.x, f.y);
     for (const t of this.texts) label(ctx, t.s, t.x, t.y, t.color, 'center', 10);

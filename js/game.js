@@ -3,7 +3,7 @@
 // =============================================================================
 const $ = sel => document.querySelector(sel);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-const SAVE_KEY = 'botr_save_v1';
+const SAVE_KEY = 'cw_save_v2';           // v2: the big map (older saves don't fit it)
 
 const Game = {
   // ---- campaign state (everything here is saved) ----
@@ -19,15 +19,45 @@ const Game = {
     this.player = fid; this.turn = 1; this.logLines = [];
     this.gold = {}; this.spots = {}; this.gens = {};
     for (const f of Object.keys(DATA.factions)) this.gold[f] = DATA.startGold;
-    for (const [id, s] of Object.entries(DATA.spots)) {
-      this.spots[id] = { owner: s.owner };
-      for (const gid of s.gens) {
-        const g = DATA.generals[gid];
-        this.gens[gid] = { id: gid, faction: g.faction, spot: id, troops: g.troops, acted: false, alive: true, level: g.level || 1, xp: 0 };
-      }
-    }
+    for (const [id, s] of Object.entries(DATA.spots)) this.spots[id] = { owner: s.owner };
+    this.placeGenerals();
     this.log(`You lead the ${DATA.factions[fid].name}. Unite the realm!`, 'good');
     this.startMap();
+    this.centerOnHome();
+  },
+
+  // Starting positions: towns may list `gens` in js/map.js; otherwise each lord and the
+  // next two generals go to the faction's capital and the rest spread over its other towns.
+  // Free towns get the named heroes (biggest heartland towns first), or else a militia captain.
+  placeGenerals() {
+    const place = (gid, spot) => {
+      const g = DATA.generals[gid];
+      this.gens[gid] = { id: gid, faction: g.faction, spot, troops: g.troops, acted: false, alive: true, level: g.level || 1, xp: 0 };
+    };
+    for (const [id, s] of Object.entries(DATA.spots)) for (const gid of s.gens || []) place(gid, id);
+    const unplaced = f => Object.keys(DATA.generals).filter(gid => DATA.generals[gid].faction === f && !this.gens[gid] && !DATA.generals[gid].captain);
+    for (const f of Object.keys(DATA.factions)) {
+      if (DATA.factions[f].neutral) continue;
+      const own = this.spotsOf(f);
+      if (!own.length) continue;
+      const cap = own.find(id => DATA.spots[id].kind === 'capital') || own[0];
+      const rest = own.filter(id => id !== cap).sort((a, b) => dist(a, cap) - dist(b, cap));
+      const gens = unplaced(f).sort((a, b) => (DATA.generals[b].lord ? 1 : 0) - (DATA.generals[a].lord ? 1 : 0));
+      gens.forEach((gid, i) => place(gid, i < 3 || !rest.length ? cap : rest[(i - 3) % rest.length]));
+    }
+    const free = this.spotsOf('neutral').filter(id => !this.generalsAt(id).length)
+      .sort((a, b) => (DATA.spots[b].region === 'free') - (DATA.spots[a].region === 'free') || DATA.spots[b].income - DATA.spots[a].income);
+    unplaced('neutral').forEach((gid, i) => { if (free[i]) place(gid, free[i]); });
+    for (const id of this.spotsOf('neutral')) if (!this.generalsAt(id).length && DATA.generals['cap_' + id]) place('cap_' + id, id);
+  },
+
+  capitalOf(f) {
+    const own = this.spotsOf(f);
+    return own.find(id => DATA.spots[id].kind === 'capital' && DATA.factions[f].home === DATA.spots[id].region) || own[0];
+  },
+  centerOnHome() {
+    const c = this.capitalOf(this.player);
+    if (c) MapView.centerOn(DATA.spots[c].x, DATA.spots[c].y);
   },
 
   save() {
@@ -146,7 +176,9 @@ const Game = {
   terrainText(spot) {
     const s = DATA.spots[spot];
     const t = { plains: 'Open plains', forest: 'Forest: slows units, cover from arrows',
-      river: 'River: wade slowly or cross at the fords', swamp: 'Swamp: mud slows units' }[s.terrain || 'plains'];
+      river: 'River: wade slowly or cross at the fords', swamp: 'Swamp: mud slows units',
+      snow: 'Snowfield: deep drifts slow units, frozen ponds are fast but slippery', dunes: 'Dunes: sand slows units',
+      lava: 'Lava field: walk around the molten pools', crystal: 'Crystal shore: crystal pillars block the way' }[s.terrain || 'plains'];
     return t + (s.walls ? '. Walls: defenders shelter behind them, attackers must use the gates' : '');
   },
 
@@ -295,7 +327,9 @@ const Game = {
         const g = this.gens[x.id];
         const escape = this.neighbors(to).filter(n => this.spots[n].owner === defF);
         if (escape.length) { g.spot = escape[Math.floor(Math.random() * escape.length)]; }
-        else if (DATA.factions[defF].neutral && !DATA.generals[g.id].lord) {
+        else if (DATA.generals[g.id].captain) {
+          g.alive = false;                                         // militia captains just go home
+        } else if (DATA.factions[defF].neutral && !DATA.generals[g.id].lord) {
           g.faction = attF; g.spot = to; g.acted = true;          // free generals join the conqueror
           this.log(`${DATA.generals[g.id].name} has joined the ${DATA.factions[attF].name}!`, attF === this.player ? 'good' : '');
         } else if (DATA.generals[g.id].lord) {
@@ -377,7 +411,7 @@ const Game = {
     const b = this.battle; if (!b) return;
     for (const s of [0, 1]) {
       $('#bh-gens-' + s).innerHTML = b.sideInfo(s).map(x => `<div class="bh-gen ${x.alive ? '' : 'dead'}">
-        <img src="assets/faces/${DATA.generals[x.id].face}.png" title="${DATA.generals[x.id].name} Lv ${this.gens[x.id].level}"><div class="bh-bar"><i style="width:${x.hp * 100}%"></i></div>
+        <img src="${Assets.portrait(x.id)}" title="${DATA.generals[x.id].name} Lv ${this.gens[x.id].level}"><div class="bh-bar"><i style="width:${x.hp * 100}%"></i></div>
         <span>${x.troops}</span></div>`).join('');
     }
     const left = Math.max(0, Math.ceil(b.limit - b.time));
@@ -426,7 +460,7 @@ const Game = {
     $('#turn-banner').textContent = `${DATA.factions[f].name}'s turn`;
     $('#turn-banner').style.color = DATA.factions[f].color;
     $('#turn-banner').hidden = false;
-    await sleep(350);
+    await sleep(150);
 
     // Spots that touch an enemy are the "front". Interior armies march toward it.
     const front = new Set(this.spotsOf(f).filter(id => this.neighbors(id).some(n => this.spots[n].owner !== f)));
@@ -477,7 +511,7 @@ const Game = {
       if (defF === this.player && def.length) side = await this.defendPrompt(f, best, pool, def);
       await this.fight(spot, best, pool, def, f, defF, side);
       if (this.spotsOf(this.player).length === 0) return;
-      await sleep(250);
+      await sleep(defF === this.player ? 250 : 40);
     }
 
     // 3. Gather idle generals next to the weakest enemy town on the border, to strike next turn
@@ -498,6 +532,7 @@ const Game = {
   },
 
   defendPrompt(f, spot, att, def) {
+    MapView.centerOn(DATA.spots[spot].x, DATA.spots[spot].y);
     return new Promise(resolve => {
       Assets.sfx('alert', 0.5);
       modal(`<h2 class="bad">${DATA.factions[f].name} attacks ${DATA.spots[spot].name}!</h2>
@@ -526,10 +561,11 @@ const Game = {
         [['Back to title', () => location.reload()]], true);
       return true;
     }
-    if (mine === Object.keys(this.spots).length) {
+    const rivals = this.activeFactions().filter(f => f !== this.player);
+    if (rivals.length === 0) {
       this.mode = 'over';
       Assets.sfx('power-up', 0.6);
-      modal(`<h2 class="good">The Realm is United!</h2><p>The ${DATA.factions[this.player].name} rules every town after ${this.turn} turns.</p>`,
+      modal(`<h2 class="good">The Realm is United!</h2><p>The ${DATA.factions[this.player].name} has defeated every rival faction after ${this.turn} turns, and holds ${mine} towns.</p>`,
         [['Back to title', () => location.reload()]], true);
       return true;
     }
@@ -570,7 +606,7 @@ const Game = {
       const d = DATA.generals[g.id], u = DATA.units[d.leads];
       const canPick = own && !g.acted;
       return `<div class="gen ${g.acted && own ? 'acted' : ''} ${this.ui.picked.has(g.id) ? 'picked' : ''}" ${canPick ? `data-g="${g.id}"` : ''}>
-        <img src="assets/faces/${d.face}.png">
+        <img src="${Assets.portrait(g.id)}">
         <div class="gi"><div class="gn">${d.name} <span class="lv">Lv ${g.level}</span>${d.lord ? ' <span class="lord">Lord</span>' : ''}</div>
         <div class="gu">${u.name} - ${g.troops}/${d.max}</div>
         <div class="tbar"><i style="width:${g.troops / d.max * 100}%"></i></div>
@@ -581,7 +617,7 @@ const Game = {
     const free = this.wanderersAt(id);
     const wlist = free.length ? `<h3 class="wh">Wandering here</h3><div class="gens">${free.map(g => {
       const d = DATA.generals[g.id], c = this.hireCost(g);
-      return `<div class="gen"><img src="assets/faces/${d.face}.png">
+      return `<div class="gen"><img src="${Assets.portrait(g.id)}">
         <div class="gi"><div class="gn">${d.name} <span class="lv">Lv ${g.level}</span></div>
         <div class="gu">${DATA.units[d.leads].name} - squad ${Math.ceil(d.max / 2)}/${d.max}</div>
         <div class="gu">Leaves in ${g.stay} turn${g.stay === 1 ? '' : 's'}</div></div>
@@ -613,10 +649,10 @@ const Game = {
     document.body.dataset.mode = 'title';
     const ts = $('#title-screen');
     const cards = Object.entries(DATA.factions).filter(([, f]) => f.playable).map(([id, f]) => {
-      const lord = Object.entries(DATA.generals).find(([, g]) => g.faction === id && g.lord)[1];
+      const [lordId, lord] = Object.entries(DATA.generals).find(([, g]) => g.faction === id && g.lord);
       const towns = Object.values(DATA.spots).filter(s => s.owner === id).length;
       return `<button class="fcard" data-f="${id}" style="--fc:${f.color}">
-        <img src="assets/faces/${lord.face}.png"><div><div class="fn">${f.name}</div>
+        <img src="${Assets.portrait(lordId)}"><div><div class="fn">${f.name}</div>
         <div class="fl">Lord ${lord.name} - ${towns} towns</div><div class="fb">${f.blurb}</div></div></button>`;
     }).join('');
     ts.innerHTML = `<div class="title-box"><h1>${DATA.title}</h1>
@@ -632,7 +668,7 @@ const Game = {
 // ---------------------------------------------------------------- helpers
 function genChip(g) {
   const d = DATA.generals[g.id];
-  return `<div class="chip"><img src="assets/faces/${d.face}.png"><div><b>${d.name}</b> <span class="lv">Lv ${g.level}</span><br>
+  return `<div class="chip"><img src="${Assets.portrait(g.id)}"><div><b>${d.name}</b> <span class="lv">Lv ${g.level}</span><br>
     <span class="muted">${DATA.units[d.leads].name} x${g.troops}</span></div></div>`;
 }
 
@@ -659,3 +695,5 @@ function shuffle(a) {
   for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
   return a;
 }
+
+function dist(a, b) { const p = DATA.spots[a], q = DATA.spots[b]; return Math.hypot(p.x - q.x, p.y - q.y); }

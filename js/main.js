@@ -1,9 +1,10 @@
 // =============================================================================
-//  MAIN: starts the game, runs the frame loop, handles mouse input.
+//  MAIN: starts the game, runs the frame loop, and wires up the controls.
 // =============================================================================
 (async function main() {
   const canvas = $('#view');
   const ctx = canvas.getContext('2d');
+  const mini = $('#minimap');
 
   // Wait for the pixel font and all images before drawing anything.
   try { await document.fonts.load('8px PixelFont'); } catch (e) {}
@@ -20,25 +21,28 @@
   new ResizeObserver(resize).observe(canvas);
   resize();
 
-  // ---- mouse / touch on the map ----
-  const worldPos = e => {
-    const r = canvas.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
-    return MapView.toWorld((e.clientX - r.left) * dpr, (e.clientY - r.top) * dpr);
-  };
-  canvas.addEventListener('pointermove', e => {
-    if (Game.mode !== 'map') return;
-    const [x, y] = worldPos(e);
-    Game.ui.hover = MapView.spotAt(x, y);
-    canvas.style.cursor = Game.ui.hover ? 'pointer' : 'default';
-  });
-  canvas.addEventListener('click', e => {
-    if (Game.mode !== 'map') return;
-    const [x, y] = worldPos(e);
-    Game.clickSpot(MapView.spotAt(x, y));
-  });
+  // ---- map: drag to scroll, wheel / pinch to zoom, click a town ----
+  MapView.attach(canvas,
+    id => { if (Game.mode === 'map') Game.clickSpot(id); },
+    id => { if (Game.mode === 'map') Game.ui.hover = id; });
   window.addEventListener('keydown', e => {
     if (e.key === 'Escape' && Game.mode === 'map' && !Game.busy) Game.clearSelection();
+    if ((e.key === '+' || e.key === '=') && Game.mode === 'map') MapView.zoomAt(1.25, canvas.width / 2, canvas.height / 2);
+    if ((e.key === '-' || e.key === '_') && Game.mode === 'map') MapView.zoomAt(0.8, canvas.width / 2, canvas.height / 2);
   });
+
+  // ---- minimap: click or drag to jump there ----
+  const jump = e => {
+    const r = mini.getBoundingClientRect();
+    MapView.centerOn((e.clientX - r.left) / r.width * MapView.W, (e.clientY - r.top) / r.height * MapView.H);
+  };
+  let miniDrag = false;
+  mini.addEventListener('pointerdown', e => { miniDrag = true; jump(e); try { mini.setPointerCapture(e.pointerId); } catch (err) {} });
+  mini.addEventListener('pointermove', e => { if (miniDrag) jump(e); });
+  mini.addEventListener('pointerup', () => { miniDrag = false; });
+  $('#zoom-in').onclick = () => MapView.zoomAt(1.25, canvas.width / 2, canvas.height / 2);
+  $('#zoom-out').onclick = () => MapView.zoomAt(0.8, canvas.width / 2, canvas.height / 2);
+  $('#zoom-home').onclick = () => Game.centerOnHome();
 
   // ---- top bar buttons ----
   $('#end-turn').onclick = () => Game.endTurn();
@@ -50,7 +54,7 @@
   Game.showTitle();
 
   // ---- frame loop ----
-  let last = performance.now(), hudT = 0;
+  let last = performance.now(), hudT = 0, miniT = 0;
   function frame(now) {
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
@@ -62,11 +66,14 @@
       hudT -= dt;
       if (hudT <= 0) { Game.updateBattleHud(); hudT = 0.15; }
       if (b.done && !b.notified) { b.notified = true; Game.updateBattleHud(); b.onDone(); }
-    } else if (Game.mode === 'map' || Game.mode === 'over') {
-      MapView.render(ctx, canvas, Game, Game.ui, dt);
     } else {
-      MapView.render(ctx, canvas, { spots: Object.fromEntries(Object.entries(DATA.spots).map(([k, s]) => [k, { owner: s.owner }])),
-        generalsAt: () => [], player: null }, { targets: {} }, dt);
+      const title = Game.mode === 'title';
+      MapView.fitAll = title;
+      const view = title ? { spots: Object.fromEntries(Object.entries(DATA.spots).map(([k, s]) => [k, { owner: s.owner }])),
+        generalsAt: () => [], player: null } : Game;
+      MapView.render(ctx, canvas, view, title ? { targets: {} } : Game.ui, dt);
+      miniT -= dt;
+      if (miniT <= 0 && !title) { MapView.drawMinimap(mini, Game); miniT = 0.1; }
     }
     requestAnimationFrame(frame);
   }

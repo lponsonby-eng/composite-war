@@ -1,11 +1,11 @@
 // =============================================================================
-//  BATTLEFIELD TERRAIN: forests, rivers, swamps and town walls.
+//  BATTLEFIELD TERRAIN: forests, rivers, swamps, snow, dunes, lava, crystals, walls.
 //  The field is a grid of 8x8 cells. Every cell has a ground kind, which sets
 //  how fast units move through it and how much cover it gives from arrows and
 //  spells. The layout comes from the town's `terrain` and `walls` in data.js,
 //  seeded by the town's name so the same town always looks the same.
 // =============================================================================
-const GROUND = { grass: 0, forest: 1, water: 2, ford: 3, mud: 4, wall: 5 };
+const GROUND = { grass: 0, forest: 1, water: 2, ford: 3, mud: 4, wall: 5, snow: 6, ice: 7, sand: 8, lava: 9, rock: 10 };
 
 class Terrain {
   constructor(spotId, W, H) {
@@ -16,6 +16,11 @@ class Terrain {
     this.cover = new Float32Array(this.cols * this.rows);
     this.type = s.terrain || 'plains';
     this.walls = !!s.walls;
+    this.region = s.region || 'free';
+    // trees used for forests and the tree lines at the edges of the field
+    this.trees = { frost: ['snowpine'], darkwood: ['darktree', 'darktree', 'tree_pine'], ember: ['deadpine', 'ashrock'],
+      shadow: ['deadpine', 'tree_pine'], bog: ['tree_round', 'mushroom'], azure: ['palm', 'crystal'], sun: ['palm', 'cactus'] }[this.region]
+      || ['tree_round', 'tree_pine'];
     let seed = 7; for (const ch of spotId || 'x') seed = seed * 31 + ch.charCodeAt(0);
     this.rng = makeRng(seed);
     this.generate();
@@ -46,7 +51,8 @@ class Terrain {
 
   // Short description for the HUD and the attack dialog.
   describe() {
-    const name = { plains: 'Open plains', forest: 'Forest', river: 'River', swamp: 'Swamp' }[this.type] || this.type;
+    const name = { plains: 'Open plains', forest: 'Forest', river: 'River', swamp: 'Swamp', snow: 'Snowfield',
+      dunes: 'Dunes', lava: 'Lava field', crystal: 'Crystal shore' }[this.type] || this.type;
     return this.walls ? `${name}, walled town` : name;
   }
 
@@ -81,6 +87,19 @@ class Terrain {
         }
       }
       this.clumps(2, GROUND.forest, 14, 22);
+    } else if (this.type === 'snow') {
+      this.clumps(7, GROUND.snow, 16, 30);                                  // deep drifts
+      this.clumps(2, GROUND.ice, 14, 22);                                   // slippery frozen ponds
+      this.clumps(2, GROUND.forest, 12, 18);
+    } else if (this.type === 'dunes') {
+      this.clumps(8, GROUND.sand, 16, 30);
+      this.clumps(2, GROUND.rock, 5, 8);
+    } else if (this.type === 'lava') {
+      this.clumps(4, GROUND.lava, 9, 15);                                   // molten pools: walk around
+      this.clumps(4, GROUND.rock, 5, 8);
+    } else if (this.type === 'crystal') {
+      this.clumps(7, GROUND.rock, 5, 9);                                    // crystal pillars
+      this.clumps(2, GROUND.water, 14, 22);
     } else if (this.type === 'forest') {
       this.clumps(6, GROUND.forest, 18, 32);
     } else if (this.type === 'swamp') {
@@ -117,7 +136,7 @@ class Terrain {
   // Draws the ground onto the battle background (under the units).
   draw(ctx) {
     const C = this.C, T = Assets.img, rng = makeRng(99);
-    const trees = [];
+    const trees = [], rocks = [];
     for (let y = 0; y < this.rows; y++) for (let x = 0; x < this.cols; x++) {
       const k = this.kind[y * this.cols + x], px = x * C, py = y * C;
       const n = (r, g, b, j) => { const v = Math.floor((rng() - 0.5) * j); return `rgb(${r + v},${g + v},${b + v})`; };
@@ -130,9 +149,31 @@ class Terrain {
       } else if (k === GROUND.ford) {
         ctx.fillStyle = n(176, 150, 98, 14); ctx.fillRect(px, py, C, C);
         if (rng() < 0.35) { ctx.fillStyle = 'rgba(80,140,210,0.6)'; ctx.fillRect(px + Math.floor(rng() * 4), py + Math.floor(rng() * 6), 4, 1); }
+      } else if (k === GROUND.snow) {
+        ctx.fillStyle = n(236, 242, 250, 8); ctx.fillRect(px, py, C, C);
+        if (rng() < 0.3) { ctx.fillStyle = '#c4d4e6'; ctx.fillRect(px + Math.floor(rng() * 5), py + Math.floor(rng() * 6), 3, 1); }
+      } else if (k === GROUND.ice) {
+        ctx.fillStyle = n(176, 214, 238, 8); ctx.fillRect(px, py, C, C);
+        if (rng() < 0.25) { ctx.fillStyle = '#ffffff'; ctx.fillRect(px + 1 + Math.floor(rng() * 4), py + 1 + Math.floor(rng() * 4), 2, 1); }
+      } else if (k === GROUND.sand) {
+        ctx.fillStyle = n(238, 210, 140, 10); ctx.fillRect(px, py, C, C);
+        if ((x + y) % 3 === 0) { ctx.fillStyle = '#c8a050'; ctx.fillRect(px, py + 5, C, 1); ctx.fillStyle = '#fae6a8'; ctx.fillRect(px, py + 4, C, 1); }
+      } else if (k === GROUND.lava) {
+        ctx.fillStyle = rng() < 0.5 ? '#e8501e' : '#ff7a2a'; ctx.fillRect(px, py, C, C);
+        if (rng() < 0.3) { ctx.fillStyle = '#ffd04a'; ctx.fillRect(px + Math.floor(rng() * 5), py + Math.floor(rng() * 5), 3, 2); }
+      } else if (k === GROUND.rock) {
+        rocks.push([px + 4, py + 8]);
       } else if (k === GROUND.mud) {
         ctx.fillStyle = n(92, 76, 44, 16); ctx.fillRect(px, py, C, C);
         if (rng() < 0.2) { ctx.fillStyle = '#4c6a3a'; ctx.fillRect(px + 2, py + 2, 2, 2); }
+      }
+    }
+    // dark crust around lava pools
+    for (let y = 0; y < this.rows; y++) for (let x = 0; x < this.cols; x++) {
+      if (this.kind[y * this.cols + x] !== GROUND.lava) continue;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const k2 = this.kind[(y + dy) * this.cols + x + dx];
+        if (k2 !== undefined && k2 !== GROUND.lava) { ctx.fillStyle = '#2a1a14'; ctx.fillRect((x + dx) * C, (y + dy) * C, C, C); }
       }
     }
     // soft dark edge where water meets land
@@ -146,8 +187,14 @@ class Terrain {
     }
     trees.sort((a, b) => a[1] - b[1]);
     for (const [x, y] of trees) {
-      const im = T[rng() < 0.5 ? 'tile:tree_round' : 'tile:tree_pine'];
-      if (im && im.width) ctx.drawImage(im, Math.round(x), Math.round(y));
+      const im = Art.deco(this.trees[Math.floor(rng() * this.trees.length)]);
+      if (im && im.width) ctx.drawImage(im, Math.round(x), Math.round(y - (im.height - 16)));
+    }
+    // solid rocks: crystal pillars by the lakes, boulders elsewhere
+    const rockArt = this.region === 'azure' || this.type === 'crystal' ? 'crystal' : this.region === 'frost' ? 'icerock' : this.region === 'ember' ? 'ashrock' : 'boulder';
+    for (const [x, y] of rocks.sort((a, b) => a[1] - b[1])) {
+      const im = Art.deco(rockArt);
+      ctx.drawImage(im, Math.round(x - 8), Math.round(y - im.height + 2));
     }
     if (this.walls) this.drawWall(ctx);
   }
