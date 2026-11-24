@@ -91,47 +91,118 @@ window.DATA = {
   },
 
   // --- Unit types ----------------------------------------------------------
+  // type: infantry | cavalry | beast (frontline) or shooter | artillery | mage | healer (backline).
   // hp, atk (damage), def (damage reduction), spd (pixels/sec), range (pixels),
   // cd (seconds between attacks), cost (gold per soldier).
   // proj = projectile image for ranged units, splash = area damage radius.
-  // role: 'front' or 'back'; if left out, ranged units (range over 30) are backline.
+  // antiCav: spearmen, extra damage against cavalry. Healers heal instead of attacking (atk = heal).
   units: {
-    knight:   { name: 'Knight',      sprite: 'c18', hp: 34, atk: 6, def: 2, spd: 24, range: 12, cd: 1.0, cost: 22 },
-    archer:   { name: 'Archer',      sprite: 'c8',  hp: 18, atk: 5, def: 0, spd: 24, range: 95, cd: 1.6, cost: 24, proj: 'arrow' },
-    mage:     { name: 'Mage',        sprite: 'c19', hp: 16, atk: 8, def: 0, spd: 22, range: 75, cd: 2.2, cost: 36, proj: 'fireball', splash: 14 },
+    // Kingdom of Aster
+    knight:   { name: 'Knight',      type: 'infantry',  sprite: 'c18', hp: 34, atk: 6, def: 2, spd: 24, range: 12, cd: 1.0, cost: 22 },
+    lancer:   { name: 'Lancer',      type: 'cavalry',   sprite: 'c15', hp: 30, atk: 7, def: 2, spd: 42, range: 14, cd: 1.2, cost: 32 },
+    archer:   { name: 'Archer',      type: 'shooter',   sprite: 'c8',  hp: 18, atk: 5, def: 0, spd: 24, range: 95, cd: 1.6, cost: 24, proj: 'arrow' },
+    cannon:   { name: 'Cannon',      type: 'artillery', sprite: 'm20', hp: 16, atk: 20, def: 1, spd: 14, range: 150, cd: 3.1, cost: 40, proj: 'fireball', splash: 22 },
+    mage:     { name: 'Mage',        type: 'mage',      sprite: 'c19', hp: 16, atk: 8, def: 0, spd: 22, range: 75, cd: 2.2, cost: 36, proj: 'fireball', splash: 14 },
+    cleric:   { name: 'Cleric',      type: 'healer',    sprite: 'c9',  hp: 18, atk: 8, def: 0, spd: 22, range: 70, cd: 1.8, cost: 30 },
 
-    yeti:     { name: 'Yeti',        sprite: 'c11', hp: 46, atk: 7, def: 2, spd: 21, range: 12, cd: 1.3, cost: 30 },
-    hunter:   { name: 'Snow Hunter', sprite: 'c19', hue: 170, hp: 20, atk: 5, def: 0, spd: 24, range: 90, cd: 1.6, cost: 24, proj: 'arrow' },
-    frosteye: { name: 'Frost Eye',   sprite: 'm1',  hue: 190, hp: 18, atk: 7, def: 0, spd: 22, range: 75, cd: 2.0, cost: 34, proj: 'icebolt', splash: 12 },
+    // Frostmark
+    warden:   { name: 'Ice Warden',  type: 'infantry',  sprite: 'c15', hue: 180, hp: 34, atk: 6, def: 3, spd: 21, range: 12, cd: 1.1, cost: 24 },
+    yeti:     { name: 'Yeti',        type: 'beast',     sprite: 'c11', hp: 46, atk: 7, def: 2, spd: 21, range: 12, cd: 1.3, cost: 30 },
+    bearrider:{ name: 'Bear Rider',  type: 'cavalry',   sprite: 'm11', hue: 190, hp: 36, atk: 7, def: 2, spd: 36, range: 14, cd: 1.3, cost: 34 },
+    hunter:   { name: 'Snow Hunter', type: 'shooter',   sprite: 'c19', hue: 170, hp: 20, atk: 5, def: 0, spd: 24, range: 90, cd: 1.6, cost: 24, proj: 'arrow' },
+    frosteye: { name: 'Frost Eye',   type: 'mage',      sprite: 'm1',  hue: 190, hp: 18, atk: 7, def: 0, spd: 22, range: 75, cd: 2.0, cost: 34, proj: 'icebolt', splash: 12 },
+    shaman:   { name: 'Snow Shaman', type: 'healer',    sprite: 'c9',  hue: 180, hp: 18, atk: 8, def: 0, spd: 22, range: 70, cd: 1.8, cost: 30 },
 
-    ranger:   { name: 'Ranger',      sprite: 'c1',  hp: 20, atk: 5, def: 0, spd: 28, range: 100, cd: 1.6, cost: 26, proj: 'arrow' },
-    beetle:   { name: 'Thorn Beetle', sprite: 'm16', hp: 50, atk: 7, def: 3, spd: 18, range: 12, cd: 1.4, cost: 32 },
-    witch:    { name: 'Witch',       sprite: 'c4',  hue: 110, hp: 16, atk: 8, def: 0, spd: 22, range: 75, cd: 2.2, cost: 34, proj: 'hexbolt', splash: 14 },
+    // Thornwood Pact
+    beetle:   { name: 'Thorn Beetle', type: 'beast',    sprite: 'm16', hp: 50, atk: 7, def: 3, spd: 18, range: 12, cd: 1.4, cost: 32 },
+    stagrider:{ name: 'Stag Rider',  type: 'cavalry',   sprite: 'm10', hue: 80, hp: 28, atk: 7, def: 1, spd: 42, range: 14, cd: 1.2, cost: 30 },
+    ranger:   { name: 'Ranger',      type: 'shooter',   sprite: 'c1',  hp: 20, atk: 5, def: 0, spd: 28, range: 100, cd: 1.6, cost: 26, proj: 'arrow' },
+    mortar:   { name: 'Seed Mortar', type: 'artillery', sprite: 'm21', hue: 80, hp: 16, atk: 18, def: 1, spd: 14, range: 145, cd: 3.0, cost: 38, proj: 'hexbolt', splash: 20 },
+    witch:    { name: 'Witch',       type: 'mage',      sprite: 'c4',  hue: 110, hp: 16, atk: 8, def: 0, spd: 22, range: 75, cd: 2.2, cost: 34, proj: 'hexbolt', splash: 14 },
+    druid:    { name: 'Druid',       type: 'healer',    sprite: 'c3',  hue: 110, hp: 18, atk: 8, def: 0, spd: 22, range: 70, cd: 1.8, cost: 30 },
 
-    ashigaru: { name: 'Ashigaru',    sprite: 'c4',  hp: 30, atk: 6, def: 1, spd: 26, range: 18, cd: 1.1, cost: 20 },
-    brawler:  { name: 'Brawler',     sprite: 'c2',  hp: 44, atk: 8, def: 2, spd: 22, range: 12, cd: 1.3, cost: 30 },
-    flame:    { name: 'Fire Spirit', sprite: 'm2',  hp: 18, atk: 7, def: 0, spd: 28, range: 65, cd: 1.8, cost: 30, proj: 'fireball', splash: 10 },
+    // Ember Clan
+    ashigaru: { name: 'Ashigaru',    type: 'infantry',  sprite: 'c4',  hp: 30, atk: 6, def: 1, spd: 26, range: 18, cd: 1.1, cost: 20, antiCav: true },
+    brawler:  { name: 'Brawler',     type: 'infantry',  sprite: 'c2',  hp: 44, atk: 8, def: 2, spd: 22, range: 12, cd: 1.3, cost: 30 },
+    emberider:{ name: 'Ember Rider', type: 'cavalry',   sprite: 'c6',  hue: 350, hp: 30, atk: 8, def: 1, spd: 42, range: 14, cd: 1.2, cost: 32 },
+    firecannon:{ name: 'Fire Cannon', type: 'artillery', sprite: 'm20', hue: 340, hp: 16, atk: 22, def: 1, spd: 14, range: 140, cd: 3.2, cost: 42, proj: 'fireball', splash: 24 },
+    flame:    { name: 'Fire Spirit', type: 'mage',      sprite: 'm2',  hp: 18, atk: 7, def: 0, spd: 28, range: 65, cd: 1.8, cost: 30, proj: 'fireball', splash: 10 },
 
-    ninja:    { name: 'Ninja',       sprite: 'c7',  hp: 20, atk: 5, def: 0, spd: 38, range: 55, cd: 0.9, cost: 26, proj: 'shuriken' },
-    skeleton: { name: 'Skeleton',    sprite: 'c23', hp: 26, atk: 6, def: 1, spd: 24, range: 12, cd: 1.0, cost: 16 },
-    ghost:    { name: 'Ghost',       sprite: 'm7',  hp: 16, atk: 7, def: 0, spd: 26, range: 70, cd: 2.0, cost: 32, proj: 'fireball', splash: 12 },
+    // Shadow Order
+    skeleton: { name: 'Skeleton',    type: 'infantry',  sprite: 'c23', hp: 26, atk: 6, def: 1, spd: 24, range: 12, cd: 1.0, cost: 16 },
+    nightmare:{ name: 'Nightmare Rider', type: 'cavalry', sprite: 'c24', hue: 250, hp: 28, atk: 8, def: 1, spd: 44, range: 14, cd: 1.2, cost: 32 },
+    ninja:    { name: 'Ninja',       type: 'shooter',   sprite: 'c7',  hp: 20, atk: 5, def: 0, spd: 38, range: 55, cd: 0.9, cost: 26, proj: 'shuriken' },
+    ghost:    { name: 'Ghost',       type: 'mage',      sprite: 'm7',  hp: 16, atk: 7, def: 0, spd: 26, range: 70, cd: 2.0, cost: 32, proj: 'fireball', splash: 12 },
+    bonepriest:{ name: 'Bone Priest', type: 'healer',   sprite: 'c23', hue: 260, hp: 18, atk: 8, def: 0, spd: 22, range: 70, cd: 1.8, cost: 28 },
 
-    slime:    { name: 'Slime',       sprite: 'm3',  hp: 30, atk: 5, def: 1, spd: 20, range: 10, cd: 1.0, cost: 14 },
-    beast:    { name: 'Bog Beast',   sprite: 'm8',  hp: 55, atk: 8, def: 3, spd: 20, range: 12, cd: 1.4, cost: 34 },
-    thorn:    { name: 'Thornling',   sprite: 'm4',  hp: 24, atk: 5, def: 0, spd: 18, range: 80, cd: 1.7, cost: 22, proj: 'arrow' },
+    // Wild Horde
+    slime:    { name: 'Slime',       type: 'beast',     sprite: 'm3',  hp: 30, atk: 5, def: 1, spd: 20, range: 10, cd: 1.0, cost: 14 },
+    beast:    { name: 'Bog Beast',   type: 'beast',     sprite: 'm8',  hp: 55, atk: 8, def: 3, spd: 20, range: 12, cd: 1.4, cost: 34 },
+    boarrider:{ name: 'Boar Rider',  type: 'cavalry',   sprite: 'm5',  hp: 34, atk: 7, def: 2, spd: 38, range: 14, cd: 1.3, cost: 30 },
+    thorn:    { name: 'Thornling',   type: 'shooter',   sprite: 'm4',  hp: 24, atk: 5, def: 0, spd: 18, range: 80, cd: 1.7, cost: 22, proj: 'arrow' },
+    bogshaman:{ name: 'Bog Shaman',  type: 'healer',    sprite: 'm6',  hp: 20, atk: 8, def: 0, spd: 20, range: 70, cd: 1.8, cost: 28 },
 
-    fishfolk: { name: 'Fishfolk',    sprite: 'm22', hp: 30, atk: 6, def: 1, spd: 26, range: 14, cd: 1.0, cost: 20 },
-    bulwark:  { name: 'Shellguard',  sprite: 'm14', hp: 48, atk: 6, def: 3, spd: 18, range: 12, cd: 1.2, cost: 30 },
-    tidemage: { name: 'Tide Mage',   sprite: 'c17', hue: 170, hp: 16, atk: 8, def: 0, spd: 22, range: 75, cd: 2.2, cost: 34, proj: 'icebolt', splash: 14 },
-    crystal:  { name: 'Crystal Eye', sprite: 'm17', hp: 20, atk: 6, def: 1, spd: 20, range: 90, cd: 1.7, cost: 28, proj: 'sparkbolt' },
+    // Azure Tide
+    fishfolk: { name: 'Fishfolk',    type: 'infantry',  sprite: 'm22', hp: 30, atk: 6, def: 1, spd: 26, range: 18, cd: 1.0, cost: 20, antiCav: true },
+    bulwark:  { name: 'Shellguard',  type: 'beast',     sprite: 'm14', hp: 48, atk: 6, def: 3, spd: 18, range: 12, cd: 1.2, cost: 30 },
+    waverider:{ name: 'Wave Rider',  type: 'cavalry',   sprite: 'm18', hue: 300, hp: 28, atk: 7, def: 1, spd: 42, range: 14, cd: 1.2, cost: 30 },
+    crystal:  { name: 'Crystal Eye', type: 'shooter',   sprite: 'm17', hp: 20, atk: 6, def: 1, spd: 20, range: 90, cd: 1.7, cost: 28, proj: 'sparkbolt' },
+    catapult: { name: 'Coral Catapult', type: 'artillery', sprite: 'm21', hue: 300, hp: 16, atk: 18, def: 1, spd: 14, range: 145, cd: 3.0, cost: 38, proj: 'icebolt', splash: 20 },
+    tidemage: { name: 'Tide Mage',   type: 'mage',      sprite: 'c17', hue: 170, hp: 16, atk: 8, def: 0, spd: 22, range: 75, cd: 2.2, cost: 34, proj: 'icebolt', splash: 14 },
+    seapriest:{ name: 'Sea Priest',  type: 'healer',    sprite: 'c17', hue: 200, hp: 18, atk: 8, def: 0, spd: 22, range: 70, cd: 1.8, cost: 30 },
 
-    nomad:    { name: 'Nomad',       sprite: 'c14', hp: 28, atk: 6, def: 1, spd: 30, range: 18, cd: 1.0, cost: 20 },
-    sunguard: { name: 'Sun Guard',   sprite: 'c20', hp: 42, atk: 7, def: 3, spd: 20, range: 12, cd: 1.2, cost: 32 },
-    hawk:     { name: 'Fire Hawk',   sprite: 'm9',  hp: 18, atk: 6, def: 0, spd: 36, range: 80, cd: 1.5, cost: 28, proj: 'fireball' },
+    // Sunscar Dominion
+    nomad:    { name: 'Nomad Spear', type: 'infantry',  sprite: 'c14', hp: 28, atk: 6, def: 1, spd: 30, range: 18, cd: 1.0, cost: 20, antiCav: true },
+    sunguard: { name: 'Sun Guard',   type: 'infantry',  sprite: 'c20', hp: 42, atk: 7, def: 3, spd: 20, range: 12, cd: 1.2, cost: 32 },
+    camelrider:{ name: 'Camel Rider', type: 'cavalry',  sprite: 'c14', hue: 30, hp: 32, atk: 7, def: 1, spd: 40, range: 14, cd: 1.2, cost: 30 },
+    hawk:     { name: 'Fire Hawk',   type: 'shooter',   sprite: 'm9',  hp: 18, atk: 6, def: 0, spd: 36, range: 80, cd: 1.5, cost: 28, proj: 'fireball' },
+    suncannon:{ name: 'Sun Cannon',  type: 'artillery', sprite: 'm20', hue: 40, hp: 16, atk: 20, def: 1, spd: 14, range: 150, cd: 3.1, cost: 40, proj: 'fireball', splash: 22 },
+    sunpriest:{ name: 'Sun Priest',  type: 'healer',    sprite: 'c16', hue: 40, hp: 18, atk: 8, def: 0, spd: 22, range: 70, cd: 1.8, cost: 30 },
 
-    militia:  { name: 'Militia',     sprite: 'c10', hp: 26, atk: 5, def: 1, spd: 24, range: 12, cd: 1.1, cost: 15 },
-    bandit:   { name: 'Bandit Archer', sprite: 'c13', hp: 18, atk: 4, def: 0, spd: 26, range: 85, cd: 1.7, cost: 18, proj: 'arrow' },
-    frogman:  { name: 'Frogman',     sprite: 'm14', hue: 300, hp: 32, atk: 6, def: 2, spd: 22, range: 12, cd: 1.1, cost: 20 },
+    // Free Towns
+    militia:  { name: 'Militia',     type: 'infantry',  sprite: 'c10', hp: 26, atk: 5, def: 1, spd: 24, range: 16, cd: 1.1, cost: 15, antiCav: true },
+    bandit:   { name: 'Bandit Archer', type: 'shooter', sprite: 'c13', hp: 18, atk: 4, def: 0, spd: 26, range: 85, cd: 1.7, cost: 18, proj: 'arrow' },
+    frogman:  { name: 'Frogman',     type: 'beast',     sprite: 'm14', hue: 300, hp: 32, atk: 6, def: 2, spd: 22, range: 12, cd: 1.1, cost: 20 },
+  },
+
+  // --- Unit type rules -----------------------------------------------------
+  // role: frontline or backline. Cavalry charge: the first blow after running at
+  // least chargeRun pixels does chargeMul damage. Spearmen (antiCav) do antiCavMul
+  // to cavalry. Healers restore their atk in hp to the most hurt ally in range.
+  unitTypes: {
+    infantry:  { name: 'Infantry',  role: 'front' },
+    cavalry:   { name: 'Cavalry',   role: 'front', chargeRun: 40, chargeMul: 2 },
+    beast:     { name: 'Beast',     role: 'front' },
+    shooter:   { name: 'Shooter',   role: 'back' },
+    artillery: { name: 'Artillery', role: 'back' },
+    mage:      { name: 'Mage',      role: 'back' },
+    healer:    { name: 'Healer',    role: 'back' },
+  },
+  antiCavMul: 1.6,
+
+  // --- Hero classes: what a hero can recruit ----------------------------------
+  // A hero's class comes from the unit type they lead (or set `cls` on the general).
+  // They can recruit their faction's units of the listed types (see rosters).
+  heroClasses: {
+    warrior:  { name: 'Warrior',  role: 'front', types: ['infantry', 'cavalry', 'beast'],
+                blurb: 'Frontline commander: recruits infantry, cavalry and beasts.' },
+    marksman: { name: 'Marksman', role: 'back',  types: ['shooter', 'artillery'],
+                blurb: 'Backline commander: recruits shooters and artillery.' },
+    mage:     { name: 'Mage',     role: 'back',  types: ['mage', 'healer'],
+                blurb: 'Backline caster: recruits battle mages and healers.' },
+  },
+
+  // Which units each faction can field.
+  rosters: {
+    aster:   ['knight', 'lancer', 'archer', 'cannon', 'mage', 'cleric'],
+    frost:   ['warden', 'yeti', 'bearrider', 'hunter', 'frosteye', 'shaman'],
+    thorn:   ['beetle', 'stagrider', 'ranger', 'mortar', 'witch', 'druid'],
+    ember:   ['ashigaru', 'brawler', 'emberider', 'firecannon', 'flame'],
+    shadow:  ['skeleton', 'nightmare', 'ninja', 'ghost', 'bonepriest'],
+    horde:   ['slime', 'beast', 'boarrider', 'thorn', 'bogshaman'],
+    azure:   ['fishfolk', 'bulwark', 'waverider', 'crystal', 'catapult', 'tidemage', 'seapriest'],
+    sun:     ['nomad', 'sunguard', 'camelrider', 'hawk', 'suncannon', 'sunpriest'],
+    neutral: ['militia', 'bandit', 'frogman'],
   },
 
   // --- Generals ------------------------------------------------------------
@@ -146,57 +217,57 @@ window.DATA = {
     tobin:   { name: 'Tobin',    faction: 'aster', face: 6,  leads: 'knight', max: 8, troops: 6 },
     mira:    { name: 'Mira',     faction: 'aster', face: 17, leads: 'archer', max: 8, troops: 6 },
     oren:    { name: 'Oren',     faction: 'aster', face: 9,  leads: 'mage',   max: 6, troops: 4 },
-    elsa:    { name: 'Elsa',     faction: 'aster', face: 4,  hue: 200, leads: 'archer', max: 8, troops: 5 },
-    bertram: { name: 'Bertram',  faction: 'aster', face: 15, leads: 'knight', max: 8, troops: 5 },
+    elsa:    { name: 'Elsa',     faction: 'aster', face: 4,  hue: 200, leads: 'cleric', max: 8, troops: 5 },
+    bertram: { name: 'Bertram',  faction: 'aster', face: 15, leads: 'lancer', max: 8, troops: 5 },
 
     hroth:   { name: 'Jarl Hroth', faction: 'frost', face: 9, hue: 180, leads: 'yeti', max: 8, troops: 8, lord: true, level: 3 },
     ysolde:  { name: 'Ysolde',   faction: 'frost', face: 19, leads: 'hunter', max: 8, troops: 6 },
     brrn:    { name: 'Brrn',     faction: 'frost', mface: 11, hue: 190, leads: 'yeti', max: 7, troops: 5 },
     skadi:   { name: 'Skadi',    faction: 'frost', face: 4, hue: 170, leads: 'hunter', max: 8, troops: 5 },
     eira:    { name: 'Eira',     faction: 'frost', face: 17, hue: 190, leads: 'frosteye', max: 6, troops: 4 },
-    olaf:    { name: 'Olaf',     faction: 'frost', face: 3, hue: 180, leads: 'yeti', max: 6, troops: 4 },
+    olaf:    { name: 'Olaf',     faction: 'frost', face: 3, hue: 180, leads: 'bearrider', max: 6, troops: 4 },
 
     sylvara: { name: 'Sylvara',  faction: 'thorn', face: 1, hue: 150, leads: 'ranger', max: 10, troops: 10, lord: true, level: 3 },
     grimbark:{ name: 'Grimbark', faction: 'thorn', mface: 16, leads: 'beetle', max: 7, troops: 5 },
     hexa:    { name: 'Hexa',     faction: 'thorn', face: 4, hue: 110, leads: 'witch', max: 6, troops: 4 },
     bramble: { name: 'Bramble',  faction: 'thorn', face: 25, hue: 120, leads: 'ranger', max: 8, troops: 6 },
-    nettle:  { name: 'Nettle',   faction: 'thorn', face: 6, hue: 110, leads: 'beetle', max: 6, troops: 4 },
-    morrow:  { name: 'Morrow',   faction: 'thorn', mface: 15, hue: 140, leads: 'witch', max: 6, troops: 4 },
+    nettle:  { name: 'Nettle',   faction: 'thorn', face: 6, hue: 110, leads: 'stagrider', max: 6, troops: 4 },
+    morrow:  { name: 'Morrow',   faction: 'thorn', mface: 15, hue: 140, leads: 'druid', max: 6, troops: 4 },
 
     kaen:    { name: 'Kaen',     faction: 'ember', face: 12, leads: 'ashigaru', max: 10, troops: 10, lord: true, level: 3 },
     garr:    { name: 'Garr',     faction: 'ember', face: 20, leads: 'brawler', max: 7, troops: 5 },
     suzu:    { name: 'Suzu',     faction: 'ember', face: 5,  leads: 'ashigaru', max: 8, troops: 6 },
     hoshi:   { name: 'Hoshi',    faction: 'ember', face: 16, leads: 'flame', max: 6, troops: 4 },
     ignis:   { name: 'Ignis',    faction: 'ember', mface: 2, leads: 'flame', max: 6, troops: 4 },
-    tetsu:   { name: 'Tetsu',    faction: 'ember', face: 22, hue: 330, leads: 'brawler', max: 6, troops: 4 },
+    tetsu:   { name: 'Tetsu',    faction: 'ember', face: 22, hue: 330, leads: 'emberider', max: 6, troops: 4 },
 
     noct:    { name: 'Noct',     faction: 'shadow', face: 13, leads: 'ninja', max: 10, troops: 10, lord: true, level: 3 },
     ossian:  { name: 'Ossian',   faction: 'shadow', face: 23, leads: 'skeleton', max: 10, troops: 7 },
     rin:     { name: 'Rin',      faction: 'shadow', face: 24, leads: 'ninja', max: 8, troops: 6 },
     vael:    { name: 'Vael',     faction: 'shadow', face: 11, leads: 'ghost', max: 6, troops: 4 },
-    morta:   { name: 'Morta',    faction: 'shadow', mface: 19, hue: 260, leads: 'skeleton', max: 8, troops: 5 },
-    kage:    { name: 'Kage',     faction: 'shadow', face: 7, hue: 260, leads: 'ninja', max: 6, troops: 4 },
+    morta:   { name: 'Morta',    faction: 'shadow', mface: 19, hue: 260, leads: 'bonepriest', max: 8, troops: 5 },
+    kage:    { name: 'Kage',     faction: 'shadow', face: 7, hue: 260, leads: 'nightmare', max: 6, troops: 4 },
 
     grubb:   { name: 'Grubb',    faction: 'horde', face: 1,  leads: 'beast', max: 8, troops: 8, lord: true, level: 3 },
     bruno:   { name: 'Bruno',    faction: 'horde', face: 22, leads: 'beast', max: 6, troops: 4 },
     pip:     { name: 'Pip',      faction: 'horde', face: 25, leads: 'slime', max: 10, troops: 8 },
     ada:     { name: 'Ada',      faction: 'horde', face: 14, leads: 'thorn', max: 8, troops: 6 },
     ooze:    { name: 'Ooze',     faction: 'horde', mface: 3, leads: 'slime', max: 8, troops: 6 },
-    krug:    { name: 'Krug',     faction: 'horde', mface: 8, leads: 'beast', max: 6, troops: 4 },
+    krug:    { name: 'Krug',     faction: 'horde', mface: 8, leads: 'boarrider', max: 6, troops: 4 },
 
     marina:  { name: 'Marina',   faction: 'azure', face: 17, hue: 160, leads: 'tidemage', max: 8, troops: 8, lord: true, level: 3 },
     gill:    { name: 'Gill',     faction: 'azure', mface: 22, leads: 'fishfolk', max: 10, troops: 7 },
     coral:   { name: 'Coral',    faction: 'azure', face: 6, hue: 160, leads: 'fishfolk', max: 8, troops: 6 },
     pearl:   { name: 'Pearl',    faction: 'azure', face: 4, hue: 150, leads: 'crystal', max: 8, troops: 5 },
     shellos: { name: 'Shellos',  faction: 'azure', mface: 14, leads: 'bulwark', max: 6, troops: 4 },
-    lumi:    { name: 'Lumi',     faction: 'azure', mface: 17, leads: 'crystal', max: 6, troops: 4 },
+    lumi:    { name: 'Lumi',     faction: 'azure', mface: 17, leads: 'seapriest', max: 6, troops: 4 },
 
     zahra:   { name: 'Zahra',    faction: 'sun', face: 20, hue: 20, leads: 'sunguard', max: 8, troops: 8, lord: true, level: 3 },
     rashid:  { name: 'Rashid',   faction: 'sun', face: 14, leads: 'nomad', max: 10, troops: 7 },
     amun:    { name: 'Amun',     faction: 'sun', mface: 13, leads: 'sunguard', max: 7, troops: 5 },
-    sefa:    { name: 'Sefa',     faction: 'sun', face: 16, hue: 40, leads: 'hawk', max: 8, troops: 5 },
-    tariq:   { name: 'Tariq',    faction: 'sun', face: 12, hue: 30, leads: 'nomad', max: 8, troops: 6 },
-    nefer:   { name: 'Nefer',    faction: 'sun', face: 5, hue: 30, leads: 'hawk', max: 6, troops: 4 },
+    sefa:    { name: 'Sefa',     faction: 'sun', face: 16, hue: 40, leads: 'suncannon', max: 8, troops: 5 },
+    tariq:   { name: 'Tariq',    faction: 'sun', face: 12, hue: 30, leads: 'camelrider', max: 8, troops: 6 },
+    nefer:   { name: 'Nefer',    faction: 'sun', face: 5, hue: 30, leads: 'sunpriest', max: 6, troops: 4 },
 
     // Named heroes of the Free Towns, posted to the biggest heartland towns.
     wen:     { name: 'Elder Wen',   faction: 'neutral', face: 3,  leads: 'militia', max: 6, troops: 5 },
@@ -248,9 +319,26 @@ window.DATA = {
   },
 };
 
-// Fill in each unit type's role: ranged units are backline, melee units frontline.
-for (const t of Object.values(DATA.units)) if (!t.role) t.role = t.range > 30 ? 'back' : 'front';
-DATA.roleOf = gid => DATA.units[DATA.generals[gid].leads].role;
+// Fill in each unit's id and role (from its type).
+for (const [id, t] of Object.entries(DATA.units)) {
+  t.id = id;
+  if (!t.type) t.type = t.range > 30 ? 'shooter' : 'infantry';
+  if (!t.role) t.role = DATA.unitTypes[t.type].role;
+}
+// A hero's class: set with `cls`, or from the type of unit they lead.
+DATA.classOf = gid => {
+  const d = DATA.generals[gid];
+  if (d.cls) return d.cls;
+  const ty = DATA.units[d.leads].type;
+  return ['shooter', 'artillery'].includes(ty) ? 'marksman' : ['mage', 'healer'].includes(ty) ? 'mage' : 'warrior';
+};
+DATA.roleOf = gid => DATA.heroClasses[DATA.classOf(gid)].role;
+// Units a hero can recruit while serving faction f.
+DATA.recruitable = (gid, f) => {
+  const types = DATA.heroClasses[DATA.classOf(gid)].types;
+  const list = (DATA.rosters[f] || []).filter(u => types.includes(DATA.units[u].type));
+  return list.length ? list : [DATA.generals[gid].leads];
+};
 
 // The map comes from js/map.js.
 DATA.spots = MAP.spots;

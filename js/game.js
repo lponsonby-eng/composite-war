@@ -32,7 +32,7 @@ const Game = {
   placeGenerals() {
     const place = (gid, spot) => {
       const g = DATA.generals[gid];
-      this.gens[gid] = { id: gid, faction: g.faction, spot, troops: g.troops, acted: false, alive: true, level: g.level || 1, xp: 0 };
+      this.gens[gid] = { id: gid, faction: g.faction, spot, troops: g.troops, mix: Array(g.troops).fill(g.leads), acted: false, alive: true, level: g.level || 1, xp: 0 };
     };
     for (const [id, s] of Object.entries(DATA.spots)) for (const gid of s.gens || []) place(gid, id);
     const unplaced = f => Object.keys(DATA.generals).filter(gid => DATA.generals[gid].faction === f && !this.gens[gid] && !DATA.generals[gid].captain);
@@ -76,6 +76,7 @@ const Game = {
       for (const g of Object.values(this.gens)) {           // saves from before levels existed
         if (!g.level) g.level = DATA.generals[g.id].level || 1;
         if (g.xp == null) g.xp = 0;
+        if (!g.mix) g.mix = Array(g.troops).fill(DATA.generals[g.id].leads);
       }
       this.startMap();
       this.log('Game loaded.');
@@ -109,7 +110,7 @@ const Game = {
   genPower(g) {
     const p = this.unitPower(DATA.generals[g.id].leads), L = DATA.leveling, lv = (g.level || 1) - 1;
     const lead = (1 + lv * L.leaderBonus) ** 2, squad = (1 + lv * L.squadBonus) ** 2;   // hp and attack both scale
-    return p * 8 * lead + g.troops * p * squad;
+    return p * 8 * lead + (g.mix || []).reduce((s, u) => s + this.unitPower(u), 0) * squad;
   },
 
   // ======================================================== levels
@@ -132,7 +133,7 @@ const Game = {
   // Turns a general into a wanderer at a random town (other than `avoid`).
   makeWanderer(g, avoid) {
     const towns = Object.keys(this.spots).filter(id => id !== avoid);
-    g.free = true; g.faction = null; g.troops = 0; g.acted = false;
+    g.free = true; g.faction = null; g.troops = 0; g.mix = []; g.acted = false;
     g.spot = towns[Math.floor(Math.random() * towns.length)];
     g.stay = this.stayTurns();
   },
@@ -142,7 +143,7 @@ const Game = {
     if (!g || !g.free || this.spots[g.spot].owner !== f || this.gold[f] < cost) return false;
     this.gold[f] -= cost;
     g.free = false; g.faction = f; g.acted = true; delete g.stay;
-    g.troops = Math.max(g.troops, Math.ceil(DATA.generals[gid].max / 2));
+    while (g.troops < Math.ceil(DATA.generals[gid].max / 2)) this.addSoldier(g, this.prefType(g));
     const name = DATA.generals[gid].name;
     if (f === this.player) { this.log(`${name} has joined your army!`, 'good'); Assets.sfx('power-up', 0.5); }
     else this.log(`${name} has joined the ${DATA.factions[f].name}.`, this.neighborsOfPlayer(g.spot) ? 'bad' : 'muted');
@@ -164,7 +165,7 @@ const Game = {
     const pool = Object.keys(DATA.wanderers).filter(id => !this.gens[id]);
     if (pool.length && this.wanderers().length < H.maxOnMap && Math.random() < H.appearChance) {
       const id = pool[Math.floor(Math.random() * pool.length)], d = DATA.generals[id];
-      const g = this.gens[id] = { id, faction: null, troops: 0, acted: false, alive: true, level: d.level || 1, xp: 0 };
+      const g = this.gens[id] = { id, faction: null, troops: 0, mix: [], acted: false, alive: true, level: d.level || 1, xp: 0 };
       this.makeWanderer(g);
       const mine = this.spots[g.spot].owner === this.player;
       this.log(`A wandering ${DATA.units[d.leads].name.toLowerCase()}, ${d.name} (Lv ${g.level}), has appeared at ${DATA.spots[g.spot].name}.${mine ? ' Hire them!' : ''}`, mine ? 'good' : 'muted');
@@ -231,22 +232,76 @@ const Game = {
     this.renderPanel();
   },
 
+  // ======================================================== recruiting
+  // A hero recruits their faction's units of the types their class allows.
+  // pref is the type the quick Recruit button fills with (last one chosen).
+  prefType(g) {
+    const ok = DATA.recruitable(g.id, g.faction), d = DATA.generals[g.id];
+    return ok.includes(g.pref) ? g.pref : ok.includes(d.leads) ? d.leads : ok[0];
+  },
+  addSoldier(g, type) { g.mix.push(type); g.troops = g.mix.length; },
   recruitCost(list) {
-    return list.reduce((s, g) => s + (DATA.generals[g.id].max - g.troops) * DATA.units[DATA.generals[g.id].leads].cost, 0);
+    return list.reduce((s, g) => s + (DATA.generals[g.id].max - g.troops) * DATA.units[this.prefType(g)].cost, 0);
   },
 
   recruit() {
     const list = [...this.ui.picked].map(id => this.gens[id]);
     let hired = 0;
     for (const g of list) {
-      const cost = DATA.units[DATA.generals[g.id].leads].cost;
+      const type = this.prefType(g), cost = DATA.units[type].cost;
       while (g.troops < DATA.generals[g.id].max && this.gold[this.player] >= cost) {
-        g.troops++; this.gold[this.player] -= cost; hired++;
+        this.addSoldier(g, type); this.gold[this.player] -= cost; hired++;
       }
     }
     if (hired) { Assets.sfx('gold-1', 0.5); this.log(`Recruited ${hired} soldiers.`); }
     else this.log('Not enough gold to recruit.', 'bad');
     this.refreshTop(); this.renderPanel();
+  },
+
+  // Recruit window for one general: buy any allowed unit type, or dismiss soldiers.
+  recruitDialog(gid) {
+    const g = this.gens[gid], d = DATA.generals[gid], cls = DATA.heroClasses[DATA.classOf(gid)];
+    const m = $('#modal');
+    const draw = () => {
+      const gold = this.gold[this.player], room = d.max - g.troops;
+      const counts = {}; for (const u of g.mix) counts[u] = (counts[u] || 0) + 1;
+      const rows = DATA.recruitable(gid, this.player).map(id => {
+        const u = DATA.units[id], ty = DATA.unitTypes[u.type];
+        const extra = [u.splash ? 'area damage' : '', u.antiCav ? 'anti-cavalry' : '', u.type === 'cavalry' ? 'charge' : '', u.type === 'healer' ? 'heals allies' : ''].filter(Boolean).join(', ');
+        return `<tr class="${g.pref === id || (!g.pref && d.leads === id) ? 'pref' : ''}">
+          <td><img class="uico" src="${Assets.unitIcon(id)}"></td>
+          <td><b>${u.name}</b><br><span class="role ${ty.role}">${ty.name}</span> <span class="muted">${extra}</span></td>
+          <td class="st">HP ${u.hp}<br>${u.type === 'healer' ? 'Heal' : 'Atk'} ${u.atk} Def ${u.def}<br>Range ${u.range}</td>
+          <td class="st">${u.cost}g</td>
+          <td>${counts[id] ? `<button data-dis="${id}" title="Dismiss one">-</button>` : ''} <b>${counts[id] || 0}</b>
+            <button data-add="${id}" ${room < 1 || gold < u.cost ? 'disabled' : ''}>+1</button>
+            <button data-fill="${id}" ${room < 1 || gold < u.cost ? 'disabled' : ''}>Fill</button></td></tr>`;
+      }).join('');
+      // soldiers of types this general can no longer recruit (e.g. after changing sides)
+      const others = Object.keys(counts).filter(id => !DATA.recruitable(gid, this.player).includes(id))
+        .map(id => `${DATA.units[id].name} x${counts[id]} <button data-dis="${id}">-</button>`).join(' ');
+      m.innerHTML = `<div class="box rec"><h2>Recruit for ${d.name}</h2>
+        <p><span class="role ${cls.role}">${cls.name}</span> ${cls.blurb}</p>
+        <p class="muted">Squad ${g.troops}/${d.max} - Gold ${gold}. Fill sets the type the quick Recruit button uses.</p>
+        <table class="rect">${rows}</table>${others ? `<p class="muted">Other troops: ${others}</p>` : ''}
+        <div class="mbtns"><button data-close>Done</button></div></div>`;
+      m.hidden = false;
+      const buy = (id, n) => {
+        const c = DATA.units[id].cost;
+        for (let i = 0; i < n && g.troops < d.max && this.gold[this.player] >= c; i++) { this.addSoldier(g, id); this.gold[this.player] -= c; }
+        Assets.sfx('gold-1', 0.4); this.refreshTop(); draw();
+      };
+      m.querySelectorAll('[data-add]').forEach(b => b.onclick = () => buy(b.dataset.add, 1));
+      m.querySelectorAll('[data-fill]').forEach(b => b.onclick = () => { g.pref = b.dataset.fill; buy(b.dataset.fill, 99); });
+      m.querySelectorAll('[data-dis]').forEach(b => b.onclick = () => {
+        const i = g.mix.lastIndexOf(b.dataset.dis);
+        if (i >= 0) { g.mix.splice(i, 1); g.troops = g.mix.length; }
+        draw();
+      });
+      m.querySelector('[data-close]').onclick = () => { m.hidden = true; this.renderPanel(); };
+    };
+    m.onclick = e => { if (e.target === m) { m.hidden = true; this.renderPanel(); } };
+    draw();
   },
 
   moveGenerals(from, to) {
@@ -294,9 +349,9 @@ const Game = {
     att.forEach(g => g.acted = true);
     let result;
     if (def.length === 0) {
-      result = { winner: 'att', att: att.map(g => ({ id: g.id, alive: true, troops: g.troops, before: g.troops, xp: DATA.leveling.capture })), def: [] };
+      result = { winner: 'att', att: att.map(g => ({ id: g.id, alive: true, troops: g.troops, mix: g.mix.slice(), before: g.troops, xp: DATA.leveling.capture })), def: [] };
     } else {
-      const army = list => list.map(g => ({ id: g.id, troops: g.troops, level: g.level }));
+      const army = list => list.map(g => ({ id: g.id, troops: g.troops, mix: g.mix.slice(), level: g.level }));
       const battle = new Battle({ attackers: army(att), defenders: army(def), attFaction: attF, defFaction: defF,
         spotName, spotId: to, playerSide, headless: !playerSide });
       result = playerSide ? await this.playBattle(battle) : battle.runHeadless();
@@ -310,7 +365,7 @@ const Game = {
     const fallen = [];
     for (const x of r.att.concat(r.def)) {
       const g = this.gens[x.id];
-      g.troops = x.troops;
+      g.troops = x.troops; g.mix = x.mix || [];
       if (!x.alive) fallen.push(DATA.generals[x.id].name);
       const before = g.level;
       x.levelUp = this.gainXp(g, x.xp || 0);
@@ -449,7 +504,7 @@ const Game = {
       for (const id of this.spotsOf(f)) this.gold[f] += DATA.spots[id].income;
     for (const g of Object.values(this.gens)) {
       g.acted = false;
-      if (g.alive && !g.free && DATA.factions[g.faction].neutral) g.troops = Math.min(DATA.generals[g.id].max, g.troops + 1);
+      if (g.alive && !g.free && DATA.factions[g.faction].neutral && g.troops < DATA.generals[g.id].max) this.addSoldier(g, DATA.generals[g.id].leads);
     }
     this.wanderTurn();
     const inc = this.spotsOf(this.player).reduce((s, id) => s + DATA.spots[id].income, 0);
@@ -477,8 +532,14 @@ const Game = {
     // 1. Recruit, front-line generals first
     const gens = this.gensOf(f).sort((a, b) => (front.has(b.spot) ? 1 : 0) - (front.has(a.spot) ? 1 : 0));
     for (const g of gens) {
-      const cost = DATA.units[DATA.generals[g.id].leads].cost;
-      while (g.troops < DATA.generals[g.id].max && this.gold[f] >= cost) { g.troops++; this.gold[f] -= cost; }
+      const ok = DATA.recruitable(g.id, f), pref = this.prefType(g);
+      while (g.troops < DATA.generals[g.id].max) {
+        // mostly the hero's own type, with some of the others mixed in
+        let type = Math.random() < 0.55 ? pref : ok[Math.floor(Math.random() * ok.length)];
+        if (this.gold[f] < DATA.units[type].cost) type = ok.filter(u => DATA.units[u].cost <= this.gold[f]).sort((a, b) => DATA.units[a].cost - DATA.units[b].cost)[0];
+        if (!type) break;
+        this.addSoldier(g, type); this.gold[f] -= DATA.units[type].cost;
+      }
     }
 
     // 2. Attack wherever we are clearly stronger
@@ -613,7 +674,8 @@ const Game = {
       return `<div class="gen ${g.acted && own ? 'acted' : ''} ${this.ui.picked.has(g.id) ? 'picked' : ''}" ${canPick ? `data-g="${g.id}"` : ''}>
         <img src="${Assets.portrait(g.id)}">
         <div class="gi"><div class="gn">${d.name} <span class="lv">Lv ${g.level}</span>${d.lord ? ' <span class="lord">Lord</span>' : ''}</div>
-        <div class="gu">${roleTag(g.id)} ${u.name} - ${g.troops}/${d.max}</div>
+        <div class="gu">${roleTag(g.id)} ${g.troops}/${d.max} ${own ? `<button class="mini" data-rec="${g.id}">Recruit</button>` : ''}</div>
+        <div class="gu sq">${squadText(g) || 'No troops'}</div>
         <div class="tbar"><i style="width:${g.troops / d.max * 100}%"></i></div>
         ${own ? `<div class="xbar" title="${g.xp}/${this.xpNeeded(g)} XP"><i style="width:${g.level >= DATA.leveling.maxLevel ? 100 : g.xp / this.xpNeeded(g) * 100}%"></i></div>` : ''}</div>
         ${own ? `<div class="gs">${g.acted ? 'done' : this.ui.picked.has(g.id) ? 'ready' : ''}</div>` : ''}</div>`;
@@ -646,6 +708,7 @@ const Game = {
       if (this.hire(el.dataset.hire, this.player)) { this.refreshTop(); this.select(id); }
     });
     p.querySelectorAll('[data-g]').forEach(el => el.onclick = () => this.togglePick(el.dataset.g));
+    p.querySelectorAll('[data-rec]').forEach(el => el.onclick = e => { e.stopPropagation(); this.recruitDialog(el.dataset.rec); });
     const rb = $('#btn-recruit'); if (rb) rb.onclick = () => this.recruit();
   },
 
@@ -674,7 +737,7 @@ const Game = {
 function genChip(g) {
   const d = DATA.generals[g.id];
   return `<div class="chip"><img src="${Assets.portrait(g.id)}"><div><b>${d.name}</b> <span class="lv">Lv ${g.level}</span><br>
-    ${roleTag(g.id)} <span class="muted">${DATA.units[d.leads].name} x${g.troops}</span></div></div>`;
+    ${roleTag(g.id)} <span class="muted">${squadText(g) || 'no troops'}</span></div></div>`;
 }
 
 // How many levels a general would gain from xp, without changing them.
@@ -703,10 +766,17 @@ function shuffle(a) {
 
 function dist(a, b) { const p = DATA.spots[a], q = DATA.spots[b]; return Math.hypot(p.x - q.x, p.y - q.y); }
 
-// Small Front / Back tag for a general's role.
+// Small tag with a general's class, coloured by frontline / backline.
 function roleTag(gid) {
-  const r = DATA.roleOf(gid);
-  return `<span class="role ${r}" title="${DATA.roles[r].name}">${r === 'front' ? 'Front' : 'Back'}</span>`;
+  const c = DATA.heroClasses[DATA.classOf(gid)];
+  return `<span class="role ${c.role}" title="${c.name} (${DATA.roles[c.role].name}): ${c.blurb}">${c.name}</span>`;
+}
+
+// "Knight x4, Lancer x2"
+function squadText(g) {
+  const counts = {};
+  for (const u of g.mix || []) counts[u] = (counts[u] || 0) + 1;
+  return Object.entries(counts).map(([u, n]) => `${DATA.units[u].name} x${n}`).join(', ');
 }
 
 // One line about an army's formation, with a warning when the backline is unprotected.

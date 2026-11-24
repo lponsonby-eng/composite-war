@@ -37,20 +37,23 @@ class Battle {
       const dirX = side === 0 ? 1 : -1;
       const baseX = side === 0 ? depth : this.W - depth;
       this.units.push(this.makeUnit(g, side, true, baseX, cy));
+      const mix = g.mix || [];
       for (let k = 0; k < g.troops; k++) {
         const col = Math.floor(k / 3), row = (k % 3) - 1;
-        this.units.push(this.makeUnit(g, side, false, baseX + dirX * (20 + col * 13), cy + row * 13 + (col % 2) * 3));
+        this.units.push(this.makeUnit(g, side, false, baseX + dirX * (20 + col * 13), cy + row * 13 + (col % 2) * 3, mix[k]));
       }
     });
   }
 
-  makeUnit(g, side, isLeader, x, y) {
-    const t = DATA.units[DATA.generals[g.id].leads];
+  // A soldier of unit type `type` (default: the type the general leads), or the general.
+  makeUnit(g, side, isLeader, x, y, type) {
+    const t = DATA.units[(!isLeader && type) || DATA.generals[g.id].leads];
     const L = DATA.leveling, lv = (g.level || 1) - 1;
     const boost = 1 + lv * (isLeader ? L.leaderBonus : L.squadBonus);
     const hp = Math.round((isLeader ? t.hp * 5 : t.hp) * boost);
     return {
-      side, gid: g.id, isLeader, t, back: t.role === 'back',
+      side, gid: g.id, isLeader, t, back: isLeader ? DATA.roleOf(g.id) === 'back' : t.role === 'back',
+      heal: t.type === 'healer', cav: t.type === 'cavalry', run: 0,
       sprite: isLeader ? Assets.genSprite(g.id) : Assets.unitSprite(t),
       x, y, homeX: x, homeY: y,
       hp, maxHp: hp,
@@ -89,6 +92,11 @@ class Battle {
           u.target = this.nearestEnemy(u);
           u.retarget = 0.3 + Math.random() * 0.2;
         }
+        // Healers look after the most hurt ally within reach instead of fighting.
+        if (u.heal && u.cdLeft <= 0) {
+          const patient = this.mostHurt(u);
+          if (patient) { this.healUnit(u, patient); u.cdLeft = u.cd; u.atkT = 0.25; }
+        }
         const tg = u.target;
         const d = tg ? Math.hypot(tg.x - u.x, tg.y - u.y) : 1e9;
         // Holding units only step out for nearby enemies; behind a wall they never leave it.
@@ -107,7 +115,7 @@ class Battle {
         } else if (engage) {
           if (d <= u.range + 4) {
             u.dir = faceDir(tg.x - u.x, tg.y - u.y);
-            if (u.cdLeft <= 0) { this.attack(u, tg); u.cdLeft = u.cd; u.atkT = 0.25; }
+            if (u.cdLeft <= 0 && !u.heal) { this.attack(u, tg); u.cdLeft = u.cd; u.atkT = 0.25; }
           } else {
             const wp = this.terrain.gateWaypoint(u.x, u.y, tg.x, tg.y);
             const gx = wp ? wp[0] : tg.x, gy = wp ? wp[1] : tg.y, gd = Math.hypot(gx - u.x, gy - u.y) || 1;
@@ -131,6 +139,7 @@ class Battle {
       u.moving = !!(vx || vy);
       if (vx || vy) {
         const T = this.terrain, nx = u.x + vx * dt, ny = u.y + vy * dt;   // solid ground (walls) blocks; slide along it
+        if (u.cav) u.run += Math.hypot(vx, vy) * dt;                     // cavalry builds up a charge
         if (T.speedAt(nx, ny) > 0) { u.x = nx; u.y = ny; }
         else if (T.speedAt(nx, u.y) > 0) u.x = nx;
         else if (T.speedAt(u.x, ny) > 0) u.y = ny;
@@ -196,6 +205,25 @@ class Battle {
     }
   }
 
+  mostHurt(u) {
+    let best = null, worst = 0.999;
+    for (const a of this.units) {
+      if (a.side !== u.side || !a.alive || a.escaped || a.routing) continue;
+      const f = a.hp / a.maxHp;
+      if (f < worst && Math.hypot(a.x - u.x, a.y - u.y) <= u.range + 4) { worst = f; best = a; }
+    }
+    return best;
+  }
+
+  healUnit(u, a) {
+    const amount = Math.round(u.atk * (0.85 + Math.random() * 0.3));
+    a.hp = Math.min(a.maxHp, a.hp + amount);
+    if (!this.headless) {
+      this.texts.push({ x: a.x, y: a.y - 16, s: '+' + amount, life: 0.6, color: '#7be07b' });
+      this.addFx('sparkle', a.x, a.y - 8, 0.4);
+    }
+  }
+
   // Once per step: for every unit, the nearest enemy (any) and the nearest frontline
   // enemy; and for each side, where its front line is (average x of frontline units).
   sizeUp() {
@@ -249,6 +277,13 @@ class Battle {
   attack(u, tg) {
     let dmg = u.atk * this.terrain.footingAt(u.x, u.y);        // poor footing (water, mud) weakens blows
     const R = DATA.roles.back;
+    const C = DATA.unitTypes.cavalry;
+    if (u.cav && u.run >= C.chargeRun) {                              // cavalry charge
+      dmg *= C.chargeMul;
+      if (!this.headless) this.texts.push({ x: u.x, y: u.y - 22, s: 'Charge!', life: 0.7, color: '#ffb040' });
+    }
+    u.run = 0;
+    if (u.t.antiCav && tg.cav) dmg *= DATA.antiCavMul;               // spears against horses
     if (u.back) dmg *= R.power;                                    // shooting from safety hits hard...
     if (u.back && u.closestD < R.exposedRange) dmg *= R.meleePenalty;   // ...but caught in melee, much less
     if (u.t.proj) {
@@ -289,10 +324,12 @@ class Battle {
     this.winner = winnerSide === 0 ? 'att' : 'def';
     const res = side => (side === 0 ? this.opts.attackers : this.opts.defenders).map(g => {
       const leader = this.units.find(u => u.gid === g.id && u.isLeader);
-      const troops = this.units.filter(u => u.gid === g.id && !u.isLeader && (u.alive || u.escaped) && !u.routing).length;
+      const left = this.units.filter(u => u.gid === g.id && !u.isLeader && (u.alive || u.escaped) && !u.routing);
+      const troops = left.length;
       const L = DATA.leveling, won = (side === 0) === (winnerSide === 0);
       const xp = (this.xp[g.id] || 0) + L.fought + (won ? L.won : 0);
-      return { id: g.id, alive: leader.alive || leader.escaped, troops: leader.alive || leader.escaped ? troops : 0, before: g.troops, xp };
+      const ok = leader.alive || leader.escaped;
+      return { id: g.id, alive: ok, troops: ok ? troops : 0, mix: ok ? left.map(u => u.t.id) : [], before: g.troops, xp };
     });
     this.result = { winner: this.winner, att: res(0), def: res(1), timeout: this.time >= this.limit };
   }

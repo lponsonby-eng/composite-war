@@ -27,6 +27,17 @@ Win by defeating every rival faction.
 
 To make a different map: `python3 tools/genmap.py 42` (any number gives a new layout).
 
+## Hero classes, unit types and recruiting
+Modelled on the class/recruit system of Vahren-engine games such as Kinoko Takenoko War
+(the system, not its units: every unit here is our own). Each unit has a type: infantry,
+cavalry or beast (frontline), or shooter, artillery, mage or healer (backline). Each hero
+has a class from the troops they lead: **Warrior** recruits infantry, cavalry and beasts;
+**Marksman** recruits shooters and artillery; **Mage** recruits battle mages and healers.
+A hero recruits only their own faction's units of those types (`DATA.rosters`), and a
+squad can mix types. Cavalry charge for double damage after a run; spearmen (`antiCav`)
+hit cavalry hard; artillery has long range and big blasts; healers mend the most hurt ally
+in reach. Set `cls` on a general to give them a different class.
+
 ## Frontline and backline
 Every unit type is **frontline** (melee) or **backline** (archers and casters); a general
 takes the role of the squad they lead. In battle the frontline deploys in front, holds up

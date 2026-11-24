@@ -65,6 +65,19 @@ const Assets = {
     return this.tint(d.mface ? 'm' + d.mface : 'c' + d.face, d.hue);
   },
 
+  // Small picture (data URL) of a unit type, for the recruit window.
+  _icons: {},
+  unitIcon(id) {
+    if (this._icons[id]) return this._icons[id];
+    const cv = document.createElement('canvas');
+    cv.width = 32; cv.height = 32;
+    const c = cv.getContext('2d');
+    c.imageSmoothingEnabled = false;
+    const im = this.img[this.unitSprite(DATA.units[id])];
+    if (im && im.width) c.drawImage(im, 0, 0, 16, 16, 0, 0, 32, 32);
+    return (this._icons[id] = cv.toDataURL());
+  },
+
   // Portrait picture (data URL) for a general: their face, or a monster close-up.
   _portraits: {},
   portrait(gid) {

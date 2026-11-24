@@ -197,3 +197,15 @@ body[data-mode="battle"] #map-ctrl, body[data-mode="title"] #map-ctrl { display:
 .role.front { background: #e8a25a; }
 .role.back { background: #8ac8f0; }
 .warn { color: var(--bad); font-size: 16px; }
+
+/* ---------- recruit window ---------- */
+button.mini { font-size: 13px; padding: 0 6px; margin-left: 4px; }
+.gu.sq { font-size: 14px; }
+.box.rec { max-width: min(680px, 100%); }
+table.rect { width: 100%; border-collapse: collapse; }
+table.rect td { padding: 4px 6px; border-top: 1px solid var(--panel-2); vertical-align: middle; font-size: 16px; }
+table.rect tr.pref td { background: rgba(255, 216, 74, .07); }
+table.rect td.st { color: var(--muted); font-size: 14px; white-space: nowrap; }
+table.rect button { padding: 1px 7px; }
+.uico { width: 32px; height: 32px; image-rendering: pixelated; }
+@media (max-width: 760px) { table.rect td.st { display: none; } }
