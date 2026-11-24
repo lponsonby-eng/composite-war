@@ -236,6 +236,7 @@ window.DATA = {
   // --- Hero classes: what a hero can recruit ----------------------------------
   // A hero's class comes from the unit type they lead (or set `cls` on the general).
   // They can recruit their faction's units of the listed types (see rosters).
+  // A faction's lord can recruit ANY unit on the faction's roster.
   heroClasses: {
     warrior:  { name: 'Warrior',  role: 'front', types: ['infantry', 'cavalry', 'beast'],
                 blurb: 'Frontline commander: recruits infantry, cavalry and beasts.' },
@@ -336,6 +337,12 @@ window.DATA = {
     'Fenna', 'Lorcan', 'Tilda', 'Osric', 'Wynn', 'Agna', 'Bors', 'Cael', 'Della', 'Edda', 'Garth', 'Hale', 'Isa'],
   captainFaces: [3, 6, 9, 10, 13, 14, 22, 25, 1, 5, 12, 16],
 
+  // --- Squad sizes ------------------------------------------------------------
+  // How many soldiers a general can command (as in Vahren-style games, the faction
+  // lord commands the biggest army). Set `max` and `maxFixed: true` on a general
+  // to give them their own size. Starting troops are scaled by startTroops.
+  squadSize: { lord: 24, hero: 16, wanderer: 12, startTroops: 1.5 },
+
   // --- Persuasion -----------------------------------------------------------
   // Pay a general of another side to join you. Like a general who loses a battle
   // with nowhere to retreat, only a CORNERED general can be bought: one whose town
@@ -424,6 +431,8 @@ DATA.skillsOf = gid => {
 
 // Units a hero can recruit while serving faction f.
 DATA.recruitable = (gid, f) => {
+  const d = DATA.generals[gid];
+  if (d.lord && d.faction === f) return (DATA.rosters[f] || [d.leads]).slice();   // the lord can field anything the faction has
   const types = DATA.heroClasses[DATA.classOf(gid)].types;
   const list = (DATA.rosters[f] || []).filter(u => types.includes(DATA.units[u].type));
   return list.length ? list : [DATA.generals[gid].leads];
@@ -435,6 +444,14 @@ DATA.links = MAP.links;
 
 // Wanderers are generals too: put them in the same table so every lookup works.
 Object.assign(DATA.generals, DATA.wanderers);
+
+// Squad sizes: lords 24, heroes 16, wanderers 12 (captains keep their garrison size).
+for (const d of Object.values(DATA.generals)) {
+  if (d.maxFixed) continue;
+  const Z = DATA.squadSize;
+  d.max = d.lord ? Z.lord : d.wanderer ? Z.wanderer : Z.hero;
+  d.troops = Math.min(d.max, Math.round((d.troops || 0) * Z.startTroops));
+}
 
 // A militia captain for every free town (only used where no named hero is posted).
 Object.entries(DATA.spots).forEach(([id, s], i) => {

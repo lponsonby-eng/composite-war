@@ -327,7 +327,7 @@ const Game = {
       const others = Object.keys(counts).filter(id => !DATA.recruitable(gid, this.player).includes(id))
         .map(id => `${DATA.units[id].name} x${counts[id]} <button data-dis="${id}">-</button>`).join(' ');
       m.innerHTML = `<div class="box rec"><h2>Recruit for ${d.name}</h2>
-        <p><span class="role ${cls.role}">${cls.name}</span> ${cls.blurb}</p>
+        <p><span class="role ${cls.role}">${cls.name}</span> ${d.lord && d.faction === this.player ? `As lord of the ${DATA.factions[this.player].name}, ${d.name} can recruit every unit the faction has, in any mix.` : cls.blurb}</p>
         <p class="muted">Squad ${g.troops}/${d.max} - Gold ${gold}. Fill sets the type the quick Recruit button uses.</p>
         <p class="muted">Squad: ${squadText(g, true) || 'empty'}</p>
         <p class="muted">Soldiers level up in battle and are promoted at level ${P.tierLevels[0]} and ${P.tierLevels[1]}.

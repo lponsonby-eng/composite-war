@@ -67,22 +67,35 @@ class Battle {
       this.units.push(sq.leader);
       const mix = g.mix || [], lv = g.lv || [];
       for (let k = 0; k < g.troops; k++) {
-        const [ox, oy] = this.slot(sq, k);
-        const u = this.makeUnit(g, side, false, x + ox, cy + oy, mix[k], lv[k] || 1, sq);
+        const u = this.makeUnit(g, side, false, x, cy, mix[k], lv[k] || 1, sq);
         u.slotK = k;
         sq.members.push(u); this.units.push(u);
       }
+      this.rank(sq);
+      for (const u of sq.members) { const [ox, oy] = this.slot(sq, u.slotK); u.x += ox; u.y += oy; }
       this.squads.push(sq);
     });
   }
 
   // Where soldier k stands relative to their general: a block of rows of 3 in
   // front of the general, facing the way the squad faces.
+  // Frontline soldiers stand in ranks in front of the general, backline soldiers in
+  // ranks behind; big squads use wider ranks.
   slot(sq, k) {
-    const col = Math.floor(k / 3), row = (k % 3) - 1;
-    const f = 14 + col * 12, l = row * 12 + (col % 2) * 3;
+    const u = sq.members[k], back = u && u.back && sq.nFront > 0;
+    const i = back ? sq.backIdx[k] : sq.frontIdx[k] ?? k;
+    const n = back ? sq.nBack : (sq.nFront || sq.members.length), w = n > 15 ? 5 : n > 8 ? 4 : 3;
+    const col = Math.floor(i / w), row = (i % w) - (w - 1) / 2;
+    const f = back ? -(14 + col * 12) : 14 + col * 12, l = row * 12 + (col % 2) * 3;
     const [fx, fy] = sq.face;
     return [fx * f - fy * l, fy * f + fx * l];
+  }
+
+  // Number each squad's soldiers within the front and back ranks.
+  rank(sq) {
+    sq.frontIdx = {}; sq.backIdx = {}; let f = 0, b = 0;
+    sq.members.forEach((u, k) => { if (u.back) sq.backIdx[k] = b++; else sq.frontIdx[k] = f++; });
+    sq.nFront = f; sq.nBack = b;
   }
 
   // A soldier of unit type `type` (default: the type the general leads), or the general.
