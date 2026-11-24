@@ -51,9 +51,6 @@ A hero recruits only their own faction's units of those types (`DATA.rosters`), 
 squad can mix types. A faction's **lord** can recruit any unit on the faction's roster.
 Squad sizes (`DATA.squadSize`): lords 24, heroes 16, wanderers 12; militia captains keep
 their garrison size. In battle a mixed squad's frontline soldiers stand in front of the
-hero and its backline soldiers behind. A faction's **lord** can recruit any unit on the faction's roster.
-Squad sizes (`DATA.squadSize`): lords 24, heroes 16, wanderers 12; militia captains keep
-their garrison size. In battle a mixed squad's frontline soldiers stand in front of the
 hero and its backline soldiers behind. Cavalry charge for double damage after a run; spearmen (`antiCav`)
 hit cavalry hard; artillery has long range and big blasts; healers mend the most hurt ally
 in reach. Set `cls` on a general to give them a different class.
