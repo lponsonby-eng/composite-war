@@ -1,0 +1,51 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Banners of the Realm</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="css/style.css">
+
+<div id="app">
+  <header id="topbar">
+    <span id="tb-faction" class="tb-faction"></span>
+    <span class="tb-stat" title="Gold">Gold <b id="tb-gold">0</b></span>
+    <span class="tb-stat" title="Turn">Turn <b id="tb-turn">1</b></span>
+    <span class="tb-stat" title="Towns held">Towns <b id="tb-spots">0</b></span>
+    <span class="tb-spacer"></span>
+    <button id="btn-help" type="button">Help</button>
+    <button id="btn-save" type="button">Save</button>
+    <button id="btn-sound" type="button">Sound on</button>
+    <button id="end-turn" type="button" class="primary">End Turn</button>
+  </header>
+
+  <main id="stage">
+    <canvas id="view"></canvas>
+    <div id="battle-hud"></div>
+    <div id="battle-ctrl"></div>
+    <div id="turn-banner" hidden></div>
+  </main>
+
+  <aside id="panel"></aside>
+  <footer id="log"></footer>
+</div>
+
+<div id="title-screen" hidden></div>
+<div id="modal" hidden></div>
+
+<template id="help-text">
+  <h2>How to play</h2>
+  <p><b>Goal:</b> capture every town on the map.</p>
+  <p><b>Your turn:</b> click one of your towns (yellow name). Click generals in the side panel to tick or untick them.
+    Roads to neighbouring towns light up: <b>white</b> = move there, <b>red</b> = attack.</p>
+  <p>Each general can move or attack once per turn. <b>Recruiting</b> refills a general's squad for gold and is free to do any time.</p>
+  <p><b>Battles</b> play out in real time. Give your army orders: <b>Advance</b>, <b>Hold</b> (stay put until enemies come close) or <b>Retreat</b>.
+    If a general falls, their squad scatters. When time runs out the defenders keep the town.</p>
+  <p>Generals of the Free Towns join you when you take their town and they have nowhere to flee.</p>
+  <p><b>End Turn</b> lets the other factions act, then every faction collects gold from its towns. The game autosaves each turn.</p>
+</template>
+
+<script src="js/data.js"></script>
+<script src="js/assets.js"></script>
+<script src="js/mapview.js"></script>
+<script src="js/battle.js"></script>
+<script src="js/game.js"></script>
+<script src="js/main.js"></script>
