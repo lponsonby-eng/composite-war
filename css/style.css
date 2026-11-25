@@ -330,3 +330,31 @@ button.persuade.glow { border-color: #ff7ad9; background: #5a2a52; }
 /* ---------- faction crests ---------- */
 img.crest { width: 18px; height: 26px; image-rendering: auto; vertical-align: middle; margin-right: 6px; }
 table.realm td { vertical-align: middle; }
+
+/* ---------- battle HUD: bigger, clearer text ---------- */
+body[data-mode="battle"] #battle-hud { padding: 8px 12px 18px; gap: 12px;
+  background: linear-gradient(rgba(8, 8, 18, .92), rgba(8, 8, 18, .7) 70%, rgba(8, 8, 18, 0)); }
+#battle-hud .bh-name { font-size: 20px; font-weight: 700; text-shadow: 0 2px 0 #000, 0 0 6px rgba(0, 0, 0, .8); }
+#battle-hud .bh-gens { gap: 8px; margin-top: 4px; }
+#battle-hud .bh-gen { font-size: 16px; font-weight: 700; color: #fff4d6; text-shadow: 0 1px 0 #000, 0 0 4px #000; }
+#battle-hud .bh-gen img { width: 40px; height: 40px; border: 2px solid #0a0814; border-radius: 3px; }
+#battle-hud .bh-gen.sel img { outline: 3px solid var(--accent); outline-offset: 0; }
+#battle-hud .bh-bar { width: 40px; height: 5px; margin-top: 2px; border: 1px solid #0a0814; box-sizing: content-box; }
+#battle-hud #bh-time { font-size: 40px; font-weight: 700; line-height: 1; text-shadow: 0 2px 0 #000, 0 0 10px rgba(0, 0, 0, .8); }
+#battle-hud .bh-where { font-size: 18px; font-weight: 700; color: #fff4d6; text-shadow: 0 1px 0 #000, 0 0 4px #000; margin-top: 2px; }
+#battle-hud .bh-terr { font-size: 15px; font-weight: 400; color: #c8cde0; }
+body[data-mode="battle"] #battle-ctrl { background: rgba(12, 12, 24, .94); border-color: var(--edge); padding: 8px 10px; gap: 6px; }
+#battle-ctrl button { font-size: 17px; padding: 4px 12px; }
+#battle-ctrl .bc-row { gap: 8px; }
+#battle-ctrl .bc-row > .muted, #bc-sel { font-size: 17px; color: #d8dcec; }
+#battle-ctrl .bc-row small { font-size: 14px; color: #c8cde0; }
+#battle-ctrl .bc-hint { font-size: 15px; color: #c8cde0; }
+body[data-mode="battle"] #bminimap { top: 118px; }
+@media (max-width: 760px) {
+  #battle-hud .bh-name { font-size: 16px; }
+  #battle-hud .bh-gen img { width: 28px; height: 28px; }
+  #battle-hud .bh-bar { width: 28px; }
+  #battle-hud #bh-time { font-size: 30px; }
+  #battle-ctrl button { font-size: 15px; padding: 3px 9px; }
+  body[data-mode="battle"] #bminimap { top: 96px; }
+}
