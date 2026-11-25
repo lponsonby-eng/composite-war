@@ -160,15 +160,8 @@ class Terrain {
       HD.draw(ctx, im, Math.round(x - 8), Math.round(y - im.height + 2));
     }
     if (this.walls) {
+      this.drawTown(ctx);
       this.drawWall(ctx);
-      // the town itself, behind the wall
-      const style = (DATA.regions[this.region] || DATA.regions.free).building;
-      const r2 = makeRng(7);
-      for (let i = 0; i < 7; i++) {
-        const im = Art.building(style, i === 0 ? 2 : (i % 3 === 0 ? 1 : 0));
-        const x = this.wallX + 70 + (i % 3) * 70 + r2() * 20, y = this.H * (0.18 + Math.floor(i / 3) * 0.32) + r2() * 30 + 40;
-        HD.draw(ctx, im, Math.round(x - 24), Math.round(y - 34));
-      }
     }
   }
 
@@ -273,6 +266,48 @@ class Terrain {
     }
     c.putImageData(img, 0, 0);
     ctx.drawImage(cv, px0, py0, pw, ph);
+  }
+
+  // The town behind the wall: cobbled streets from each gate to a main street, a
+  // plaza with the town's keep, and houses in the region's style drawn 1.5x-1.9x
+  // with ground shadows. Kept back from the wall so the defenders' ground stays clear.
+  drawTown(ctx) {
+    const style = (DATA.regions[this.region] || DATA.regions.free).building;
+    const wx = this.wallX, H = this.H, W = this.W, street = wx + 132, mid = H / 2;
+    const rr = (x, y, w, h, r) => { ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x, y, w, h, r) : ctx.rect(x, y, w, h); };
+    const ROAD = { frost: ['#8ea2b8', '#c4d2e0'], ember: ['#4a3e3a', '#6e605a'], sun: ['#c8a468', '#e6cc96'], darkwood: ['#6a5236', '#8a6c48'],
+      azure: ['#c8b890', '#efe4c4'], shadow: ['#6a6a7a', '#8e8ea0'], bog: ['#6a5a3a', '#8a7650'] }[this.region] || ['#9a8a6a', '#bcae8c'];
+    const cobble = (x, y, w, h) => {
+      ctx.fillStyle = 'rgba(30,24,18,0.3)'; rr(x - 1.5, y - 1.5, w + 3, h + 3, 4); ctx.fill();
+      ctx.fillStyle = ROAD[0]; rr(x, y, w, h, 3); ctx.fill();
+      ctx.fillStyle = ROAD[1];
+      for (let yy = y + 1; yy < y + h - 1.5; yy += 3) for (let xx = x + 1 + ((yy - y) % 6 ? 1.5 : 0); xx < x + w - 2; xx += 3) ctx.fillRect(xx, yy, 2, 1.8);
+    };
+    // streets: in from each gate, then the main street, then the plaza
+    for (const g of this.gates || []) cobble(wx + 4, g - 6, street - wx + 2, 12);
+    cobble(street - 6, 20, 12, H - 40);
+    ctx.save(); ctx.beginPath(); ctx.ellipse(wx + 205, mid + 6, 56, 34, 0, 0, Math.PI * 2); ctx.clip();
+    cobble(wx + 145, mid - 30, 120, 74); ctx.restore();
+    ctx.strokeStyle = 'rgba(30,24,18,0.35)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.ellipse(wx + 205, mid + 6, 56, 34, 0, 0, Math.PI * 2); ctx.stroke();
+    cobble(street, mid - 5, 40, 10);
+
+    // houses: two staggered columns above and below the plaza, the keep in the middle
+    const r2 = makeRng(7), spots = [];
+    for (let y = 70; y < H - 30; y += 78) {
+      if (Math.abs(y - mid) < 70) continue;
+      spots.push([wx + 172 + (r2() - 0.5) * 8, y + (r2() - 0.5) * 10, r2() < 0.3 ? 1 : 0, 56]);
+      spots.push([wx + 240 + (r2() - 0.5) * 6, y + 34 + (r2() - 0.5) * 10, r2() < 0.3 ? 1 : 0, 56]);
+    }
+    spots.push([wx + 205, mid + 16, 2, 82]);
+    spots.sort((a, b) => a[1] - b[1]);
+    for (const [x, y, size, want] of spots) {               // want: drawn width of the building itself
+      if (y > H - 4) continue;
+      const im = Art.building(style, size), bw = im.box.x1 - im.box.x0 + 1;
+      const sc = Math.min(3.2, want / bw), half = bw * sc / 2;
+      ctx.fillStyle = 'rgba(20,16,30,0.32)';
+      ctx.beginPath(); ctx.ellipse(x + 3, y + 1, half * 0.95, half * 0.28, 0, 0, Math.PI * 2); ctx.fill();
+      HD.draw(ctx, im, Math.round(x - 24 * sc), Math.round(y - 38 * sc), 48 * sc, 40 * sc);
+    }
   }
 
   // The town wall as continuous ramparts: rounded stone runs with brick courses and
