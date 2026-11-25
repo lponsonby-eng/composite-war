@@ -57,6 +57,34 @@ const Game = {
     for (const id of this.spotsOf('neutral')) if (!this.generalsAt(id).length && DATA.generals['cap_' + id]) place('cap_' + id, id);
   },
 
+  // ======================================================== landmark powers
+  // Faction f's landmark power at `spot`: { unit, k (0..1), L } or null. It needs the
+  // faction to hold its seat (capital) and fades with distance from the landmark.
+  landmarkBoost(f, spot) {
+    const L = DATA.landmarkPower.factions[f], seat = f && DATA.landmarkSeat(f);
+    if (!L || !seat || !this.spots[seat] || this.spots[seat].owner !== f) return null;
+    const k = DATA.landmarkStrength(f, spot);
+    return k > 0.01 ? { unit: L.unit, k, L } : null;
+  },
+  // Every landmark power that reaches `spot`, strongest first.
+  landmarkPowersAt(spot) {
+    return Object.keys(DATA.landmarkPower.factions).map(f => ({ f, b: this.landmarkBoost(f, spot) })).filter(x => x.b).sort((a, b) => b.b.k - a.b.k);
+  },
+  // Side panel: the landmark powers that reach this town.
+  powersHereHtml(spot) {
+    const list = this.landmarkPowersAt(spot);
+    if (!list.length) return '';
+    return `<h3 class="wh">Landmark powers here</h3>${list.map(({ f, b }) => `<div class="lmpow" style="--fc:${DATA.factions[f].color}">
+      <b>${b.L.name}</b> <span class="lmk">${Math.round(b.k * 100)}%</span><br>${f === this.player ? 'Your' : DATA.factions[f].name}
+      ${DATA.plural(DATA.units[b.unit].name)}: ${DATA.landmarkText(b.L, b.k)}</div>`).join('')}
+      <p class="hint">Landmarks only work while their faction holds its capital, and are strongest close by.</p>`;
+  },
+  powerHtml(f, spot, who) {
+    const b = this.landmarkBoost(f, spot);
+    if (!b) return '';
+    return `<div class="lmpow" style="--fc:${DATA.factions[f].color}"><b>${b.L.name}</b> - ${who} ${DATA.plural(DATA.units[b.unit].name)}: ${DATA.landmarkText(b.L, b.k)}</div>`;
+  },
+
   capitalOf(f) {
     const own = this.spotsOf(f);
     return own.find(id => DATA.spots[id].kind === 'capital' && DATA.factions[f].home === DATA.spots[id].region) || own[0];
@@ -117,11 +145,13 @@ const Game = {
   activeFactions() { return Object.keys(DATA.factions).filter(f => !DATA.factions[f].neutral && this.spotsOf(f).length > 0); },
 
   unitPower(type) { const t = DATA.units[type]; return t.hp * t.atk / t.cd / 10 * (t.proj ? 1.2 : 1); },
-  genPower(g) {
-    const p = this.unitPower(DATA.generals[g.id].leads), L = DATA.leveling, lv = (g.level || 1) - 1;
+  genPower(g, spot) {
+    const pw = spot && g.faction ? this.landmarkBoost(g.faction, spot) : null;
+    const up = u => this.unitPower(u) * (pw && pw.unit === u ? (1 + (pw.L.atk || 0) * pw.k) * (1 + (pw.L.hp || 0) * pw.k + (pw.L.def || 0) * pw.k * 0.08) * (1 + ((pw.L.range || 0) + (pw.L.splash || 0)) * pw.k * 0.5) : 1);
+    const p = up(DATA.generals[g.id].leads), L = DATA.leveling, lv = (g.level || 1) - 1;
     const lead = (1 + lv * L.leaderBonus) ** 2, squad = (1 + lv * L.squadBonus) ** 2;   // hp and attack both scale
     const sigMul = 1 + this.learnedSig(g).reduce((s, x) => s + x.stars, 0) * DATA.signature.valuePerStar;   // strong abilities make a hero worth more
-    return p * 8 * lead * sigMul + (g.mix || []).reduce((s, u, i) => { const b = DATA.soldierBoost((g.lv || [])[i]); return s + this.unitPower(u) * b.hp * b.atk; }, 0) * squad;
+    return p * 8 * lead * sigMul + (g.mix || []).reduce((s, u, i) => { const b = DATA.soldierBoost((g.lv || [])[i]); return s + up(u) * b.hp * b.atk; }, 0) * squad;
   },
 
   // ======================================================== levels
@@ -280,14 +310,14 @@ const Game = {
     }
   },
   // An army whose archers and casters have no frontline to shield them counts as weaker.
-  armyPower(list) {
+  armyPower(list, spot) {
     const hasFront = list.some(g => DATA.roleOf(g.id) === 'front');
-    return list.reduce((s, g) => s + this.genPower(g) * (!hasFront && DATA.roleOf(g.id) === 'back' ? DATA.roles.back.noFrontPower : 1), 0);
+    return list.reduce((s, g) => s + this.genPower(g, spot) * (!hasFront && DATA.roleOf(g.id) === 'back' ? DATA.roles.back.noFrontPower : 1), 0);
   },
   // Defenders fight better behind walls; the computer takes that into account.
   defensePower(spot) {
     const s = DATA.spots[spot];
-    return this.armyPower(this.generalsAt(spot)) * (s.walls ? 1.4 : 1) * (s.terrain === 'river' ? 1.25 : 1);
+    return this.armyPower(this.generalsAt(spot), spot) * (s.walls ? 1.4 : 1) * (s.terrain === 'river' ? 1.25 : 1);
   },
   terrainText(spot) {
     const s = DATA.spots[spot];
@@ -419,7 +449,8 @@ const Game = {
         const extra = [u.splash ? 'area damage' : '', u.antiCav ? 'anti-cavalry' : '', u.type === 'cavalry' ? 'charge' : '', u.type === 'healer' ? 'heals allies' : ''].filter(Boolean).join(', ');
         return `<tr class="${g.pref === id || (!g.pref && d.leads === id) ? 'pref' : ''}">
           <td><img class="uico" src="${Assets.unitIcon(id)}"></td>
-          <td><b>${u.name}</b> <span class="rar r${DATA.rarity(DATA.weightOf(this.player, id))[0]}">${DATA.rarity(DATA.weightOf(this.player, id))}</span><br><span class="role ${ty.role}">${ty.name}</span> <span class="muted">${extra}</span></td>
+          <td><b>${u.name}</b> <span class="rar r${DATA.rarity(DATA.weightOf(this.player, id))[0]}">${DATA.rarity(DATA.weightOf(this.player, id))}</span><br><span class="role ${ty.role}">${ty.name}</span> <span class="muted">${extra}</span>${DATA.landmarkPower.factions[this.player] && DATA.landmarkPower.factions[this.player].unit === id
+            ? ` <span class="lmtag" title="Empowered near the ${DATA.landmarkPower.factions[this.player].name}: ${DATA.landmarkText(DATA.landmarkPower.factions[this.player])}">Landmark unit</span>` : ''}</td>
           <td class="st">HP ${u.hp}<br>${u.type === 'healer' ? 'Heal' : 'Atk'} ${u.atk} Def ${u.def}<br>Range ${u.range}</td>
           <td class="st">${this.unitCost(this.player, id)}g${stock === Infinity ? '' : `<br><span class="${stock ? '' : 'bad'}">${stock} left this turn</span>`}</td>
           <td>${counts[id] ? `<button data-dis="${id}" title="Dismiss one (lowest level first)">-</button>` : ''} <b>${counts[id] || 0}</b>
@@ -491,7 +522,7 @@ const Game = {
     const att = [...this.ui.picked].map(id => this.gens[id]);
     const def = this.generalsAt(to);
     const owner = this.spots[to].owner;
-    const ap = this.armyPower(att), dp = this.defensePower(to);
+    const ap = this.armyPower(att, to), dp = this.defensePower(to);
     const odds = def.length === 0 ? 'Undefended!' : ap > dp * 1.5 ? 'Favourable' : ap > dp * 0.9 ? 'Even' : 'Risky';
     const army = list => list.map(g => genChip(g)).join('') || '<div class="muted">No defenders</div>';
     const buttons = def.length === 0
@@ -506,6 +537,7 @@ const Game = {
         <div><h3 style="color:${DATA.factions[owner].color}">${DATA.factions[owner].name}</h3>${army(def)}</div>
       </div>
       <p class="terr">Battlefield: ${this.terrainText(to)}.</p>
+      ${this.powerHtml(this.player, to, 'your')}${this.powerHtml(owner, to, 'their')}
       ${formationNote(att)}`, buttons);
   },
 
@@ -534,7 +566,7 @@ const Game = {
       const army = list => list.map(g => ({ id: g.id, troops: g.troops, mix: g.mix.slice(), lv: g.lv.slice(), level: g.level, sig: g.sig,
         row: list === mineList ? g.row || DATA.roleOf(g.id) : null }));
       const battle = new Battle({ attackers: army(att), defenders: army(def), attFaction: attF, defFaction: defF,
-        spotName, spotId: to, playerSide, headless: !playerSide });
+        spotName, spotId: to, playerSide, headless: !playerSide, boosts: [this.landmarkBoost(attF, to), this.landmarkBoost(defF, to)] });
       result = playerSide ? await this.playBattle(battle) : battle.runHeadless();
     }
     this.applyResult(from, to, attF, defF, result);
@@ -909,7 +941,7 @@ const Game = {
       let best = null, bestRatio = 0;
       for (const n of enemies) {
         const dp = this.defensePower(n);
-        const ratio = dp === 0 ? 99 : this.armyPower(pool) / dp;
+        const ratio = dp === 0 ? 99 : this.armyPower(pool, n) / dp;
         if (ratio > bestRatio) { bestRatio = ratio; best = n; }
       }
       if (!best || bestRatio < need) continue;
@@ -948,7 +980,8 @@ const Game = {
       modal(`<h2 class="bad">${DATA.factions[f].name} attacks ${DATA.spots[spot].name}!</h2>
         <div class="vs"><div><h3 style="color:${DATA.factions[f].color}">Attackers</h3>${att.map(genChip).join('')}</div>
         <div class="vs-mid">VS</div><div><h3 style="color:${DATA.factions[this.player].color}">Your defenders</h3>${def.map(genChip).join('')}</div></div>
-        <p class="terr">Battlefield: ${this.terrainText(spot)}.</p>`,
+        <p class="terr">Battlefield: ${this.terrainText(spot)}.</p>
+        ${this.powerHtml(this.player, spot, 'your')}${this.powerHtml(f, spot, 'their')}`,
         [['Defend!', () => resolve('def')], ['Auto-resolve', () => resolve(null)]], true);
     });
   },
@@ -1065,7 +1098,7 @@ const Game = {
          ${gens.length ? `<p class="hint">Only cornered generals (no neighbouring town of their own side) can be persuaded.
            ${envoy ? `Envoy: <b>${DATA.generals[envoy.id].name}</b> (${DATA.spots[envoy.spot].name}), who uses their turn.`
            : 'You also need a general who has not acted, in one of your towns next to this one, to go as envoy.'}</p>` : ''}`}
-      ${wlist}`;
+      ${wlist}${this.powersHereHtml(id)}`;
     wireOpps();
     p.querySelectorAll('[data-per]').forEach(el => el.onclick = () => {
       if (this.busy) return;

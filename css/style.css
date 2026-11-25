@@ -447,3 +447,10 @@ body[data-mode="battle"] #bminimap { top: 118px; }
   #modal .scene img { width: 64px; height: 64px; }
   #modal .scene p { font-size: 17px; }
 }
+
+/* ---------- landmark powers ---------- */
+.lmpow { margin: 6px 0; padding: 6px 9px; border-left: 4px solid var(--fc); background: rgba(255, 255, 255, .05); border-radius: 3px;
+  font-size: 15px; color: #e4e8f4; line-height: 1.35; }
+.lmpow b { color: var(--fc); font-weight: 700; }
+.lmk { float: right; font-weight: 700; color: var(--accent); }
+.lmtag { font-size: 12px; font-weight: 700; color: #1c2034; background: var(--accent); border-radius: 3px; padding: 0 5px; white-space: nowrap; }

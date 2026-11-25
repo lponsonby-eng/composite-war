@@ -192,20 +192,50 @@ def dist_seg(px, py, a, b):
     t = max(0, min(1, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy or 1)))
     return math.hypot(px - (ax + dx * t), py - (ay + dy * t))
 
+# Each faction's landmark stands beside its capital (its power covers the capital; see
+# DATA.landmarkPower), on the side away from other regions' towns and clear of towns and
+# roads. The Heartlands landmark has no capital and goes where it is furthest from towns.
+BOX = {'aster': (50, 84), 'frost': (55, 73), 'darkwood': (38, 88), 'ember': (53, 73), 'shadow': (42, 52),
+       'bog': (43, 69), 'azure': (41, 81), 'sun': (52, 87), 'free': (42, 41)}   # half width, height (drawn 1.4x)
 landmarks = {}
 for reg, (sx, sy) in SEEDS.items():
-    best, bd = None, -1
-    for gx in range(int(sx - 240), int(sx + 240), 10):
-        for gy in range(int(sy - 150), int(sy + 150), 10):
-            if not (70 < gx < W - 70 and 80 < gy < H - 50) or region_of(gx, gy) != reg:
-                continue
-            if ((gx - W / 2) / (W / 2 - 40)) ** 2 + ((gy - H / 2) / (H / 2 - 20)) ** 2 > 0.95:
-                continue
-            d = min(math.hypot(gx - x, gy - y) for x, y in pts)
-            d = min(d, min(dist_seg(gx, gy, pts[a], pts[b]) + 15 for a, b in edges))
-            d -= 0.08 * math.hypot(gx - sx, gy - sy)          # prefer near the middle of the region
-            if d > bd:
-                best, bd = (gx, gy), d
+    cap = next((s for s in spots.values() if s['region'] == reg and s['kind'] == 'capital'), None)
+    hw, ht = BOX.get(reg, (45, 80))
+    best, bd = None, None
+    if cap:
+        for r in range(50, 175, 3):
+            for k in range(72):
+                a = k / 72 * 2 * math.pi
+                gx, gy = cap['x'] + math.cos(a) * r, cap['y'] + math.sin(a) * r * 0.85
+                if not (hw + 20 < gx < W - hw - 20 and ht + 14 < gy < H - 30):
+                    continue
+                def ov(t):     # overlap of the landmark with a town's building, banner, generals and name
+                    top = 108 if t['kind'] in ('capital', 'city') else 88
+                    ox = (hw + 30) - abs(gx - t['x']); oy = min((gy + 6) - (t['y'] - top), (t['y'] + 34) - (gy - ht))
+                    return ox * oy if ox > 0 and oy > 0 else 0
+                ovs = [ov(t) for t in spots.values()]
+                if max(ovs) > 900 or ov(cap) > 300:
+                    continue
+                dr = min(dist_seg(gx, gy - 20, pts[a_], pts[b_]) for a_, b_ in edges)
+                if dr < 14:
+                    continue
+                foreign = min((math.hypot(gx - t['x'], gy - t['y']) for t in spots.values() if t['region'] != reg), default=400)
+                score = -sum(ovs) * 0.04 + min(dr, 50) * 0.3 - math.hypot(gx - cap['x'], gy - cap['y']) * 0.6 + min(foreign, 260) * 0.3
+                if bd is None or score > bd:
+                    best, bd = (round(gx), round(gy)), score
+    if best is None:
+        bd = -1
+        for gx in range(int(sx - 240), int(sx + 240), 10):
+            for gy in range(int(sy - 150), int(sy + 150), 10):
+                if not (70 < gx < W - 70 and 80 < gy < H - 50) or region_of(gx, gy) != reg:
+                    continue
+                if ((gx - W / 2) / (W / 2 - 40)) ** 2 + ((gy - H / 2) / (H / 2 - 20)) ** 2 > 0.95:
+                    continue
+                d = min(math.hypot(gx - x, gy - y) for x, y in pts)
+                d = min(d, min(dist_seg(gx, gy, pts[a], pts[b]) + 15 for a, b in edges))
+                d -= 0.08 * math.hypot(gx - sx, gy - sy)          # prefer near the middle of the region
+                if d > bd:
+                    best, bd = (gx, gy), d
     landmarks[reg] = {'x': best[0], 'y': best[1]}
 
 out = {'width': W, 'height': H, 'landmarks': landmarks, 'spots': spots, 'links': links}
