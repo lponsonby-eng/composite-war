@@ -823,7 +823,7 @@ class Battle {
       const alpha = u.routing ? 0.5 : (u.hitT > 0 ? 0.55 : 1);
       // drawn larger than on the map (22 px, generals 25 px), outlined in their side's colour
       const size = u.isLeader ? UNIT_SIZE.leader : UNIT_SIZE.soldier, top = u.y + 2 - size;
-      if (!u.spriteO) u.spriteO = Assets.outlined(u.sprite, colors[u.side]);
+      if (!u.spriteO) u.spriteO = Assets.outlined(u.sprite, DATA.factions[this.factions[u.side]].neutral ? '#ffffff' : colors[u.side]);   // neutral troops: white
       Assets.drawUnit(ctx, u.spriteO, u.dir, moving ? frame : 0, u.atkT > 0, u.x - size / 2, top, alpha, size);
       if (u.isLeader) {
         const fx = Math.round(u.x + 5), fy = Math.round(top - 9);
