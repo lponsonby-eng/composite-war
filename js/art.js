@@ -78,7 +78,11 @@ function bbox(c, w, h) {
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (d[(y * w + x) * 4 + 3] > 0) {
     if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
   }
-  return { x0, y0, x1, y1 };
+  // highest point near the middle (where a flag pole goes)
+  let tx = Math.round(w / 2), ty = y0;
+  outer: for (let y = 0; y < h; y++) for (let x = Math.round(w / 2) - 6; x <= Math.round(w / 2) + 6; x++)
+    if (d[(y * w + x) * 4 + 3] > 0) { tx = x; ty = y; break outer; }
+  return { x0, y0, x1, y1, tx, ty };
 }
 
 // Uses an existing tile, scaled.

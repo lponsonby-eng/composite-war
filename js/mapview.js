@@ -277,7 +277,16 @@ const MapView = {
     this.time += dt;
     this.canvasW = canvas.width; this.canvasH = canvas.height;
     this.scrollKeys(dt);
+    this.startQueuedFx(dt);
     this.fit(canvas);
+    if (this.shake > 0.2) {                    // screen shake after big captures
+      const dpr = window.devicePixelRatio || 1;
+      this.ox += Math.round((Math.random() - 0.5) * this.shake * dpr * 2);
+      this.oy += Math.round((Math.random() - 0.5) * this.shake * dpr * 2);
+    }
+    this.shake *= Math.pow(0.02, dt);
+    if (this.calm === undefined) this.calm = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+    if (this.calm) { this.shake = 0; this.flash = Math.min(this.flash, 0.15); }
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = '#1d3557';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -305,8 +314,170 @@ const MapView = {
     }
 
     const order = Object.keys(DATA.spots).sort((p, q) => DATA.spots[p].y - DATA.spots[q].y);
+    this.drawBeams(ctx, dt);
     for (const id of order) if (vis(DATA.spots[id].x, DATA.spots[id].y)) this.drawSpot(ctx, id, game, ui);
     this.drawWeather(ctx, vis, vx0, vy0, vx1, vy1);
+    this.drawFx(ctx, dt);
+    if (this.flash > 0.01) {                   // full-screen flash
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.fillStyle = `rgba(255,248,220,${Math.min(0.85, this.flash)})`;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      if (this.flashCol) {
+        const g = ctx.createRadialGradient(canvas.width / 2, canvas.height / 2, canvas.height * 0.3, canvas.width / 2, canvas.height / 2, canvas.width * 0.75);
+        g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, hexA(this.flashCol, Math.min(0.6, this.flash * 1.4)));
+        ctx.fillStyle = g; ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
+      this.flash *= Math.pow(0.04, dt);
+    }
+  },
+
+  // ---------------------------------------------------------------- effects
+  // Captures and recruits are queued (they may happen while a battle is on screen)
+  // and start on the next map frame, one after another.
+  queue: [], parts: [], rings: [], texts: [], beams: [], later: [], raise: {}, beacons: {},
+  shake: 0, flash: 0, flashCol: null, qWait: 0,
+  tierOf(kind) { return kind === 'capital' || kind === 'city' ? 3 : kind === 'town' || kind === 'shrine' ? 2 : 1; },
+
+  // who: 'mine' (player took it), 'lost' (player lost it), 'other'
+  capture(spot, faction, who) { this.queue.push({ type: 'capture', spot, faction, who }); },
+  recruit(spot, name, how) { this.queue.push({ type: 'recruit', spot, name, how }); },
+  beacon(spot) { this.beacons[spot] = this.time; },
+
+  startQueuedFx(dt) {
+    if (this.qWait > 0) { this.qWait -= dt; return; }
+    const e = this.queue.shift();
+    if (!e) return;
+    const s = DATA.spots[e.spot];
+    if (e.type === 'recruit') { this.recruitFx(s, e.name, e.how); this.qWait = 0.4; return; }
+    const tier = this.tierOf(s.kind), col = DATA.factions[e.faction].color;
+    this.raise[e.spot] = this.time;
+    if (e.who === 'mine') this.captureFx(s, tier, col);
+    else if (e.who === 'lost') this.lostFx(s, tier);
+    else this.ring(s.x, s.y + 2, 4, 30, 0.7, col, 2);
+    this.qWait = e.who === 'mine' ? [0, 0.3, 0.6, 1.4][tier] : 0.05;
+  },
+
+  captureFx(s, tier, col) {
+    const x = s.x, y = s.y - 10;
+    if (tier >= 2) this.centerOn(x, y);
+    // shockwaves
+    for (let i = 0; i < [0, 1, 2, 4][tier]; i++)
+      this.ring(x, s.y + 2, 6, [0, 34, 52, 90][tier] + i * 14, 0.7 + i * 0.18, i % 2 ? '#ffd84a' : col, tier === 3 ? 3 : 2, i * 0.12);
+    // bursts of faction colour and gold
+    this.burst(x, y, [0, 26, 50, 110][tier], [col, lighten(col, 0.4), '#ffd84a', '#fff6c0'], [0, 60, 85, 130][tier]);
+    if (tier >= 2) this.coins(x, y - 6, tier === 3 ? 34 : 14);
+    if (tier === 1) this.floatText(x, y - 36, 'CAPTURED!', '#fff6b0', 11, 1.6);   // towns and cities get the big banner instead
+    this.floatText(x, y - 22, `+${s.income} gold / turn`, '#7be07b', 9, 1.8, 0.35);
+    this.shake = Math.max(this.shake, [0, 1.5, 4, 11][tier]);
+    if (tier >= 2) { this.flash = tier === 3 ? 0.75 : 0.22; this.flashCol = tier === 3 ? col : null; }
+    if (tier === 3) {
+      this.beams.push({ x, y: s.y, age: 0, dur: 2.6, col });
+      for (let i = 0; i < 9; i++) this.later.push({ t: 0.35 + i * 0.28 + Math.random() * 0.15, fn: () => {
+        const fx = x + (Math.random() - 0.5) * 120, fy = y - 40 - Math.random() * 60;
+        this.burst(fx, fy, 36, [col, '#ffd84a', '#ffffff', lighten(col, 0.5)], 70, 0.9);
+        this.ring(fx, fy, 2, 22, 0.5, '#fff6c0', 1);
+        Assets.sfx(i % 2 ? 'magic-1' : 'kill', 0.25);
+      } });
+      Assets.sfx('succes', 0.6); Assets.sfx('power-up', 0.5);
+      this.later.push({ t: 0.5, fn: () => Assets.sfx('gold-1', 0.5) });
+    } else if (tier === 2) {
+      Assets.sfx('succes', 0.5); this.later.push({ t: 0.25, fn: () => Assets.sfx('gold-1', 0.45) });
+    } else Assets.sfx('gold-1', 0.45);
+    if (tier >= 2) showCaptureBanner(s, col, tier);
+  },
+
+  lostFx(s, tier) {
+    this.ring(s.x, s.y + 2, 6, 40 + tier * 10, 0.9, '#ff4a3a', 2);
+    for (let i = 0; i < 18 + tier * 10; i++) this.parts.push({ x: s.x + (Math.random() - 0.5) * 24, y: s.y - 6, vx: (Math.random() - 0.5) * 16,
+      vy: -12 - Math.random() * 22, g: -4, life: 0, max: 1.2 + Math.random(), col: Math.random() < 0.3 ? '#ff6a3a' : '#4a4048', size: 2 + Math.random() * 2.5, soft: true });
+    this.floatText(s.x, s.y - 40, 'LOST!', '#ff6b5e', 11 + tier, 1.6);
+    this.shake = Math.max(this.shake, tier * 1.5);
+    Assets.sfx('alert', 0.4);
+  },
+
+  recruitFx(s, name, how) {
+    const x = s.x, y = s.y - 10, col = how === 'persuade' ? '#ff7ad9' : '#ffd84a';
+    this.ring(x, s.y + 2, 4, 40, 0.8, col, 2);
+    this.ring(x, s.y + 2, 4, 26, 0.6, '#ffffff', 1, 0.15);
+    this.beams.push({ x, y: s.y, age: 0, dur: 1.3, col, thin: true });
+    this.burst(x, y, 40, [col, '#ffffff', '#fff6c0'], 70);
+    this.floatText(x, y - 30, how === 'persuade' ? 'WON OVER!' : 'HERO JOINS!', col, 12, 2);
+    this.floatText(x, y - 17, name, '#ffffff', 9, 2, 0.2);
+    this.shake = Math.max(this.shake, 2);
+    Assets.sfx('power-up', 0.5); this.later.push({ t: 0.2, fn: () => Assets.sfx('magic-1', 0.35) });
+  },
+
+  ring(x, y, r0, r1, dur, col, w = 2, delay = 0) { this.rings.push({ x, y, r0, r1, dur, col, w, age: -delay }); },
+  burst(x, y, n, cols, speed, grav = 1) {
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2, v = speed * (0.35 + Math.random() * 0.75);
+      this.parts.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v * 0.8 - speed * 0.35, g: 90 * grav, life: 0,
+        max: 0.6 + Math.random() * 0.8, col: cols[i % cols.length], size: 1 + Math.floor(Math.random() * 2) });
+    }
+  },
+  coins(x, y, n) {
+    for (let i = 0; i < n; i++) this.parts.push({ x: x + (Math.random() - 0.5) * 10, y, vx: (Math.random() - 0.5) * 70, vy: -60 - Math.random() * 60,
+      g: 160, life: 0, max: 1.1 + Math.random() * 0.6, col: '#ffd84a', size: 2, coin: true, spin: Math.random() * 6 });
+  },
+  floatText(x, y, text, col, size, dur, delay = 0) { this.texts.push({ x, y, text, col, size, dur, age: -delay }); },
+
+  drawFx(ctx, dt) {
+    for (const l of this.later) l.t -= dt;
+    for (const l of this.later.filter(l => l.t <= 0)) l.fn();
+    this.later = this.later.filter(l => l.t > 0);
+    this.drawRest(ctx, dt);
+  },
+  // light pillars, behind the towns so the new flag shows in front
+  drawBeams(ctx, dt) {
+    for (const b of this.beams) {
+      b.age += dt;
+      const k = b.age / b.dur, a = Math.sin(Math.min(1, k) * Math.PI) * (b.thin ? 0.55 : 0.75);
+      const w = (b.thin ? 8 : 18) * (1 - k * 0.5);
+      const g = ctx.createLinearGradient(0, b.y - 160, 0, b.y);
+      g.addColorStop(0, hexA(b.col, 0)); g.addColorStop(0.7, hexA(b.col, a * 0.7)); g.addColorStop(1, hexA('#ffffff', a));
+      ctx.fillStyle = g; ctx.fillRect(b.x - w / 2, b.y - 160, w, 160);
+      ctx.fillStyle = `rgba(255,255,255,${a * 0.8})`; ctx.fillRect(b.x - w / 6, b.y - 160, w / 3, 160);
+    }
+    this.beams = this.beams.filter(b => b.age < b.dur);
+  },
+  drawRest(ctx, dt) {
+    // shockwave rings
+    for (const r of this.rings) {
+      r.age += dt;
+      if (r.age < 0) continue;
+      const k = Math.min(1, r.age / r.dur), e = 1 - Math.pow(1 - k, 3), rad = r.r0 + (r.r1 - r.r0) * e;
+      ctx.strokeStyle = hexA(r.col, 1 - k); ctx.lineWidth = r.w * (1 - k * 0.5);
+      ctx.beginPath(); ctx.ellipse(r.x, r.y, rad, rad * 0.5, 0, 0, Math.PI * 2); ctx.stroke();
+    }
+    this.rings = this.rings.filter(r => r.age < r.dur);
+    // particles
+    for (const p of this.parts) {
+      p.life += dt; p.vy += p.g * dt; p.vx *= Math.pow(0.4, dt); p.x += p.vx * dt; p.y += p.vy * dt;
+      const a = 1 - p.life / p.max;
+      if (a <= 0) continue;
+      if (p.soft) { ctx.fillStyle = hexA(p.col, a * 0.6); circPath(ctx, p.x, p.y, p.size * (1 + p.life)); continue; }
+      ctx.globalAlpha = Math.min(1, a * 1.5);
+      if (p.coin) {
+        const w = Math.max(1, Math.round(Math.abs(Math.cos(p.life * 8 + p.spin)) * 3));
+        ctx.fillStyle = '#8a5a10'; ctx.fillRect(Math.round(p.x - w / 2) - 0.5, Math.round(p.y) - 1.5, w + 1, 4);
+        ctx.fillStyle = p.col; ctx.fillRect(Math.round(p.x - w / 2), Math.round(p.y) - 1, w, 3);
+      } else {
+        ctx.fillStyle = p.col; ctx.fillRect(Math.round(p.x), Math.round(p.y), p.size, p.size);
+      }
+      ctx.globalAlpha = 1;
+    }
+    this.parts = this.parts.filter(p => p.life < p.max);
+    // floating words: pop in, hold, drift up and fade
+    for (const t of this.texts) {
+      t.age += dt;
+      if (t.age < 0) continue;
+      const k = t.age / t.dur, pop = t.age < 0.18 ? 1.6 - (t.age / 0.18) * 0.6 : 1;
+      const a = k > 0.75 ? (1 - k) / 0.25 : 1;
+      ctx.globalAlpha = Math.max(0, a);
+      label(ctx, t.text, t.x, t.y - k * 14, t.col, 'center', Math.round(t.size * pop));
+      ctx.globalAlpha = 1;
+    }
+    this.texts = this.texts.filter(t => t.age < t.dur);
   },
 
   // Volcano smoke, crystal sparkles, fireflies.
@@ -380,9 +551,14 @@ const MapView = {
     else if (ui.targets[id] === 'move') ring(`rgba(255,255,255,${0.5 + pulse * 0.5})`, 24);
     else if (ui.hover === id) ring('rgba(255,255,255,0.5)', 24);
 
-    // faction-coloured ground circle
-    ctx.fillStyle = color + '66';
-    ctx.beginPath(); ctx.ellipse(s.x, s.y + 2, 22, 9, 0, 0, Math.PI * 2); ctx.fill();
+    // faction-coloured ground circle, outlined so it reads on any ground
+    const tier = this.tierOf(s.kind);
+    const gr = [0, 21, 24, 28][tier];
+    ctx.fillStyle = hexA(color, 0.5);
+    ctx.beginPath(); ctx.ellipse(s.x, s.y + 2, gr, gr * 0.42, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.lineWidth = 1.5; ctx.strokeStyle = 'rgba(16,10,24,0.85)'; ctx.stroke();
+    ctx.lineWidth = 1; ctx.strokeStyle = lighten(color, 0.35);
+    ctx.beginPath(); ctx.ellipse(s.x, s.y + 2, gr - 1.5, gr * 0.42 - 1.2, 0, 0, Math.PI * 2); ctx.stroke();
 
     // building in the region's style, with a flag in the owner's colour
     const style = DATA.regions[s.region].building;
@@ -390,14 +566,9 @@ const MapView = {
     const im = Art.building(style, size);
     const bx = Math.round(s.x - 24), by = Math.round(s.y - 34);
     ctx.drawImage(im, bx, by);
-    const fx = bx + im.box.x1 - 2, fy = by + im.box.y0 - 10;
-    const wave = Math.floor(this.time * 4 + s.x) % 2;
-    ctx.fillStyle = '#1a1020'; ctx.fillRect(fx, fy - 1, 10 + wave, 8);
-    ctx.fillStyle = '#3b2a1a'; ctx.fillRect(fx, fy, 1, 13);
-    ctx.fillStyle = color;
-    ctx.fillRect(fx + 1, fy, 8, 4);
-    ctx.fillRect(fx + 1, fy + 4, 7 + wave, 2);
-    ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.fillRect(fx + 1, fy + 5, 7 + wave, 1);
+    // flag pole planted on the roof's highest point
+    const poleX = bx + im.box.tx, poleBase = by + im.box.ty + 2;
+    this.drawFlag(ctx, id, poleX, poleBase, tier, color, owner === game.player);
     if (style === 'forge') {                                      // forge smoke
       const k = (this.time * 0.5 + s.x / 100) % 1;
       ctx.fillStyle = `rgba(80,70,70,${0.5 * (1 - k)})`;
@@ -430,7 +601,84 @@ const MapView = {
       ctx.fillStyle = '#fff6b0'; ctx.fillRect(Math.round(cx) - 2, Math.round(cy) - 2, 1, 1);
     });
 
-    label(ctx, s.name, s.x, s.y + 21, owner === game.player ? '#fff6b0' : '#ffffff', 'center', 12);
+    // recruit opportunity: a bobbing badge over the town
+    const opp = game.oppSpots && game.oppSpots[id];
+    if (opp) this.drawBeacon(ctx, id, s, opp, poleBase - [0, 18, 22, 28][tier] - 13);
+
+    // name on a dark plate with a faction-coloured underline
+    const fs = [0, 11, 12, 14][tier];
+    ctx.font = `${fs}px PixelFont`;
+    const tw = Math.ceil(ctx.measureText(s.name).width) + 8, ty = s.y + 21;
+    ctx.fillStyle = 'rgba(14,10,24,0.72)';
+    ctx.fillRect(Math.round(s.x - tw / 2), ty - fs + 1, tw, fs + 2);
+    ctx.fillStyle = color;
+    ctx.fillRect(Math.round(s.x - tw / 2), ty + 3, tw, 2);
+    if (tier === 3) { ctx.fillStyle = '#ffd84a'; ctx.fillRect(Math.round(s.x - tw / 2) - 2, ty - fs + 1, 2, fs + 4); ctx.fillRect(Math.round(s.x + tw / 2), ty - fs + 1, 2, fs + 4); }
+    label(ctx, s.name, s.x, ty, owner === game.player ? '#fff6b0' : '#ffffff', 'center', fs);
+  },
+
+  // A big, outlined, waving flag. Size grows with the town's rank; capitals and the
+  // city get a swallow-tail banner. Right after a capture the flag is hoisted up the pole.
+  drawFlag(ctx, id, px, base, tier, color, mine) {
+    const F = [null, { pole: 18, w: 12, h: 8 }, { pole: 22, w: 15, h: 10 }, { pole: 28, w: 19, h: 12 }][tier];
+    const top = base - F.pole;
+    let k = 1;
+    if (this.raise[id] != null) {
+      k = Math.min(1, (this.time - this.raise[id]) / 0.9);
+      k = 1 - Math.pow(1 - k, 3);
+      if (k >= 1) delete this.raise[id];
+    }
+    const fy = Math.round(top + 2 + (1 - k) * (F.pole - F.h - 4));
+    // pole with outline and finial
+    ctx.fillStyle = '#1a1020'; ctx.fillRect(px - 1, top - 1, 3, F.pole + 1);
+    ctx.fillStyle = '#7a5a36'; ctx.fillRect(px, top, 1, F.pole);
+    ctx.fillStyle = '#1a1020'; ctx.fillRect(px - 2, top - 3, 5, 4);
+    ctx.fillStyle = mine ? '#ffd84a' : '#d8d8e0'; ctx.fillRect(px - 1, top - 2, 3, 2);
+    const hi = lighten(color, 0.45), lo = darken(color, 0.35);
+    const t = this.time * 5 + px * 0.13;
+    for (let i = 0; i < F.w; i++) {
+      const f = i / F.w, yo = Math.round(Math.sin(t - i * 0.55) * 1.6 * f);
+      const notch = tier === 3 && i >= F.w - 4 ? Math.max(0, 3 - (F.w - 1 - i)) : 0;   // swallow tail
+      const x = px + 1 + i, y = fy + yo, last = i === F.w - 1;
+      // a column of cloth: outline above and below, colour, highlight on top, shade below
+      const col = (y0, h) => {
+        ctx.fillStyle = '#1a1020'; ctx.fillRect(x, y0 - 1, 1, h + 2);
+        if (last) return;
+        ctx.fillStyle = color; ctx.fillRect(x, y0, 1, h);
+        ctx.fillStyle = hi; ctx.fillRect(x, y0, 1, 1);
+      };
+      if (notch) {                                   // two tails with a gap between
+        const mid = Math.floor(F.h / 2), h1 = mid - Math.ceil(notch * 0.8);
+        col(y, h1); col(y + F.h - h1, h1);
+        if (!last) { ctx.fillStyle = lo; ctx.fillRect(x, y + F.h - 2, 1, 2); }
+      } else {
+        col(y, F.h);
+        if (!last) { ctx.fillStyle = lo; ctx.fillRect(x, y + F.h - 2, 1, 2); }
+      }
+    }
+    // emblem: a light diamond in the middle of the cloth
+    const ex = px + 1 + Math.floor(F.w / 2) - 1, ey = fy + Math.round(Math.sin(t - F.w * 0.27) * 0.8) + Math.floor(F.h / 2);
+    ctx.fillStyle = mine ? '#ffd84a' : '#f3ead2';
+    ctx.fillRect(ex, ey - 2, 1, 4); ctx.fillRect(ex - 1, ey - 1, 3, 2);
+    if (tier >= 2) { ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fillRect(ex + 1, ey, 1, 2); }
+  },
+
+  // Bobbing badge: gold "!" = a hero you can hire here; pink "?" = a general you can persuade.
+  drawBeacon(ctx, id, s, kind, y) {
+    const hire = kind === 'hire', col = hire ? '#ffd84a' : '#ff7ad9';
+    const bob = Math.sin(this.time * 4 + s.x) * 2, pulse = 0.5 + 0.5 * Math.sin(this.time * 6);
+    const x = s.x - 6, cy = Math.round(y + bob);
+    const fresh = this.beacons[id] != null && this.time - this.beacons[id] < 1.5;
+    ctx.fillStyle = hexA(col, 0.18 + pulse * 0.2);
+    circPath(ctx, x, cy, 9 + pulse * 3 + (fresh ? 6 : 0));
+    ctx.fillStyle = '#1a1020';
+    ctx.beginPath(); ctx.moveTo(x, cy - 8); ctx.lineTo(x + 8, cy); ctx.lineTo(x, cy + 8); ctx.lineTo(x - 8, cy); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = col;
+    ctx.beginPath(); ctx.moveTo(x, cy - 6.5); ctx.lineTo(x + 6.5, cy); ctx.lineTo(x, cy + 6.5); ctx.lineTo(x - 6.5, cy); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.6)'; ctx.fillRect(x - 3, cy - 3, 2, 2);
+    ctx.fillStyle = '#1a1020';
+    if (hire) { ctx.fillRect(x - 1, cy - 4, 2, 5); ctx.fillRect(x - 1, cy + 2, 2, 2); }
+    else { ctx.fillRect(x - 2, cy - 4, 4, 1); ctx.fillRect(x + 1, cy - 3, 1, 2); ctx.fillRect(x - 1, cy - 1, 2, 2); ctx.fillRect(x - 1, cy + 2, 2, 2); }
   },
 
   // ---------------------------------------------------------------- minimap
@@ -452,6 +700,26 @@ const MapView = {
     }
   },
 };
+
+// Colour helpers for '#rrggbb' strings.
+function hexRgb(h) { const n = parseInt(h.slice(1, 7), 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; }
+function hexA(h, a) { const [r, g, b] = hexRgb(h); return `rgba(${r},${g},${b},${Math.max(0, Math.min(1, a))})`; }
+function lighten(h, k) { const [r, g, b] = hexRgb(h); return `rgb(${[r, g, b].map(v => Math.round(v + (255 - v) * k)).join(',')})`; }
+function darken(h, k) { const [r, g, b] = hexRgb(h); return `rgb(${[r, g, b].map(v => Math.round(v * (1 - k))).join(',')})`; }
+
+// Big banner across the map after taking a town (tier 2) or a capital/city (tier 3).
+function showCaptureBanner(s, col, tier) {
+  const el = document.getElementById('capture-banner');
+  if (!el) return;
+  el.className = tier === 3 ? 'big' : '';
+  el.style.setProperty('--fc', col);
+  el.innerHTML = `<div class="cb-kicker">${tier === 3 ? (s.kind === 'capital' ? 'Capital Conquered' : 'City Conquered') : 'Town Taken'}</div>
+    <div class="cb-name">${s.name}</div><div class="cb-sub">+${s.income} gold per turn</div>`;
+  el.hidden = false;
+  el.style.animation = 'none'; void el.offsetWidth; el.style.animation = '';
+  clearTimeout(showCaptureBanner.t);
+  showCaptureBanner.t = setTimeout(() => { el.hidden = true; }, tier === 3 ? 3200 : 2000);
+}
 
 function circPath(ctx, x, y, r) { ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); }
 
