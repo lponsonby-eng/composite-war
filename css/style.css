@@ -358,3 +358,37 @@ body[data-mode="battle"] #bminimap { top: 118px; }
   #battle-ctrl button { font-size: 15px; padding: 3px 9px; }
   body[data-mode="battle"] #bminimap { top: 96px; }
 }
+
+/* ---------- map side panel: bigger, clearer text ---------- */
+#app { grid-template-columns: minmax(0, 1fr) 344px; }
+#panel { padding: 14px; font-size: 16px; color: #f6eedb; }
+#panel h2 { font-size: 28px; font-weight: 700; line-height: 1.1; text-shadow: 0 2px 0 #000; }
+#panel .sub { font-size: 16px; color: #c4cadf; margin-bottom: 12px; }
+#panel .gen { padding: 6px; gap: 10px; grid-template-columns: 44px 1fr auto; }
+#panel .gen img { width: 44px; height: 44px; }
+#panel .gn { font-size: 19px; font-weight: 700; }
+#panel .gu { font-size: 15px; color: #c4cadf; }
+#panel .gu.sq { font-size: 15px; }
+#panel .lv { font-size: 14px; font-weight: 700; color: #9fd8ff; }
+#panel .lord, #panel .role { font-size: 13px; font-weight: 700; padding: 1px 5px; }
+#panel .gs { font-size: 16px; font-weight: 700; }
+#panel .tbar, #panel .xbar { height: 5px; border-radius: 2px; }
+#panel button { font-size: 16px; }
+#panel button.mini { font-size: 14px; padding: 1px 8px; }
+#panel button.persuade { font-size: 14px; padding: 3px 8px; }
+#panel .hint { font-size: 15px; color: #c4cadf; line-height: 1.35; }
+#panel .hint b { color: #ffffff; font-weight: 700; }
+#panel .wh { font-size: 20px; font-weight: 700; }
+#panel table.realm { font-size: 16px; }
+#panel table.realm th { font-size: 14px; color: #c4cadf; }
+#panel table.realm th + th, #panel table.realm td + td { padding-left: 12px; white-space: nowrap; }
+#panel table.realm tr.me td { background: rgba(255, 216, 74, .12); color: var(--accent); font-weight: 700; }
+#panel table.realm tr.me td:first-child { box-shadow: inset 3px 0 0 var(--accent); padding-left: 4px; }
+#panel table.realm td { padding: 5px 0; border-top: 1px solid rgba(255, 255, 255, .06); }
+#panel table.realm td + td { font-weight: 700; }
+#panel .opps-h { font-size: 20px; font-weight: 700; }
+#panel .opp .on { font-size: 17px; font-weight: 700; }
+#panel .opp .ow { font-size: 14px; color: #c4cadf; }
+#panel .opp .oc { font-size: 16px; font-weight: 700; }
+#panel .opp img { width: 36px; height: 36px; }
+#panel .opp { grid-template-columns: 38px 1fr auto; }
