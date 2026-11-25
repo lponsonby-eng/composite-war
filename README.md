@@ -150,3 +150,15 @@ them, get cover from arrows and +1.5 defence inside. Tune it in `DATA.ground`.
 
 ## Art
 Placeholder art and audio come from the Ninja Adventure pack (CC0) and Kenney (CC0).
+
+## PixelLab (AI pixel art)
+`tools/pixellab.py` makes new sprites, tiles and portraits with the [PixelLab](https://www.pixellab.ai) API.
+Put your API key in a file named `.pixellab_key` in the project folder (it is git-ignored),
+or set the `PIXELLAB_API_KEY` environment variable. Never put the key in `js/`: the game runs in the
+browser, so players could read it.
+
+    python3 tools/pixellab.py balance
+    python3 tools/pixellab.py image "knight in blue armour, facing right" assets/chars/26.png --size 64x64 --transparent
+
+Each image spends one PixelLab generation. `.mcp.json` also connects Claude Code to PixelLab's
+MCP server (it reads `PIXELLAB_API_KEY`), for making characters, animations and tilesets from chat.
