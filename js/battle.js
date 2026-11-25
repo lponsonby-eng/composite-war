@@ -24,6 +24,7 @@ class Battle {
     this.done = false; this.banner = null;
     this.xp = {};                            // gid -> XP earned from kills this battle
     this.terrain = new Terrain(opts.spotId, this.W, this.H);
+    this.boosts = opts.boosts || [null, null];   // landmark powers for each side: { unit, k, L } or null
     this.placeSquads(opts.attackers, 0);
     this.placeSquads(opts.defenders, 1);
     // where each side expects to find the enemy before it has seen them
@@ -41,6 +42,10 @@ class Battle {
       this.cam = { x: me.x + (this.playerSide === 1 ? -120 : 120), y: me.y, z: 2 };
       this.bg = this.buildBackground();
       this.updateFog();
+      // announce landmark powers at the start
+      const lines = [0, 1].map(s => this.boosts[s] && this.boosts[s].k > 0 && this.units.some(u => u.side === s && u.empowered)
+        ? `${this.boosts[s].L.name}: ${DATA.plural(DATA.units[this.boosts[s].unit].name)} empowered (${Math.round(this.boosts[s].k * 100)}%)` : null).filter(Boolean);
+      if (lines.length) this.banner = { text: lines.join('   |   '), t: 5, side: -1, power: true };
     }
   }
 
@@ -106,21 +111,23 @@ class Battle {
 
   // A soldier of unit type `type` (default: the type the general leads), or the general.
   makeUnit(g, side, isLeader, x, y, type, slv, sq) {
-    const t = DATA.units[(!isLeader && type) || DATA.generals[g.id].leads];
+    const key = (!isLeader && type) || DATA.generals[g.id].leads, t = DATA.units[key];
+    const pw = this.boosts && this.boosts[side], k = pw && pw.unit === key ? pw.k : 0, P = k ? pw.L : {};   // landmark power
     const L = DATA.leveling, lv = (g.level || 1) - 1;
     const boost = 1 + lv * (isLeader ? L.leaderBonus : L.squadBonus);
     const sb = isLeader ? { hp: 1, atk: 1, def: 0 } : DATA.soldierBoost(slv);       // soldier level and tier
-    const hp = Math.round((isLeader ? t.hp * 5 : t.hp) * boost * sb.hp);
+    const hp = Math.round((isLeader ? t.hp * 5 : t.hp) * boost * sb.hp * (1 + (P.hp || 0) * k));
     const V = DATA.battle.vision;
     return {
       side, gid: g.id, sq, isLeader, t, back: isLeader ? DATA.roleOf(g.id) === 'back' : t.role === 'back',
       heal: t.type === 'healer', cav: t.type === 'cavalry', run: 0,
       sprite: isLeader ? Assets.genSprite(g.id) : Assets.unitSprite(t),
       x, y, hp, maxHp: hp,
-      atk: (isLeader ? t.atk * 1.6 : t.atk) * boost * sb.atk,
-      def: isLeader ? t.def + 2 : t.def + sb.def,
+      atk: (isLeader ? t.atk * 1.6 : t.atk) * boost * sb.atk * (1 + (P.atk || 0) * k),
+      def: (isLeader ? t.def + 2 : t.def + sb.def) + (P.def || 0) * k,
+      empowered: k, splash: (t.splash || 0) * (1 + (P.splash || 0) * k),
       lv: slv, tier: isLeader ? 0 : DATA.tierOf(slv), kills: 0,
-      spd: t.spd, range: t.range, cd: t.cd,
+      spd: t.spd, range: t.range * (1 + (P.range || 0) * k), cd: t.cd,
       view: (isLeader ? V.hero : V.soldier) + (t.type === 'cavalry' ? V.cavalry : 0) + (t.type === 'shooter' ? V.shooter : 0),
       buffs: [], b: { atk: 1, def: 0, spd: 1, range: 0, view: 0 },
       cdLeft: Math.random() * t.cd, retarget: Math.random() * 0.3,
@@ -623,7 +630,7 @@ class Battle {
     if (u.back && u.closestD < R.exposedRange) dmg *= R.meleePenalty;   // ...but caught in melee, much less
     if (u.t.proj) {
       this.projs.push({ x: u.x, y: u.y - 6, tx: tg.x, ty: tg.y - 6, tg, side: u.side, gid: u.gid, src: u, dmg,
-        splash: u.t.splash || 0, img: u.t.proj, speed: u.t.splash ? 120 : 170, angle: 0 });
+        splash: u.splash || 0, img: u.t.proj, speed: u.t.splash ? 120 : 170, angle: 0 });
       if (!this.headless && u.t.splash && this.seenByPlayer(u)) Assets.sfx('magic-1', 0.25);
     } else {
       this.addFx('slash', tg.x, tg.y - 6, 0.25);
@@ -815,6 +822,12 @@ class Battle {
       const sel = this.sel.has(u.sq);
       ctx.fillStyle = colors[u.side] + (u.isLeader ? 'ee' : 'aa');
       ctx.beginPath(); ctx.ellipse(u.x, u.y + 1, u.isLeader ? 10 : 7.5, u.isLeader ? 3.8 : 3, 0, 0, Math.PI * 2); ctx.fill();
+      if (u.empowered > 0) {                       // landmark power: a pulsing glow in the side's colour
+        const a = (0.25 + 0.2 * Math.sin(this.time * 4 + u.x)) * (0.5 + 0.5 * u.empowered);
+        const g = ctx.createRadialGradient(u.x, u.y - 6, 1, u.x, u.y - 6, 13);
+        g.addColorStop(0, `rgba(255,236,150,${a * 1.4})`); g.addColorStop(1, 'rgba(255,236,150,0)');
+        ctx.fillStyle = g; ctx.fillRect(u.x - 13, u.y - 19, 26, 26);
+      }
       if (sel) { ctx.strokeStyle = '#ffe680'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.ellipse(u.x, u.y + 1, u.isLeader ? 12 : 9, u.isLeader ? 5 : 3.8, 0, 0, Math.PI * 2); ctx.stroke(); }
     }
     for (const u of list) {
@@ -879,7 +892,7 @@ class Battle {
       ctx.strokeStyle = color; ctx.lineWidth = 0.75; ctx.stroke();
       label(ctx, text, cx, y, color, 'center', size);
     };
-    if (this.banner) plate(this.banner.text, top, 15, this.banner.side === this.playerSide ? '#ff8a7a' : '#ffe680');
+    if (this.banner) plate(this.banner.text, top, this.banner.power ? 12 : 15, this.banner.power ? '#9fe8ff' : this.banner.side === this.playerSide ? '#ff8a7a' : '#ffe680');
     if (this.paused && !this.done) plate('PAUSED - give orders, then press Space or Play', this.banner ? top + 22 : top, 11, '#ffe680');
   }
 

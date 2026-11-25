@@ -424,6 +424,47 @@ DATA.classOf = gid => {
 DATA.roleOf = gid => DATA.heroClasses[DATA.classOf(gid)].role;
 // Hiring weight of a unit for faction f (0 if not on the roster), and its label.
 DATA.weightOf = (f, u) => (DATA.rosters[f] || {})[u] || 0;
+
+// --- Landmark powers ---------------------------------------------------------------
+// Each faction's home landmark (drawn beside its capital) empowers one of its own unit
+// types, for battles near it: full strength within `full` map pixels of the landmark,
+// fading to nothing at `reach`. It only works while the faction holds its seat (its
+// capital; the Crossroads for the Free Towns). Bonuses are at full strength:
+//   atk / hp: extra fraction, def: extra armour, range / splash: extra fraction.
+DATA.landmarkPower = {
+  full: 150, reach: 400,
+  factions: {
+    aster:   { unit: 'knight',   name: 'Royal Bastion',    hp: 0.40, def: 2,                 text: 'tougher Knights' },
+    frost:   { unit: 'frosteye', name: 'Heart of Winter',  atk: 0.40, range: 0.20,           text: 'stronger, longer-reaching Frost Eyes' },
+    thorn:   { unit: 'witch',    name: 'The Old Hollow',   atk: 0.40, splash: 0.40,          text: 'stronger Witch hexes' },
+    ember:   { unit: 'flame',    name: 'Mountain of Fire', atk: 0.45, splash: 0.50,          text: 'fiercer Fire Spirit blasts' },
+    shadow:  { unit: 'ghost',    name: 'Whispering Ruins', atk: 0.35, hp: 0.30,              text: 'stronger, tougher Ghosts' },
+    horde:   { unit: 'beast',    name: 'Mother Mushroom',  hp: 0.40, atk: 0.25,              text: 'bigger, meaner Bog Beasts' },
+    azure:   { unit: 'crystal',  name: 'Prism Spires',     atk: 0.35, range: 0.20,           text: 'sharper, longer-reaching Crystal Eyes' },
+    sun:     { unit: 'sunguard', name: 'Sun Pyramid',      hp: 0.30, atk: 0.20, def: 2,      text: 'stronger, tougher Sun Guards' },
+    neutral: { unit: 'militia',  name: 'Old Stones',       hp: 0.25, atk: 0.15,              text: 'stouter Militia' },
+  },
+};
+// The town a faction must hold for its landmark to work.
+DATA.landmarkSeat = f => {
+  const reg = f === 'neutral' ? 'free' : DATA.factions[f].home;
+  const ids = Object.keys(DATA.spots).filter(id => DATA.spots[id].region === reg);
+  return ids.find(id => DATA.spots[id].kind === 'capital') || ids.find(id => DATA.spots[id].kind === 'city') || null;
+};
+DATA.landmarkRegion = f => f === 'neutral' ? 'free' : DATA.factions[f].home;
+// How strong (0..1) faction f's landmark is at map spot `spot` (ignoring who holds the seat).
+DATA.landmarkStrength = (f, spot) => {
+  const P = DATA.landmarkPower, lm = MAP.landmarks[DATA.landmarkRegion(f)], s = DATA.spots[spot];
+  if (!P.factions[f] || !lm || !s) return 0;
+  const d = Math.hypot(s.x - lm.x, s.y - lm.y);
+  return d <= P.full ? 1 : Math.max(0, 1 - (d - P.full) / (P.reach - P.full));
+};
+// Plural of a unit name: 'Witch' -> 'Witches', 'Militia' stays.
+DATA.plural = n => /militia$/i.test(n) ? n : /(ch|sh|s|x)$/.test(n) ? n + 'es' : n + 's';
+// Text like '+40% hp, +2 def' for a power at strength k.
+DATA.landmarkText = (L, k = 1) => [L.atk && `+${Math.round(L.atk * k * 100)}% attack`, L.hp && `+${Math.round(L.hp * k * 100)}% health`,
+  L.def && `+${Math.round(L.def * k * 10) / 10} armour`, L.range && `+${Math.round(L.range * k * 100)}% range`,
+  L.splash && `+${Math.round(L.splash * k * 100)}% blast`].filter(Boolean).join(', ');
 DATA.rarity = w => w >= 4 ? 'Common' : w >= 2 ? 'Uncommon' : 'Rare';
 // Rarer units cost more and only a limited number can be hired each turn (per
 // faction): perTurn + 1 for every `perTowns` towns the faction holds. Common: no limit.

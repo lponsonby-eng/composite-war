@@ -28,6 +28,14 @@ Ember Peaks (forges, volcano, lava), Mistlands (towers, ruins, drifting mist), B
 with its capital and three towns; the other 60 towns are free towns held by militia.
 Win by defeating every rival faction.
 
+Each faction's landmark stands beside its capital and empowers one of its own units in nearby battles
+(full strength near the landmark, fading with distance, and only while the faction holds its capital):
+Aster's Royal Bastion (Knights), Frostmark's Heart of Winter (Frost Eyes), the Thornwood's Old Hollow
+(Witches), the Ember Clan's Mountain of Fire (Fire Spirits), the Shadow Order's Whispering Ruins (Ghosts),
+the Horde's Mother Mushroom (Bog Beasts), the Azure Tide's Prism Spires (Crystal Eyes) and the Sun Pyramid
+(Sun Guards). The Heartlands' Old Stones help the Free Towns' Militia while they hold the Crossroads.
+The bonuses are set in `DATA.landmarkPower` in `js/data.js`.
+
 To make a different map: `python3 tools/genmap.py 42` (any number gives a new layout).
 
 ## Story

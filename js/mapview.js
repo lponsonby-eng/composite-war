@@ -48,6 +48,7 @@ const MapView = {
         if (e < rd) { rd = e; reg = s.region; }
       }
       for (const [a, b] of segs) d = Math.min(d, distToSeg(x, y, a.x, a.y, b.x, b.y));
+      for (const p of Object.values(MAP.landmarks)) d = Math.min(d, Math.hypot(x - p.x, (y - (p.y - 30)) * 0.8) - 30);   // land under each landmark
       cdist[gy * cw + gx] = d; creg[gy * cw + gx] = reg;
     }
     const distAt = (x, y) => {                                     // bilinear
@@ -192,18 +193,21 @@ const MapView = {
       // how much of the plate a town would cover (its building, banner, generals and name)
       const overlap = (px, py) => spots.reduce((sum, s) => {
         const ox = Math.min(px + tw / 2, s.x + 34) - Math.max(px - tw / 2, s.x - 34);
-        const oy = Math.min(py + 6, s.y + 32) - Math.max(py - 14, s.y - (s.kind === 'capital' || s.kind === 'city' ? 100 : 80));
+        const oy = Math.min(py + 20, s.y + 34) - Math.max(py - 16, s.y - (s.kind === 'capital' || s.kind === 'city' ? 100 : 80));
         return sum + (ox > 0 && oy > 0 ? ox * oy : 0);
       }, 0);
       let x = p.x, ty = p.y + 18, best = Infinity;
       const top = p.y - 72 * LS + 4;
-      for (const [dx, dy] of [[0, 18], [0, 30], [-30, 22], [30, 22], [0, top - p.y]]) {
-        const o = overlap(p.x + dx, p.y + dy) + (Math.abs(dx) + Math.abs(dy - 18)) * 0.5;   // prefer just below the landmark
+      for (const [dx, dy] of [[0, 18], [0, 30], [-30, 22], [30, 22], [0, top - p.y], [-80, -10], [80, -10], [-95, -40], [95, -40], [-70, 20], [70, 20]]) {
+        const py = p.y + dy;
+        if (py < 40 || py > this.H - 34) continue;                                       // stay on the map (plates have two lines)
+        const o = overlap(p.x + dx, py) * 3 + (Math.abs(dx) + Math.abs(dy - 18)) * 0.5;   // prefer just below the landmark
         if (o < best) { best = o; x = p.x + dx; ty = p.y + dy; }
       }
       // drawn live each frame (see drawRegionNames), so they stay sharp and readable at any zoom
       const home = Object.values(DATA.factions).find(f => f.home === reg && !f.neutral);
-      this.regionNames.push({ name: rn, x, y: ty - 4, trim: home ? home.color : '#c9a15a' });
+      const owner = Object.keys(DATA.factions).find(f => DATA.landmarkRegion && DATA.landmarkRegion(f) === reg && DATA.landmarkPower.factions[f]);
+      this.regionNames.push({ name: rn, x, y: ty - 4, trim: home ? home.color : '#c9a15a', f: owner });
     }
     return cv;
   },
@@ -355,7 +359,7 @@ const MapView = {
     this.drawBeams(ctx, dt);
     for (const id of order) if (vis(DATA.spots[id].x, DATA.spots[id].y)) this.drawSpot(ctx, id, game, ui);
     this.drawWeather(ctx, vis, vx0, vy0, vx1, vy1);
-    this.drawRegionNames(ctx, vis);
+    this.drawRegionNames(ctx, vis, game);
     this.drawFx(ctx, dt);
     if (this.flash > 0.01) {                   // full-screen flash
       ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -522,13 +526,20 @@ const MapView = {
   // Region names on plates, drawn every frame on top of the map so the text is crisp at
   // any zoom and never smaller than about 15 screen pixels. Trimmed in the colour of the
   // faction whose home the region is (gold for the Heartlands).
-  drawRegionNames(ctx, vis) {
+  drawRegionNames(ctx, vis, game) {
     const dpr = window.devicePixelRatio || 1, z = this.scale / dpr;
     const fs = Math.max(13, 15 / z);                         // world pixels
     for (const r of this.regionNames || []) {
       if (!vis(r.x, r.y, 120)) continue;
+      // second line: the landmark's power, or that it is broken while the capital is lost
+      const L = r.f && DATA.landmarkPower.factions[r.f], seat = L && DATA.landmarkSeat(r.f);
+      const held = L && game && game.spots && game.spots[seat] && game.spots[seat].owner === r.f;
+      const sub = L ? (held ? `${DATA.plural(DATA.units[L.unit].name)} empowered` : 'Power broken: capital lost') : '';
+      const ss = fs * 0.72;
+      ctx.font = `${ss}px PixelFont`;
+      const sw = sub ? ctx.measureText(sub).width + ss : 0;
       ctx.font = `${fs}px PixelFont`;
-      const tw = ctx.measureText(r.name).width + fs * 0.9, th = fs * 1.25, x0 = r.x - tw / 2, y0 = r.y - th / 2;
+      const tw = Math.max(ctx.measureText(r.name).width + fs * 0.9, sw), th = fs * 1.25 + (sub ? ss * 1.2 : 0), x0 = r.x - tw / 2, y0 = r.y - fs * 0.625;
       const px = 1 / z;                                      // one screen pixel, in world pixels
       ctx.fillStyle = 'rgba(10,8,20,0.82)';
       ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x0, y0, tw, th, 3 * px) : ctx.rect(x0, y0, tw, th); ctx.fill();
@@ -537,8 +548,13 @@ const MapView = {
       ctx.fillStyle = r.trim; ctx.fillRect(x0 + 2 * px, y0 + th - 3 * px, tw - 4 * px, 1.5 * px);
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.lineJoin = 'round'; ctx.lineWidth = 3 * px; ctx.strokeStyle = '#0a0814';
-      ctx.strokeText(r.name, r.x, r.y - th * 0.06);
-      ctx.fillStyle = '#fff4d6'; ctx.fillText(r.name, r.x, r.y - th * 0.06);
+      ctx.strokeText(r.name, r.x, r.y - fs * 0.08);
+      ctx.fillStyle = '#fff4d6'; ctx.fillText(r.name, r.x, r.y - fs * 0.08);
+      if (sub) {
+        ctx.font = `${ss}px PixelFont`;
+        ctx.lineWidth = 2.5 * px; ctx.strokeText(sub, r.x, r.y + fs * 0.62 + ss * 0.45);
+        ctx.fillStyle = held ? lighten(r.trim, 0.35) : '#ff8a7a'; ctx.fillText(sub, r.x, r.y + fs * 0.62 + ss * 0.45);
+      }
     }
     ctx.textBaseline = 'alphabetic';
   },
