@@ -15,3 +15,4 @@ The owner is using free trials of several pixel-art generators and wants the mos
 | Service | Key | Tool | Trial allowance |
 |---|---|---|---|
 | PixelLab | `.pixellab_key` / `PIXELLAB_API_KEY` | `tools/pixellab.py`, `.mcp.json` | 40 generations (trial, Nov 2026) |
+| Retro Diffusion | `.retrodiffusion_key` / `RD_API_KEY` | `tools/retrodiffusion.py` (free price check, spends only with --yes), `.mcp.json` | prepaid USD; rd_fast $0.03/image, rd_lite $0.05 |

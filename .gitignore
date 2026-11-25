@@ -1,3 +1,4 @@
 # PixelLab API key (see tools/pixellab.py) - never commit it
 .pixellab_key
 .env
+.retrodiffusion_key
