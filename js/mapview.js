@@ -57,7 +57,7 @@ const MapView = {
     };
     const regCoarse = (x, y) => creg[Math.max(0, Math.min(ch - 1, Math.round(y / G))) * cw + Math.max(0, Math.min(cw - 1, Math.round(x / G)))];
     // jitter the lookup a little so region borders look ragged rather than blocky
-    const regAt = (x, y) => regCoarse(x + (noise(x / 7 + 3, y / 7) - 0.5) * 18, y + (noise(x / 7, y / 7 + 5) - 0.5) * 18);
+    const regAt = (x, y) => regCoarse(x + (noise(x / 22 + 3, y / 22) - 0.5) * 22, y + (noise(x / 22, y / 22 + 5) - 0.5) * 22);
     this.regAt = regAt;
 
     // 2. Which cells are land, lake or lava?
@@ -90,6 +90,13 @@ const MapView = {
     const ground = new Uint32Array(gw * gh), colCache = {};
     const toInt = col => colCache[col] || (colCache[col] = (() => { const [r, g, b] = hexRgb(col); return ((255 << 24) | (b << 16) | (g << 8) | r) >>> 0; })());
     const rng = makeRng(99);
+    // Calm ground: colours blend across broad, soft patches in a few gentle steps
+    // (instead of hard 3-colour noise and heavy speckle).
+    const mixInt = (a, b, t) => { const p = hexRgb(a), q = hexRgb(b);
+      const r = Math.round(p[0] + (q[0] - p[0]) * t), g = Math.round(p[1] + (q[1] - p[1]) * t), bl = Math.round(p[2] + (q[2] - p[2]) * t);
+      return ((255 << 24) | (bl << 16) | (g << 8) | r) >>> 0; };
+    const steps = (t, n) => Math.round(Math.max(0, Math.min(1, t)) * n) / n;
+    const ramp = (pal, t) => t < 0.5 ? mixInt(pal[0], pal[1], t * 2) : mixInt(pal[1], pal[2], (t - 0.5) * 2);
     const WATER = {
       frost: ['#bcd8ee', '#a6c8e4', '#e8f4fc'],       // icy water
       bog: ['#4a5a3a', '#3e4c30', '#6a7a4a'],         // murky
@@ -98,29 +105,31 @@ const MapView = {
     for (let gy = 0; gy < gh; gy++) for (let gx = 0; gx < gw; gx++) {
       const x = gx * CELL, y = gy * CELL, v = cellAt(gx, gy), reg = regAt(x, y);
       const pal = DATA.regions[reg].ground;
-      const n = fbm(x / 30 + 50, y / 30);
-      let col;
+      const n = fbm(x / 30 + 50, y / 30), soft = fbm(x / 75 + 50, y / 75);
+      let col, ci = null;
       if (v === 1) {
         if (near(gx, gy, 1, c => c === 0)) col = reg === 'frost' ? '#e4eef6' : reg === 'ember' ? '#3e3434' : reg === 'bog' ? '#6a5a3a' : '#e9d38f';
         else if (near(gx, gy, 1, c => c === 3)) col = '#2a201e';
-        else col = n > 0.6 ? pal[2] : n < 0.35 ? pal[0] : pal[1];
-        if (rng() < 0.04) col = pal[3];
+        else {
+          const t = 0.5 + (steps((soft - 0.25) / 0.5, 5) - 0.5) * 0.7;   // low contrast, 6 soft bands
+          ci = rng() < 0.006 ? mixInt(pal[1], pal[3], 0.5) : ramp(pal, t);
+        }
       } else if (v === 3) {                                         // lava
         col = fbm(x / 8, y / 8) > 0.55 ? '#ffb03a' : '#e8501e';
-        if (rng() < 0.05) col = '#ffe070';
+        if (rng() < 0.015) col = '#ffe070';
       } else if (v === 2) {                                         // lake
         const w = WATER[reg] || ['#4a8ad0', '#3a74bc', '#9fd0f4'];
         col = near(gx, gy, 1, c => c === 1) ? w[0] : w[1];
-        if (rng() < 0.02) col = w[2];
+        if (rng() < 0.004) col = w[2];
         if (reg === 'frost' && n > 0.5) col = '#e8f4fc';            // frozen
       } else {
         const w = WATER[reg];
         if (near(gx, gy, 2, c => c === 1)) col = w ? w[0] : '#5fa8dc';
-        else col = n > 0.55 ? '#2e5f9f' : '#3a71b5';
-        if (reg === 'frost' && n > 0.6 && fbm(x / 12, y / 12) > 0.55) col = '#f0f8ff';   // ice floes
-        if (rng() < 0.015) col = '#8cc6ee';
+        else ci = mixInt('#3a71b5', '#2e5f9f', steps((soft - 0.3) / 0.4, 3));
+        if (reg === 'frost' && n > 0.6 && fbm(x / 12, y / 12) > 0.55) { col = '#f0f8ff'; ci = null; }   // ice floes
+        if (rng() < 0.003) { col = '#8cc6ee'; ci = null; }
       }
-      ground[gy * gw + gx] = toInt(col);
+      ground[gy * gw + gx] = ci != null ? ci : toInt(col);
     }
     const cv = HD.upData(new Uint8ClampedArray(ground.buffer), gw, gh, 2, false);   // 4x of a 2-px cell = 2x world
     const ctx = cv.getContext('2d');

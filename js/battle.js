@@ -718,8 +718,28 @@ class Battle {
     let seed = 0; for (const ch of this.opts.spotName) seed = seed * 31 + ch.charCodeAt(0);
     const rng = makeRng(seed);
     const T = Assets.img;
-    for (let y = 0; y < this.H; y += 16) for (let x = 0; x < this.W; x += 16)
-      HD.draw(ctx, rng() < 0.7 ? T['tile:ground_grass'] : T['tile:ground_grass2'], x, y);
+    // Calm grass: broad soft patches between the two grass tiles' average colours,
+    // with the tile texture laid over faintly (no more tile checkerboard).
+    const avg = im => { const c = document.createElement('canvas'); c.width = c.height = 1; const x = c.getContext('2d');
+      x.drawImage(im, 0, 0, 1, 1); return x.getImageData(0, 0, 1, 1).data; };
+    const ga = avg(T['tile:ground_grass']), gb = avg(T['tile:ground_grass2']);
+    const noise = makeNoise(seed & 0xffff);
+    const lw = Math.ceil(this.W / 4), lh = Math.ceil(this.H / 4);
+    const lo = document.createElement('canvas'); lo.width = lw; lo.height = lh;
+    const lc = lo.getContext('2d'), id = lc.createImageData(lw, lh);
+    for (let y = 0; y < lh; y++) for (let x = 0; x < lw; x++) {
+      const n = noise(x / 22, y / 22) * 0.7 + noise(x / 7 + 40, y / 7) * 0.3;
+      const t = Math.round(Math.max(0, Math.min(1, (n - 0.3) / 0.45)) * 4) / 4 * 0.85;
+      const i = (y * lw + x) * 4;
+      for (let k = 0; k < 3; k++) id.data[i + k] = ga[k] + (gb[k] - ga[k]) * t;
+      id.data[i + 3] = 255;
+    }
+    lc.putImageData(id, 0, 0);
+    ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(lo, 0, 0, lw * 4, lh * 4);
+    ctx.globalAlpha = 0.16;
+    for (let y = 0; y < this.H; y += 16) for (let x = 0; x < this.W; x += 16) HD.draw(ctx, T['tile:ground_grass'], x, y);
+    ctx.globalAlpha = 1;
     const tint = (DATA.regions[this.terrain.region] || {}).battle;
     if (tint) {                                    // recolour the grass to the region's ground (snow, sand, ash...)
       ctx.globalCompositeOperation = 'color'; ctx.fillStyle = tint; ctx.fillRect(0, 0, this.W, this.H);
@@ -727,7 +747,7 @@ class Battle {
       ctx.globalAlpha = 1;
     }
     const lush = !['frost', 'sun', 'ember'].includes(this.terrain.region);
-    for (let i = 0; i < 160; i++) {
+    for (let i = 0; i < 90; i++) {
       const n = ['grass_tuft', 'grass_tuft', 'bush'][Math.floor(rng() * 3)];
       const x = Math.floor(rng() * (this.W - 16)), y = Math.floor(rng() * (this.H - 16));
       if (lush && this.terrain.kindAt(x + 8, y + 8) === GROUND.grass) HD.draw(ctx, T['tile:' + n], x, y);
