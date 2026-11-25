@@ -15,4 +15,4 @@ The owner is using free trials of several pixel-art generators and wants the mos
 | Service | Key | Tool | Trial allowance |
 |---|---|---|---|
 | PixelLab | `.pixellab_key` / `PIXELLAB_API_KEY` | `tools/pixellab.py`, `.mcp.json` | 40 generations (trial, Nov 2026) |
-| Retro Diffusion | `.retrodiffusion_key` / `RD_API_KEY` | `tools/retrodiffusion.py` (free price check, spends only with --yes), `.mcp.json` | $0 USD balance + 50 legacy credits + free grant (~5 RD Lite images, expires 2026-11-28, refills by claiming; unclear if API can use it). rd_fast $0.03, rd_lite $0.05 |
+| Retro Diffusion | `.retrodiffusion_key` / `RD_API_KEY` | `tools/retrodiffusion.py` (free price check, spends only with --yes), `.mcp.json` | $0 USD balance + 50 legacy credits + free grant (~5 RD Lite images, expires 2026-11-28, refills by claiming; tested 2026-11-25: the API CANNOT use the free grant or credits - needs a paid USD top-up. Use the free images on the website instead). rd_fast $0.03, rd_lite $0.05 |

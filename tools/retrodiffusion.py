@@ -61,7 +61,7 @@ def cmd_balance(_):
 
 
 def cmd_styles(_):
-    print(json.dumps(call('GET', '/styles/selector'), indent=2)[:20000])
+    print(json.dumps(call('GET', '/styles/selector'), indent=2))
 
 
 def cmd_image(a):
