@@ -102,15 +102,40 @@ const Assets = {
 
   // Draws one frame of a 16x16 unit sheet. dir: 0 down, 1 up, 2 left, 3 right.
   // Character sheets have rows 0-3 = walk, row 4 = attack. Monster sheets have 4 rows.
-  drawUnit(ctx, sprite, dir, frame, attacking, x, y, alpha = 1) {
+  // size: drawn size in world pixels (battles draw units larger than the map does).
+  drawUnit(ctx, sprite, dir, frame, attacking, x, y, alpha = 1, size = 16) {
     const im = this.img[sprite];
     if (!im || !im.width) return;
     const rows = Math.floor(im.height / 16);
     let row = frame % Math.min(rows, 4);
     if (attacking && rows >= 5) row = 4;
     if (alpha !== 1) ctx.globalAlpha = alpha;
-    HD.draw(ctx, im, dir * 16, row * 16, 16, 16, Math.round(x), Math.round(y), 16, 16);
+    HD.draw(ctx, im, dir * 16, row * 16, 16, 16, Math.round(x), Math.round(y), size, size);
     if (alpha !== 1) ctx.globalAlpha = 1;
+  },
+
+  // A copy of a unit sheet with a 1-pixel outline in `col` around each figure (once),
+  // so a side's soldiers read at a glance. Returns its key.
+  outlined(sprite, col) {
+    const k = sprite + '|o' + col;
+    if (this.img[k]) return k;
+    const src = this.img[sprite];
+    if (!src || !src.width) return sprite;
+    const cv = document.createElement('canvas'); cv.width = src.width; cv.height = src.height;
+    const c = cv.getContext('2d'); c.drawImage(src, 0, 0);
+    const W = cv.width, H = cv.height, d = c.getImageData(0, 0, W, H), p = d.data, a = new Uint8Array(W * H);
+    for (let i = 0; i < W * H; i++) a[i] = p[i * 4 + 3] > 128 ? 1 : 0;
+    const r = parseInt(col.slice(1, 3), 16), g = parseInt(col.slice(3, 5), 16), b = parseInt(col.slice(5, 7), 16);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      if (a[y * W + x]) continue;
+      const same = (nx, ny) => nx >= 0 && ny >= 0 && nx < W && ny < H && (nx >> 4) === (x >> 4) && (ny >> 4) === (y >> 4) && a[ny * W + nx];
+      if (same(x - 1, y) || same(x + 1, y) || same(x, y - 1) || same(x, y + 1)) {
+        const i = (y * W + x) * 4; p[i] = r; p[i + 1] = g; p[i + 2] = b; p[i + 3] = 255;
+      }
+    }
+    c.putImageData(d, 0, 0);
+    this.img[k] = cv;
+    return k;
   },
 
   // Draws a horizontal strip effect (32x32 frames), t from 0..1
