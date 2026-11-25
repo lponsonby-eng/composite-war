@@ -592,26 +592,32 @@ const MapView = {
       circPath(ctx, bx + im.box.x1 - 6 + k * 4, by + im.box.y0 + 8 - k * 12, 1.5 + k * 3);
     }
 
-    // generals standing in front of the building
+    // generals standing in front of the building: drawn 22 px, outlined in their side's
+    // colour (white for the Free Towns); generals who have moved this turn are faded
+    const GS = 22, gap = 15;
+    const outlineOf = f => !f || DATA.factions[f].neutral ? '#ffffff' : DATA.factions[f].color;
     const gens = game.generalsAt(id);
-    const shown = gens.slice(0, 4);
-    const startX = s.x - (shown.length * 11) / 2;
+    const shown = gens.slice(0, 3);
+    const startX = s.x - ((shown.length - 1) * gap) / 2;
     shown.forEach((g, i) => {
-      Assets.drawUnit(ctx, Assets.genSprite(g.id), 0, 0, false, startX + i * 11 - 2, s.y - 6);
-      if (g.acted && owner === game.player) {
-        ctx.fillStyle = 'rgba(0,0,0,0.35)';
-        ctx.fillRect(Math.round(startX + i * 11 - 2), s.y - 6, 16, 16);
-      }
+      const done = g.acted && owner === game.player;
+      Assets.drawUnit(ctx, Assets.outlined(Assets.genSprite(g.id), outlineOf(g.faction)), 0, 0, false,
+        startX + i * gap - GS / 2, s.y + 8 - GS, done ? 0.5 : 1, GS);
     });
-    if (gens.length > 4) label(ctx, '+' + (gens.length - 4), s.x + 24, s.y + 6, '#fff', 'left');
+    if (gens.length > 3) {                                   // how many more are here
+      const bx = Math.round(startX + 2 * gap + 10), by = Math.round(s.y - 10);
+      ctx.fillStyle = '#1a1020'; ctx.beginPath(); ctx.roundRect ? ctx.roundRect(bx - 1, by - 1, 15, 10, 3) : ctx.rect(bx - 1, by - 1, 15, 10); ctx.fill();
+      ctx.fillStyle = color; ctx.beginPath(); ctx.roundRect ? ctx.roundRect(bx, by, 13, 8, 2.5) : ctx.rect(bx, by, 13, 8); ctx.fill();
+      label(ctx, '+' + (gens.length - 3), bx + 6.5, by + 7, '#ffffff', 'center', 8);
+    }
 
-    // wandering generals stand beside the building, marked with a gold coin
+    // wandering generals stand beside the building with a gold outline and a gold coin
     const free = game.wanderersAt ? game.wanderersAt(id) : [];
     free.slice(0, 2).forEach((g, i) => {
-      const wx = s.x + 14 + i * 10, wy = s.y - 16;
+      const WS = 20, wx = s.x - 26 - i * 13, wy = s.y - 6 - WS;                       // to the left; the right is for the +N badge
       const bob = Math.floor(this.time * 2 + i) % 2;
-      Assets.drawUnit(ctx, Assets.genSprite(g.id), 0, 0, false, wx, wy);
-      const cx = wx + 8, cy = wy - 4 - bob;
+      Assets.drawUnit(ctx, Assets.outlined(Assets.genSprite(g.id), '#ffd84a'), 0, 0, false, wx - WS / 2, wy, 1, WS);
+      const cx = wx + 7, cy = wy - 2 - bob;
       ctx.fillStyle = '#1a1020'; ctx.beginPath(); ctx.arc(cx, cy, 4.5, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = '#ffd84a'; ctx.beginPath(); ctx.arc(cx, cy, 3.5, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = '#b8860b'; ctx.fillRect(Math.round(cx) - 1, Math.round(cy) - 2, 1, 4);
