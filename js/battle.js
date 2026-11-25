@@ -850,7 +850,7 @@ class Battle {
       ctx.restore();
     }
     for (const f of this.fx) if (this.cellVisible(f.x, f.y)) Assets.drawFx(ctx, f.name, f.t, f.x, f.y);
-    for (const t of this.texts) if (this.cellVisible(t.x, t.y)) label(ctx, t.s, t.x, t.y, t.color, 'center', 10);
+    for (const t of this.texts) if (this.cellVisible(t.x, t.y)) label(ctx, t.s, t.x, t.y, t.color, 'center', 12);
 
     // fog of war over everything, soft-edged
     if (this.playerSide >= 0) {
@@ -867,8 +867,20 @@ class Battle {
     const dpr = window.devicePixelRatio || 1, ss = 2 * dpr;
     ctx.setTransform(ss, 0, 0, ss, 0, 0);
     const cx = canvas.width / 2 / ss;
-    if (this.banner) label(ctx, this.banner.text, cx, 58, this.banner.side === this.playerSide ? '#ff8a7a' : '#ffe680', 'center', 12);
-    if (this.paused && !this.done) label(ctx, 'PAUSED - give orders, then press Space or Play', cx, 72, '#ffe680', 'center', 9);
+    // messages on a dark plate, large enough to read at a glance
+    const narrow = canvas.width / dpr < 760, top = narrow ? canvas.height / ss * 0.42 : 66;
+    const plate = (text, y, size, color) => {
+      ctx.font = `${size}px PixelFont`;
+      const room = canvas.width / ss * 0.92, tw = ctx.measureText(text).width + size * 1.2;
+      if (tw > room) { size *= room / tw; ctx.font = `${size}px PixelFont`; }   // shrink to fit small screens
+      const w = ctx.measureText(text).width + size * 1.2, h = size * 1.5;
+      ctx.fillStyle = 'rgba(8,8,18,0.82)';
+      ctx.beginPath(); ctx.roundRect ? ctx.roundRect(cx - w / 2, y - h * 0.72, w, h, 4) : ctx.rect(cx - w / 2, y - h * 0.72, w, h); ctx.fill();
+      ctx.strokeStyle = color; ctx.lineWidth = 0.75; ctx.stroke();
+      label(ctx, text, cx, y, color, 'center', size);
+    };
+    if (this.banner) plate(this.banner.text, top, 15, this.banner.side === this.playerSide ? '#ff8a7a' : '#ffe680');
+    if (this.paused && !this.done) plate('PAUSED - give orders, then press Space or Play', this.banner ? top + 22 : top, 11, '#ffe680');
   }
 
   // Battle minimap: ground, fog, your units and the enemies you can see, the view box.
