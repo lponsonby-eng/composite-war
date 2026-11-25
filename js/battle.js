@@ -8,6 +8,8 @@
 //  nobody left, or the time limit runs out (the defender holds the town).
 //  The same code runs "headless" (no drawing) to auto-resolve AI vs AI fights.
 // =============================================================================
+const UNIT_SIZE = { soldier: 22, leader: 25 };   // battle sprites are 16 px, drawn this big
+
 class Battle {
   constructor(opts) {
     const B = DATA.battle;
@@ -36,7 +38,7 @@ class Battle {
       this.explored = new Uint8Array(this.fw * this.fh); this.visible = new Uint8Array(this.fw * this.fh);
       this.fogCanvas = document.createElement('canvas'); this.fogCanvas.width = this.fw; this.fogCanvas.height = this.fh;
       const me = this.home[Math.max(0, this.playerSide)];
-      this.cam = { x: me.x + (this.playerSide === 1 ? -120 : 120), y: me.y, z: 1.6 };
+      this.cam = { x: me.x + (this.playerSide === 1 ? -120 : 120), y: me.y, z: 2 };
       this.bg = this.buildBackground();
       this.updateFog();
     }
@@ -812,25 +814,29 @@ class Battle {
     for (const u of list) {                       // coloured shadows show which side a unit is on; selected squads get a ring
       const sel = this.sel.has(u.sq);
       ctx.fillStyle = colors[u.side] + (u.isLeader ? 'ee' : 'aa');
-      ctx.beginPath(); ctx.ellipse(u.x, u.y + 1, u.isLeader ? 8 : 6, u.isLeader ? 3.2 : 2.5, 0, 0, Math.PI * 2); ctx.fill();
-      if (sel) { ctx.strokeStyle = '#ffe680'; ctx.lineWidth = 1; ctx.beginPath(); ctx.ellipse(u.x, u.y + 1, u.isLeader ? 10 : 7, u.isLeader ? 4.5 : 3.2, 0, 0, Math.PI * 2); ctx.stroke(); }
+      ctx.beginPath(); ctx.ellipse(u.x, u.y + 1, u.isLeader ? 10 : 7.5, u.isLeader ? 3.8 : 3, 0, 0, Math.PI * 2); ctx.fill();
+      if (sel) { ctx.strokeStyle = '#ffe680'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.ellipse(u.x, u.y + 1, u.isLeader ? 12 : 9, u.isLeader ? 5 : 3.8, 0, 0, Math.PI * 2); ctx.stroke(); }
     }
     for (const u of list) {
       const moving = u.moving && u.atkT <= 0;
       const frame = Math.floor(u.walkT * 8) % 4;
       const alpha = u.routing ? 0.5 : (u.hitT > 0 ? 0.55 : 1);
-      Assets.drawUnit(ctx, u.sprite, u.dir, moving ? frame : 0, u.atkT > 0, u.x - 8, u.y - 14, alpha);
+      // drawn larger than on the map (22 px, generals 25 px), outlined in their side's colour
+      const size = u.isLeader ? UNIT_SIZE.leader : UNIT_SIZE.soldier, top = u.y + 2 - size;
+      if (!u.spriteO) u.spriteO = Assets.outlined(u.sprite, colors[u.side]);
+      Assets.drawUnit(ctx, u.spriteO, u.dir, moving ? frame : 0, u.atkT > 0, u.x - size / 2, top, alpha, size);
       if (u.isLeader) {
-        const fx = Math.round(u.x + 4), fy = Math.round(u.y - 26);
-        ctx.fillStyle = '#3b2a1a'; ctx.fillRect(fx, fy, 1, 10);
-        ctx.fillStyle = colors[u.side]; ctx.fillRect(fx + 1, fy, 6, 4);
-        hpBar(ctx, u.x - 7, u.y - 18, 14, u.hp / u.maxHp, '#ffd84a');
-        if (u.side === this.playerSide) hpBar(ctx, u.x - 7, u.y - 16, 14, u.sq.mp / u.sq.maxMp, '#6fb6ff');
+        const fx = Math.round(u.x + 5), fy = Math.round(top - 9);
+        ctx.fillStyle = '#1a1020'; ctx.fillRect(fx - 1, fy - 1, 3, 13); ctx.fillRect(fx + 1, fy - 1, 9, 7);
+        ctx.fillStyle = '#7a5a36'; ctx.fillRect(fx, fy, 1, 11);
+        ctx.fillStyle = colors[u.side]; ctx.fillRect(fx + 1, fy, 8, 5);
+        hpBar(ctx, u.x - 9, top - 3, 18, u.hp / u.maxHp, '#ffd84a');
+        if (u.side === this.playerSide) hpBar(ctx, u.x - 9, top - 1, 18, u.sq.mp / u.sq.maxMp, '#6fb6ff');
       } else if (u.hp < u.maxHp) {
-        hpBar(ctx, u.x - 5, u.y - 17, 10, u.hp / u.maxHp, u.side === 0 ? '#7cf07c' : '#ff7a6a');
+        hpBar(ctx, u.x - 6, top - 2, 12, u.hp / u.maxHp, u.side === 0 ? '#7cf07c' : '#ff7a6a');
       }
       if (u.tier > 1) {                                   // promoted soldiers: silver pip (tier 2), two gold pips (tier 3)
-        const col = u.tier === 3 ? '#ffd84a' : '#d8e0ec', px = Math.round(u.x) + 5, py = Math.round(u.y) - 15;
+        const col = u.tier === 3 ? '#ffd84a' : '#d8e0ec', px = Math.round(u.x) + 7, py = Math.round(top) + 2;
         for (let k = 0; k < u.tier - 1; k++) { ctx.fillStyle = '#1a1020'; ctx.fillRect(px - 1, py - 1 + k * 3, 4, 4); ctx.fillStyle = col; ctx.fillRect(px, py + k * 3, 2, 2); }
       }
     }

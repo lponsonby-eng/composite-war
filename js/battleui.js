@@ -102,7 +102,7 @@ const BattleUI = {
     let best = null, bd = 14;
     for (const u of this.b.units) {
       if (!u.alive || u.escaped || u.routing || (side != null && u.side !== side) || !this.b.seenByPlayer(u)) continue;
-      const d = Math.hypot(u.x - wx, u.y - 6 - wy);
+      const d = Math.hypot(u.x - wx, u.y - 9 - wy);
       if (d < bd) { bd = d; best = u.sq; }
     }
     return best;
