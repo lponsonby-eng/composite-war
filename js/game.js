@@ -1007,7 +1007,7 @@ const Game = {
     if (!id) {
       const rows = Object.keys(DATA.factions).filter(f => this.spotsOf(f).length).map(f => {
         const fa = DATA.factions[f];
-        return `<tr><td><img class="crest" src="${Heraldry.icon(f)}" alt="">${fa.name}${f === this.player ? ' (you)' : ''}</td>
+        return `<tr class="${f === this.player ? 'me' : ''}" title="${f === this.player ? 'Your faction' : ''}"><td><img class="crest" src="${Heraldry.icon(f)}" alt="">${fa.name}</td>
           <td>${this.spotsOf(f).length}</td><td>${this.gensOf(f).length}</td></tr>`;
       }).join('');
       p.innerHTML = `${opps}<h2>The Realm</h2><table class="realm"><tr><th>Faction</th><th>Towns</th><th>Generals</th></tr>${rows}</table>
