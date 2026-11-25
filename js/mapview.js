@@ -161,7 +161,7 @@ const MapView = {
       if (distAt(cx, cy) < 22) continue;
       let ds = 1e9;
       for (const s of spots) ds = Math.min(ds, Math.hypot(cx - s.x, cy - s.y + 6));
-      if (ds < 36 || lm.some(([, p]) => Math.abs(cx - p.x) < 48 && cy < p.y + 8 && cy > p.y - 70)) continue;
+      if (ds < 36 || lm.some(([, p]) => Math.abs(cx - p.x) < 48 * LS && cy < p.y + 30 && cy > p.y - 72 * LS)) continue;
       const reg = regAt(cx, cy), list = DATA.regions[reg].deco;
       const f = fbm(cx / 55 + 200, cy / 55);
       const dense = reg === 'darkwood' ? 0.42 : reg === 'sun' || reg === 'shadow' ? 0.7 : 0.55;
@@ -175,8 +175,35 @@ const MapView = {
       const big = name[0] === '@';
       const im = big ? Art.landmark(DATA.regions[name.slice(1)].landmark) : Art.deco(name);
       if (!im || !im.width) continue;
-      HD.draw(ctx, im, Math.round(x - im.width / 2), Math.round(y - im.height + (big ? 2 : 1)));
-      if (big) label(ctx, DATA.regions[name.slice(1)].name, x, y + 12, '#f6ecd0', 'center', 10);   // region name
+      if (!big) { HD.draw(ctx, im, Math.round(x - im.width / 2), Math.round(y - im.height + 1)); continue; }
+      // landmarks: drawn larger, on a soft shadow, with the region's name on a plate
+      const w = im.width * LS, h = im.height * LS, bw = (im.box.x1 - im.box.x0 + 1) * LS;
+      ctx.fillStyle = 'rgba(20,16,30,0.3)';
+      ctx.beginPath(); ctx.ellipse(x + 4, y + 1, bw * 0.55, bw * 0.16, 0, 0, Math.PI * 2); ctx.fill();
+      HD.draw(ctx, im, x - w / 2, y - h + 2 * LS, w, h);
+    }
+    // region names last, so no tree or rock covers them
+    for (const [reg, p] of lm) {
+      const rn = DATA.regions[reg].name;
+      ctx.font = '13px PixelFont';
+      const tw = Math.ceil(ctx.measureText(rn).width) + 12;
+      // place the plate where no town (building, banner, generals, name) overlaps it
+      // how much of the plate a town would cover (its building, banner, generals and name)
+      const overlap = (px, py) => spots.reduce((sum, s) => {
+        const ox = Math.min(px + tw / 2, s.x + 34) - Math.max(px - tw / 2, s.x - 34);
+        const oy = Math.min(py + 6, s.y + 32) - Math.max(py - 14, s.y - (s.kind === 'capital' || s.kind === 'city' ? 100 : 80));
+        return sum + (ox > 0 && oy > 0 ? ox * oy : 0);
+      }, 0);
+      let x = p.x, ty = p.y + 18, best = Infinity;
+      const top = p.y - 72 * LS + 4;
+      for (const [dx, dy] of [[0, 18], [0, 30], [-30, 22], [30, 22], [0, top - p.y]]) {
+        const o = overlap(p.x + dx, p.y + dy) + (Math.abs(dx) + Math.abs(dy - 18)) * 0.5;   // prefer just below the landmark
+        if (o < best) { best = o; x = p.x + dx; ty = p.y + dy; }
+      }
+      ctx.fillStyle = 'rgba(14,10,24,0.75)'; ctx.fillRect(Math.round(x - tw / 2), ty - 12, tw, 16);
+      ctx.fillStyle = '#c9a15a'; ctx.fillRect(Math.round(x - tw / 2), ty + 4, tw, 1.5);
+      ctx.fillRect(Math.round(x - tw / 2) - 1.5, ty - 12, 1.5, 17.5); ctx.fillRect(Math.round(x + tw / 2), ty - 12, 1.5, 17.5);
+      label(ctx, rn, x, ty, '#f6ecd0', 'center', 13);
     }
     return cv;
   },
@@ -495,29 +522,29 @@ const MapView = {
   drawLandmarkFx(ctx, vis) {
     const t = this.time;
     for (const [reg, p] of Object.entries(MAP.landmarks)) {
-      if (!vis(p.x, p.y, 120)) continue;
-      const type = DATA.regions[reg].landmark;
+      if (!vis(p.x, p.y, 160)) continue;
+      const type = DATA.regions[reg].landmark, L = LS;          // offsets follow the landmark's drawn size
       if (type === 'volcano') {
         for (let i = 0; i < 6; i++) {
           const k = (t * 0.25 + i / 6) % 1;
           ctx.fillStyle = `rgba(70,60,60,${0.55 * (1 - k)})`;
-          circPath(ctx, p.x + Math.sin(k * 6 + i) * 6 + k * 14, p.y - 54 - k * 40, 3 + k * 9);
+          circPath(ctx, p.x + (Math.sin(k * 6 + i) * 6 + k * 14) * L, p.y - (52 * L + 2) - k * 40 * L, (3 + k * 9) * L);
         }
         ctx.fillStyle = `rgba(255,120,40,${0.25 + 0.15 * Math.sin(t * 3)})`;
-        circPath(ctx, p.x, p.y - 52, 10);
+        circPath(ctx, p.x, p.y - (50 * L + 2), 10 * L);
       } else if (type === 'crystal') {
         ctx.fillStyle = `rgba(255,150,220,${0.12 + 0.1 * Math.sin(t * 2)})`;
-        circPath(ctx, p.x, p.y - 30, 34);
+        circPath(ctx, p.x, p.y - 30 * L, 34 * L);
         for (let i = 0; i < 5; i++) {
           const k = (t * 0.6 + i / 5) % 1;
           ctx.fillStyle = `rgba(255,255,255,${1 - k})`;
-          ctx.fillRect(Math.round(p.x - 24 + ((i * 13) % 48)), Math.round(p.y - 20 - k * 40), 1, 1);
+          ctx.fillRect(Math.round(p.x + (-24 + ((i * 13) % 48)) * L), Math.round(p.y - (20 + k * 40) * L), 1.5, 1.5);
         }
       } else if (type === 'deadtree' || type === 'giantshroom') {
         for (let i = 0; i < 8; i++) {
           const a = t * 0.7 + i * 0.8;
           ctx.fillStyle = `rgba(200,255,106,${0.5 + 0.5 * Math.sin(t * 4 + i)})`;
-          ctx.fillRect(Math.round(p.x + Math.sin(a) * 30), Math.round(p.y - 30 + Math.cos(a * 1.3) * 18), 1, 1);
+          ctx.fillRect(Math.round(p.x + Math.sin(a) * 30 * L), Math.round(p.y + (-30 + Math.cos(a * 1.3) * 18) * L), 1.5, 1.5);
         }
       }
     }
@@ -700,6 +727,8 @@ function showCaptureBanner(s, col, tier) {
   clearTimeout(showCaptureBanner.t);
   showCaptureBanner.t = setTimeout(() => { el.hidden = true; }, tier === 3 ? 3200 : 2000);
 }
+
+const LS = 1.4;                 // landmarks are drawn at 1.4x their picture size
 
 function circPath(ctx, x, y, r) { ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); }
 
