@@ -1,6 +1,12 @@
 /* Layout: one-screen game. Map/battle canvas fills the middle, command panel on the right,
    message log along the bottom. Classic JRPG windows: navy panels with a gold edge. */
-@font-face { font-family: 'PixelFont'; src: url('../assets/fonts/pixel.ttf') format('truetype'); font-display: block; }
+/* Nunito (SIL Open Font License, assets/fonts/Nunito-OFL.txt): a rounded, very readable sans.
+   It is registered as 'PixelFont', the name the canvas code uses, so map and battle labels use it
+   too. Normal text uses the semi-bold cut (clearer on the dark panels), bold uses extra-bold.
+   The original pixel font is kept as 'PixelOld' for the title. */
+@font-face { font-family: 'PixelFont'; src: url('../assets/fonts/nunito-600.woff2') format('woff2'); font-weight: 400; font-display: block; }
+@font-face { font-family: 'PixelFont'; src: url('../assets/fonts/nunito-800.woff2') format('woff2'); font-weight: 700; font-display: block; }
+@font-face { font-family: 'PixelOld'; src: url('../assets/fonts/pixel.ttf') format('truetype'); font-display: swap; }
 
 :root {
   --bg: #0f1018;
@@ -13,7 +19,7 @@
   --good: #7be07b;
   --bad: #ff6b5e;
   --accent: #ffd84a;
-  --font: 'PixelFont', 'Courier New', monospace;
+  --font: 'PixelFont', 'PixelOld', 'Courier New', monospace;
   color-scheme: dark;
 }
 
@@ -22,7 +28,8 @@
 html, body { height: 100%; }
 body {
   background: var(--bg); color: var(--ink);
-  font-family: var(--font); font-size: 18px; line-height: 1.15;
+  font-family: var(--font); font-size: 16px; line-height: 1.25;
+  font-variant-ligatures: none; font-feature-settings: 'liga' 0, 'calt' 0;
   padding-left: max(16px, env(safe-area-inset-left, 0px));
   padding-right: max(16px, env(safe-area-inset-right, 0px));
   padding-block: 8px;
@@ -149,7 +156,7 @@ body[data-mode="battle"] #turn-banner { display: none; }
 #title-screen { position: fixed; inset: 0; display: grid; place-items: center; z-index: 10; padding: 16px;
   background: rgba(8, 9, 16, .55); overflow-y: auto; }
 .title-box { padding: 20px 24px; max-width: 760px; width: 100%; text-align: center; }
-.title-box h1 { font-weight: normal; font-size: clamp(40px, 7vw, 64px); margin: 0; color: var(--accent);
+.title-box h1 { font-family: 'PixelOld', var(--font); font-weight: normal; font-size: clamp(40px, 7vw, 64px); margin: 0; color: var(--accent);
   text-shadow: 3px 3px 0 #6b3d10, 6px 6px 0 #000; letter-spacing: 1px; text-wrap: balance; }
 .title-box h3 { font-weight: normal; margin: 14px 0 8px; }
 .fcards { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 10px; text-align: left; }
