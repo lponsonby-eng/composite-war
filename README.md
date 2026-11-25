@@ -38,6 +38,27 @@ The bonuses are set in `DATA.landmarkPower` in `js/data.js`.
 
 To make a different map: `python3 tools/genmap.py 42` (any number gives a new layout).
 
+## Pixel art generators
+`tools/pixelgen/` holds offline pixel-art generators (no APIs, no network, no dependencies).
+Every picture comes from a seed, so a design you like can be made again from its seed and options.
+They draw at the game's own sizes, in faction colours with hue-shifted ramps and dark outlines:
+- **hero**: 64 x 112 unit sheets like `assets/chars` (down/up/left/right; walk, attack, hurt, cast), by class, weapon and headgear
+- **portrait**: 38 x 38 faces like `assets/faces` (skin, hair, beards, helmets, hoods, wizard hats, circlets)
+- **monster**: 64 x 64 creature sheets like `assets/monsters` (blobs, beasts, flyers, eyes, bugs, spirits)
+- **fx**: 32 x 32 effect strips like `assets/fx` (burst, slash, sparkle, smoke, ring, orb) in each element's colours
+- **tile**: 32 x 32 seamless ground (grass, dirt, cobble, sand, snow, water, lava, brick, planks, swamp, crystal)
+- **item**: 16 x 16 icons (sword, axe, spear, bow, staff, shield, potion, gem, scroll, ring)
+- **palette**: colour ramps for a faction or base colour, with harmony colours, skin and metal
+
+Open `tools/pixelgen/index.html` in a browser to browse seeds, preview animations and download PNGs,
+or write files from the command line:
+
+    node tools/pixelgen/cli.js list
+    node tools/pixelgen/cli.js hero --faction ember --cls mage --count 8
+    node tools/pixelgen/cli.js hero --seed 40 --out assets/chars --name 26
+
+Files go to `tools/pixelgen/out/` unless `--out` is given. The generators live in `tools/pixelgen/pixelgen.js`.
+
 ## Story
 The realm was held together by the Concord Crown until it shattered into eight shards,
 one for each faction. Story events (`js/events.js`) play as dialogue with portraits:
