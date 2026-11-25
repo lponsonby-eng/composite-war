@@ -555,7 +555,7 @@ const MapView = {
 
     const ring = (col, r) => {
       ctx.strokeStyle = col; ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.ellipse(s.x, s.y + 2, r, r * 0.45, 0, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.ellipse(s.x, s.y + 5, r, r * 0.45, 0, 0, Math.PI * 2); ctx.stroke();
     };
     if (ui.selected === id) ring(`rgba(255,240,120,${0.6 + pulse * 0.4})`, 26);
     else if (ui.targets[id] === 'attack') ring(`rgba(255,70,50,${0.5 + pulse * 0.5})`, 24);
@@ -564,21 +564,24 @@ const MapView = {
 
     // faction-coloured ground circle, outlined so it reads on any ground
     const tier = this.tierOf(s.kind);
-    const gr = [0, 21, 24, 28][tier];
+    const gr = [0, 23, 27, 32][tier];
     ctx.fillStyle = hexA(color, 0.5);
-    ctx.beginPath(); ctx.ellipse(s.x, s.y + 2, gr, gr * 0.42, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(s.x, s.y + 5, gr, gr * 0.42, 0, 0, Math.PI * 2); ctx.fill();
     ctx.lineWidth = 1.5; ctx.strokeStyle = 'rgba(16,10,24,0.85)'; ctx.stroke();
     ctx.lineWidth = 1; ctx.strokeStyle = lighten(color, 0.35);
-    ctx.beginPath(); ctx.ellipse(s.x, s.y + 2, gr - 1.5, gr * 0.42 - 1.2, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(s.x, s.y + 5, gr - 1.5, gr * 0.42 - 1.2, 0, 0, Math.PI * 2); ctx.stroke();
 
     // building in the region's style, with a flag in the owner's colour
     const style = DATA.regions[s.region].building;
     const size = { village: 0, town: 1, capital: 2, city: 2, shrine: style === 'village' ? 3 : 0 }[s.kind] || 0;
-    const im = Art.building(style, size);
-    const bx = Math.round(s.x - 24), by = Math.round(s.y - 34);
-    HD.draw(ctx, im, bx, by);
+    // drawn bigger, scaled by the building's own width so every region's houses match
+    const im = Art.building(style, size), bw = im.box.x1 - im.box.x0 + 1;
+    const want = { village: 38, town: 46, shrine: 40, capital: 58, city: 58 }[s.kind] || 40;
+    const sc = Math.max(1, Math.min(2.4, want / bw));
+    const bx = s.x - 24 * sc, by = s.y - 3 - 38 * sc;              // the building stands at (24, 38) in its picture
+    HD.draw(ctx, im, bx, by, 48 * sc, 40 * sc);
     // flag pole planted on the roof's highest point
-    const poleX = bx + im.box.tx, poleBase = by + im.box.ty + 2;
+    const poleX = Math.round(bx + (im.box.tx + 0.5) * sc), poleBase = Math.round(by + im.box.ty * sc + 2);
     let lift = 1;
     if (this.raise[id] != null) {                 // just captured: hoist the new banner
       const k = Math.min(1, (this.time - this.raise[id]) / 0.9);
@@ -589,7 +592,7 @@ const MapView = {
     if (style === 'forge') {                                      // forge smoke
       const k = (this.time * 0.5 + s.x / 100) % 1;
       ctx.fillStyle = `rgba(80,70,70,${0.5 * (1 - k)})`;
-      circPath(ctx, bx + im.box.x1 - 6 + k * 4, by + im.box.y0 + 8 - k * 12, 1.5 + k * 3);
+      circPath(ctx, bx + (im.box.x1 - 6) * sc + k * 4, by + (im.box.y0 + 8) * sc - k * 12, (1.5 + k * 3) * sc);
     }
 
     // generals standing in front of the building: drawn 22 px, outlined in their side's
@@ -602,10 +605,10 @@ const MapView = {
     shown.forEach((g, i) => {
       const done = g.acted && owner === game.player;
       Assets.drawUnit(ctx, Assets.outlined(Assets.genSprite(g.id), outlineOf(g.faction)), 0, 0, false,
-        startX + i * gap - GS / 2, s.y + 8 - GS, done ? 0.5 : 1, GS);
+        startX + i * gap - GS / 2, s.y + 12 - GS, done ? 0.5 : 1, GS);
     });
     if (gens.length > 3) {                                   // how many more are here
-      const bx = Math.round(startX + 2 * gap + 10), by = Math.round(s.y - 10);
+      const bx = Math.round(startX + 2 * gap + 10), by = Math.round(s.y - 6);
       ctx.fillStyle = '#1a1020'; ctx.beginPath(); ctx.roundRect ? ctx.roundRect(bx - 1, by - 1, 15, 10, 3) : ctx.rect(bx - 1, by - 1, 15, 10); ctx.fill();
       ctx.fillStyle = color; ctx.beginPath(); ctx.roundRect ? ctx.roundRect(bx, by, 13, 8, 2.5) : ctx.rect(bx, by, 13, 8); ctx.fill();
       label(ctx, '+' + (gens.length - 3), bx + 6.5, by + 7, '#ffffff', 'center', 8);
@@ -631,7 +634,7 @@ const MapView = {
     // name on a dark plate with a faction-coloured underline
     const fs = [0, 11, 12, 14][tier];
     ctx.font = `${fs}px PixelFont`;
-    const tw = Math.ceil(ctx.measureText(s.name).width) + 8, ty = s.y + 21;
+    const tw = Math.ceil(ctx.measureText(s.name).width) + 8, ty = s.y + 26;
     ctx.fillStyle = 'rgba(14,10,24,0.72)';
     ctx.fillRect(Math.round(s.x - tw / 2), ty - fs + 1, tw, fs + 2);
     ctx.fillStyle = color;
