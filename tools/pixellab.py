@@ -25,12 +25,13 @@ Options for `image`:
 Each `image` call spends one generation (or credits) from your PixelLab account.
 API reference: https://api.pixellab.ai/v2/docs  (all endpoints: https://www.pixellab.ai/llms.txt)
 """
-import argparse, base64, json, os, sys, urllib.error, urllib.request
+import argparse, base64, csv, datetime, json, os, sys, urllib.error, urllib.request
 from pathlib import Path
 
 API = 'https://api.pixellab.ai/v2'
 ROOT = Path(__file__).resolve().parent.parent
 KEY_FILE = ROOT / '.pixellab_key'
+LOG = ROOT / 'tools' / 'generator-log.csv'
 
 
 def api_key():
@@ -82,6 +83,18 @@ def cmd_image(a):
     res = call('POST', '/create-image-pixflux', body)
     out = save_image(res['image'], a.out)
     print(f'Saved {out}  ({w}x{h})  usage: {res.get("usage")}')
+    log('pixellab', 'create-image-pixflux', a.description, f'{w}x{h}', out, res.get('usage'))
+
+
+def log(service, endpoint, prompt, size, out, usage):
+    new = not LOG.exists()
+    with LOG.open('a', newline='') as f:
+        w = csv.writer(f)
+        if new:
+            w.writerow(['date', 'service', 'endpoint', 'prompt', 'size', 'file', 'usage'])
+        w.writerow([datetime.date.today().isoformat(), service, endpoint, prompt, size,
+                    str(Path(out).resolve().relative_to(ROOT)) if Path(out).resolve().is_relative_to(ROOT) else out,
+                    json.dumps(usage)])
 
 
 def main():
