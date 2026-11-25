@@ -17,6 +17,7 @@ const Game = {
   // ======================================================== setup / save
   newGame(fid) {
     this.player = fid; this.turn = 1; this.logLines = [];
+    Heraldry.newSeed();                              // fresh symbols for every faction
     this.gold = {}; this.spots = {}; this.gens = {};
     for (const f of Object.keys(DATA.factions)) this.gold[f] = DATA.startGold;
     for (const [id, s] of Object.entries(DATA.spots)) this.spots[id] = { owner: s.owner };
@@ -67,8 +68,8 @@ const Game = {
 
   save() {
     try {
-      const { player, turn, gold, spots, gens, logLines, stock, seen } = this;
-      localStorage.setItem(SAVE_KEY, JSON.stringify({ player, turn, gold, spots, gens, logLines, stock, seen }));
+      const { player, turn, gold, spots, gens, logLines, stock, seen } = this, sigils = Heraldry.seed;
+      localStorage.setItem(SAVE_KEY, JSON.stringify({ player, turn, gold, spots, gens, logLines, stock, seen, sigils }));
       return true;
     } catch (e) { return false; }
   },
@@ -78,6 +79,8 @@ const Game = {
       const d = JSON.parse(localStorage.getItem(SAVE_KEY));
       if (!d) return false;
       Object.assign(this, d);
+      Heraldry.setSeed(d.sigils || 7);
+      delete this.sigils;
       for (const g of Object.values(this.gens)) {           // saves from before levels existed
         if (!g.level) g.level = DATA.generals[g.id].level || 1;
         if (g.xp == null) g.xp = 0;
@@ -1004,7 +1007,7 @@ const Game = {
     if (!id) {
       const rows = Object.keys(DATA.factions).filter(f => this.spotsOf(f).length).map(f => {
         const fa = DATA.factions[f];
-        return `<tr><td><i class="dot" style="background:${fa.color}"></i>${fa.name}${f === this.player ? ' (you)' : ''}</td>
+        return `<tr><td><img class="crest" src="${Heraldry.icon(f)}" alt="">${fa.name}${f === this.player ? ' (you)' : ''}</td>
           <td>${this.spotsOf(f).length}</td><td>${this.gensOf(f).length}</td></tr>`;
       }).join('');
       p.innerHTML = `${opps}<h2>The Realm</h2><table class="realm"><tr><th>Faction</th><th>Towns</th><th>Generals</th></tr>${rows}</table>

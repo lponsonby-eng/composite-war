@@ -319,3 +319,7 @@ button.persuade.glow { border-color: #ff7ad9; background: #5a2a52; }
 @media (prefers-reduced-motion: reduce) {
   .opps.live, .opps.fresh, .opp.fresh, button.glow, #capture-banner, #capture-banner.big { animation: none !important; }
 }
+
+/* ---------- faction crests ---------- */
+img.crest { width: 15px; height: 24px; image-rendering: pixelated; vertical-align: middle; margin-right: 6px; }
+table.realm td { vertical-align: middle; }

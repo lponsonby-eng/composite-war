@@ -568,7 +568,13 @@ const MapView = {
     ctx.drawImage(im, bx, by);
     // flag pole planted on the roof's highest point
     const poleX = bx + im.box.tx, poleBase = by + im.box.ty + 2;
-    this.drawFlag(ctx, id, poleX, poleBase, tier, color, owner === game.player);
+    let lift = 1;
+    if (this.raise[id] != null) {                 // just captured: hoist the new banner
+      const k = Math.min(1, (this.time - this.raise[id]) / 0.9);
+      lift = 1 - Math.pow(1 - k, 3);
+      if (k >= 1) delete this.raise[id];
+    }
+    Heraldry.draw(ctx, owner, poleX, poleBase - Heraldry.poleLen(tier), tier, this.time, { mine: owner === game.player, lift });
     if (style === 'forge') {                                      // forge smoke
       const k = (this.time * 0.5 + s.x / 100) % 1;
       ctx.fillStyle = `rgba(80,70,70,${0.5 * (1 - k)})`;
@@ -603,7 +609,7 @@ const MapView = {
 
     // recruit opportunity: a bobbing badge over the town
     const opp = game.oppSpots && game.oppSpots[id];
-    if (opp) this.drawBeacon(ctx, id, s, opp, poleBase - [0, 18, 22, 28][tier] - 13);
+    if (opp) this.drawBeacon(ctx, id, s, opp, poleBase - Heraldry.poleLen(tier) - 14);
 
     // name on a dark plate with a faction-coloured underline
     const fs = [0, 11, 12, 14][tier];
@@ -615,52 +621,6 @@ const MapView = {
     ctx.fillRect(Math.round(s.x - tw / 2), ty + 3, tw, 2);
     if (tier === 3) { ctx.fillStyle = '#ffd84a'; ctx.fillRect(Math.round(s.x - tw / 2) - 2, ty - fs + 1, 2, fs + 4); ctx.fillRect(Math.round(s.x + tw / 2), ty - fs + 1, 2, fs + 4); }
     label(ctx, s.name, s.x, ty, owner === game.player ? '#fff6b0' : '#ffffff', 'center', fs);
-  },
-
-  // A big, outlined, waving flag. Size grows with the town's rank; capitals and the
-  // city get a swallow-tail banner. Right after a capture the flag is hoisted up the pole.
-  drawFlag(ctx, id, px, base, tier, color, mine) {
-    const F = [null, { pole: 18, w: 12, h: 8 }, { pole: 22, w: 15, h: 10 }, { pole: 28, w: 19, h: 12 }][tier];
-    const top = base - F.pole;
-    let k = 1;
-    if (this.raise[id] != null) {
-      k = Math.min(1, (this.time - this.raise[id]) / 0.9);
-      k = 1 - Math.pow(1 - k, 3);
-      if (k >= 1) delete this.raise[id];
-    }
-    const fy = Math.round(top + 2 + (1 - k) * (F.pole - F.h - 4));
-    // pole with outline and finial
-    ctx.fillStyle = '#1a1020'; ctx.fillRect(px - 1, top - 1, 3, F.pole + 1);
-    ctx.fillStyle = '#7a5a36'; ctx.fillRect(px, top, 1, F.pole);
-    ctx.fillStyle = '#1a1020'; ctx.fillRect(px - 2, top - 3, 5, 4);
-    ctx.fillStyle = mine ? '#ffd84a' : '#d8d8e0'; ctx.fillRect(px - 1, top - 2, 3, 2);
-    const hi = lighten(color, 0.45), lo = darken(color, 0.35);
-    const t = this.time * 5 + px * 0.13;
-    for (let i = 0; i < F.w; i++) {
-      const f = i / F.w, yo = Math.round(Math.sin(t - i * 0.55) * 1.6 * f);
-      const notch = tier === 3 && i >= F.w - 4 ? Math.max(0, 3 - (F.w - 1 - i)) : 0;   // swallow tail
-      const x = px + 1 + i, y = fy + yo, last = i === F.w - 1;
-      // a column of cloth: outline above and below, colour, highlight on top, shade below
-      const col = (y0, h) => {
-        ctx.fillStyle = '#1a1020'; ctx.fillRect(x, y0 - 1, 1, h + 2);
-        if (last) return;
-        ctx.fillStyle = color; ctx.fillRect(x, y0, 1, h);
-        ctx.fillStyle = hi; ctx.fillRect(x, y0, 1, 1);
-      };
-      if (notch) {                                   // two tails with a gap between
-        const mid = Math.floor(F.h / 2), h1 = mid - Math.ceil(notch * 0.8);
-        col(y, h1); col(y + F.h - h1, h1);
-        if (!last) { ctx.fillStyle = lo; ctx.fillRect(x, y + F.h - 2, 1, 2); }
-      } else {
-        col(y, F.h);
-        if (!last) { ctx.fillStyle = lo; ctx.fillRect(x, y + F.h - 2, 1, 2); }
-      }
-    }
-    // emblem: a light diamond in the middle of the cloth
-    const ex = px + 1 + Math.floor(F.w / 2) - 1, ey = fy + Math.round(Math.sin(t - F.w * 0.27) * 0.8) + Math.floor(F.h / 2);
-    ctx.fillStyle = mine ? '#ffd84a' : '#f3ead2';
-    ctx.fillRect(ex, ey - 2, 1, 4); ctx.fillRect(ex - 1, ey - 1, 3, 2);
-    if (tier >= 2) { ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fillRect(ex + 1, ey, 1, 2); }
   },
 
   // Bobbing badge: gold "!" = a hero you can hire here; pink "?" = a general you can persuade.
