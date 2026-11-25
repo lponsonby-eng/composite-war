@@ -75,7 +75,7 @@ const Assets = {
     c.imageSmoothingEnabled = false;
     const im = this.img[this.unitSprite(DATA.units[id])];
     if (im && im.width) c.drawImage(im, 0, 0, 16, 16, 0, 0, 32, 32);
-    return (this._icons[id] = cv.toDataURL());
+    return (this._icons[id] = HD.url(cv));
   },
 
   // Portrait picture (data URL) for a general: their face, or a monster close-up.
@@ -97,7 +97,7 @@ const Assets = {
       const im = this.img[this.tint('face' + d.face, d.hue)];
       if (im && im.width) c.drawImage(im, 0, 0, 38, 38);
     }
-    return (this._portraits[gid] = cv.toDataURL());
+    return (this._portraits[gid] = HD.url(cv));
   },
 
   // Draws one frame of a 16x16 unit sheet. dir: 0 down, 1 up, 2 left, 3 right.
@@ -109,7 +109,7 @@ const Assets = {
     let row = frame % Math.min(rows, 4);
     if (attacking && rows >= 5) row = 4;
     if (alpha !== 1) ctx.globalAlpha = alpha;
-    ctx.drawImage(im, dir * 16, row * 16, 16, 16, Math.round(x), Math.round(y), 16, 16);
+    HD.draw(ctx, im, dir * 16, row * 16, 16, 16, Math.round(x), Math.round(y), 16, 16);
     if (alpha !== 1) ctx.globalAlpha = 1;
   },
 
@@ -119,7 +119,7 @@ const Assets = {
     if (!im || !im.width) return;
     const n = Math.max(1, Math.floor(im.width / 32));
     const f = Math.min(n - 1, Math.floor(t * n));
-    ctx.drawImage(im, f * 32, 0, 32, 32, Math.round(x - 16), Math.round(y - 16), 32, 32);
+    HD.draw(ctx, im, f * 32, 0, 32, 32, Math.round(x - 16), Math.round(y - 16), 32, 32);
   },
 
   // ---------------- Audio ----------------

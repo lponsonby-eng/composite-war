@@ -78,7 +78,11 @@ function bbox(c, w, h) {
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (d[(y * w + x) * 4 + 3] > 0) {
     if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
   }
-  return { x0, y0, x1, y1 };
+  // highest point near the middle (where a flag pole goes)
+  let tx = Math.round(w / 2), ty = y0;
+  outer: for (let y = 0; y < h; y++) for (let x = Math.round(w / 2) - 6; x <= Math.round(w / 2) + 6; x++)
+    if (d[(y * w + x) * 4 + 3] > 0) { tx = x; ty = y; break outer; }
+  return { x0, y0, x1, y1, tx, ty };
 }
 
 // Uses an existing tile, scaled.
@@ -315,4 +319,105 @@ const DECO = {
   dune(c, cx, b) { for (let i = 0; i < 12; i++) { R(c, cx - 6 + i, b - 2 - Math.sin(i / 3.8) * 3, 1, 1, '#c8a050'); R(c, cx - 6 + i, b - 1 - Math.sin(i / 3.8) * 3, 1, 1, '#fae6a8'); } },
   bones(c, cx, b) { R(c, cx - 3, b - 3, 4, 3, '#f0ece0'); R(c, cx - 2, b - 2, 1, 1, '#1a1020'); for (let i = 0; i < 3; i++) R(c, cx + 2, b - 3 + i, 4, 1, '#e0dcd0'); },
   boulder(c, cx, b) { dome(c, cx, b, 7, 8, '#8a8a8a', '#6a6a6a', '#2a2a2a'); R(c, cx - 3, b - 6, 2, 1, '#b0b0b0'); },
+};
+
+// =============================================================================
+//  HD: sharper assets. Every sprite is upscaled 4x with a pixel-art scaler
+//  (Scale2x twice), which rounds off staircase edges without blurring, and the
+//  heavy outer outlines are thinned to half width. The result keeps the pixel look
+//  but has 16x the pixels, and is drawn at the original size in world units.
+//    HD.up(img)                         the 4x copy (cached)
+//    HD.draw(ctx, img, dx, dy[, dw, dh]) or HD.draw(ctx, img, sx, sy, sw, sh, dx, dy, dw, dh)
+//                                       like drawImage, in the original image's pixels
+// =============================================================================
+const HD = {
+  RES: 4,
+  cache: new WeakMap(),
+
+  // One Scale2x pass over 32-bit pixels. Outside the image counts as transparent.
+  scale2x(src, w, h) {
+    const out = new Uint32Array(w * h * 4), W2 = w * 2;
+    const at = (x, y) => (x < 0 || y < 0 || x >= w || y >= h) ? 0 : src[y * w + x];
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const P = src[y * w + x], A = at(x, y - 1), B = at(x + 1, y), C = at(x - 1, y), D = at(x, y + 1);
+      const o = (y * 2) * W2 + x * 2;
+      out[o] = (C === A && C !== D && A !== B) ? A : P;
+      out[o + 1] = (A === B && A !== C && B !== D) ? B : P;
+      out[o + W2] = (D === C && D !== B && C !== A) ? C : P;
+      out[o + W2 + 1] = (B === D && B !== A && D !== C) ? D : P;
+    }
+    return out;
+  },
+
+  // Upscale raw RGBA pixels by 2^passes. thin: halve the outer outlines.
+  upData(data, w, h, passes = 2, thin = true) {
+    const lo = new Uint32Array(data.buffer.slice(0));
+    let px = lo, pw = w, ph = h;
+    for (let i = 0; i < passes; i++) { px = this.scale2x(px, pw, ph); pw *= 2; ph *= 2; }
+    const k = 1 << passes;
+    if (thin) {
+      // a dark pixel touching transparency is an outline; in its big block, the half
+      // away from the transparent side takes the colour of the pixel further in.
+      const alpha = v => v >>> 24, dark = v => { const r = v & 255, g = (v >> 8) & 255, b = (v >> 16) & 255; return alpha(v) > 200 && r + g + b < 140; };
+      const get = (x, y) => (x < 0 || y < 0 || x >= w || y >= h) ? 0 : lo[y * w + x];
+      const half = k / 2;
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+        const v = lo[y * w + x];
+        if (!dark(v)) continue;
+        const tU = !alpha(get(x, y - 1)), tD = !alpha(get(x, y + 1)), tL = !alpha(get(x - 1, y)), tR = !alpha(get(x + 1, y));
+        if (!(tU || tD || tL || tR)) continue;
+        const ix = x + (tL ? 1 : 0) - (tR ? 1 : 0), iy = y + (tU ? 1 : 0) - (tD ? 1 : 0);
+        let inner = get(ix, iy);
+        if (!alpha(inner) || dark(inner)) continue;               // nothing lighter inside: keep the outline
+        // blend the inner colour a little toward the outline for a soft inner edge
+        const mix = (a, b, t) => Math.round(a * (1 - t) + b * t);
+        const ir = inner & 255, ig = (inner >> 8) & 255, ib = (inner >> 16) & 255, or = v & 255, og = (v >> 8) & 255, ob = (v >> 16) & 255;
+        const soft = (255 << 24) | (mix(ib, ob, 0.35) << 16) | (mix(ig, og, 0.35) << 8) | mix(ir, or, 0.35);
+        for (let by = 0; by < k; by++) for (let bx = 0; bx < k; bx++) {
+          if (tU && by < half) continue; if (tD && by >= half) continue;
+          if (tL && bx < half) continue; if (tR && bx >= half) continue;
+          const o = (y * k + by) * pw + x * k + bx;
+          const edgeRow = (tU && by === half) || (tD && by === half - 1) || (tL && bx === half) || (tR && bx === half - 1);
+          if (dark(px[o])) px[o] = edgeRow ? soft : inner;
+        }
+      }
+    }
+    const cv = document.createElement('canvas'); cv.width = pw; cv.height = ph;
+    cv.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(px.buffer), pw, ph), 0, 0);
+    return cv;
+  },
+
+  up(im, thin = true) {
+    if (!im || !im.width) return null;
+    let hd = this.cache.get(im);
+    if (hd) return hd;
+    const c = document.createElement('canvas'); c.width = im.width; c.height = im.height;
+    const cx = c.getContext('2d'); cx.drawImage(im, 0, 0);
+    hd = this.upData(cx.getImageData(0, 0, im.width, im.height).data, im.width, im.height, 2, thin);
+    hd.res = this.RES; hd.lw = im.width; hd.lh = im.height;
+    this.cache.set(im, hd);
+    return hd;
+  },
+
+  // Smoothing on when the 4x art is shrunk on screen (crisp, like mipmaps); off when it is enlarged.
+  smooth(ctx, res) {
+    const m = ctx.getTransform(), sc = Math.hypot(m.a, m.b);
+    const on = sc < res * 0.98;
+    ctx.imageSmoothingEnabled = on;
+    if (on) ctx.imageSmoothingQuality = 'high';
+  },
+
+  draw(ctx, im, ...a) {
+    const hd = this.up(im);
+    if (!hd) return;
+    const r = hd.res, prev = ctx.imageSmoothingEnabled;
+    this.smooth(ctx, r);
+    if (a.length === 2) ctx.drawImage(hd, a[0], a[1], hd.lw, hd.lh);
+    else if (a.length === 4) ctx.drawImage(hd, a[0], a[1], a[2], a[3]);
+    else ctx.drawImage(hd, a[0] * r, a[1] * r, a[2] * r, a[3] * r, a[4], a[5], a[6], a[7]);
+    ctx.imageSmoothingEnabled = prev;
+  },
+
+  // A small HD picture as a data URL (portraits, icons) - shown shrunk, so smoothed.
+  url(cv) { return this.up(cv).toDataURL(); },
 };

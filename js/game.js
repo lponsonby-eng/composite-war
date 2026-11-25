@@ -17,6 +17,7 @@ const Game = {
   // ======================================================== setup / save
   newGame(fid) {
     this.player = fid; this.turn = 1; this.logLines = [];
+    Heraldry.newSeed();                              // fresh symbols for every faction
     this.gold = {}; this.spots = {}; this.gens = {};
     for (const f of Object.keys(DATA.factions)) this.gold[f] = DATA.startGold;
     for (const [id, s] of Object.entries(DATA.spots)) this.spots[id] = { owner: s.owner };
@@ -67,8 +68,8 @@ const Game = {
 
   save() {
     try {
-      const { player, turn, gold, spots, gens, logLines, stock, seen } = this;
-      localStorage.setItem(SAVE_KEY, JSON.stringify({ player, turn, gold, spots, gens, logLines, stock, seen }));
+      const { player, turn, gold, spots, gens, logLines, stock, seen } = this, sigils = Heraldry.seed;
+      localStorage.setItem(SAVE_KEY, JSON.stringify({ player, turn, gold, spots, gens, logLines, stock, seen, sigils }));
       return true;
     } catch (e) { return false; }
   },
@@ -78,6 +79,8 @@ const Game = {
       const d = JSON.parse(localStorage.getItem(SAVE_KEY));
       if (!d) return false;
       Object.assign(this, d);
+      Heraldry.setSeed(d.sigils || 7);
+      delete this.sigils;
       for (const g of Object.values(this.gens)) {           // saves from before levels existed
         if (!g.level) g.level = DATA.generals[g.id].level || 1;
         if (g.xp == null) g.xp = 0;
@@ -174,7 +177,7 @@ const Game = {
     this.gold[f] -= cost;
     g.faction = f; g.spot = envoy.spot; g.acted = true; envoy.acted = true;
     const name = DATA.generals[gid].name, who = DATA.factions[f].name;
-    if (f === this.player) { this.log(`${name} was persuaded to join you for ${cost} gold!`, 'good'); Assets.sfx('gold-1', 0.5); }
+    if (f === this.player) { this.log(`${name} was persuaded to join you for ${cost} gold!`, 'good'); Assets.sfx('gold-1', 0.5); MapView.recruit(envoy.spot, name, 'persuade'); }
     else if (was === this.player) this.log(`Your general ${name} was bribed away by the ${who} (cut off at ${DATA.spots[from].name})!`, 'bad');
     else this.log(`${name} of the ${DATA.factions[was].name} was persuaded to join the ${who}.`, 'muted');
     if (this.spotsOf(was).length && !this.gensOf(was).length && !DATA.factions[was].neutral) this.log(`The ${DATA.factions[was].name} has no generals left!`, 'muted');
@@ -197,10 +200,62 @@ const Game = {
     g.free = false; g.faction = f; g.acted = true; delete g.stay;
     while (g.troops < Math.ceil(DATA.generals[gid].max / 2)) this.addSoldier(g, this.prefType(g));
     const name = DATA.generals[gid].name;
-    if (f === this.player) { this.log(`${name} has joined your army!`, 'good'); Assets.sfx('power-up', 0.5); }
+    if (f === this.player) { this.log(`${name} has joined your army!`, 'good'); MapView.recruit(g.spot, name, 'hire'); }
     else this.log(`${name} has joined the ${DATA.factions[f].name}.`, this.neighborsOfPlayer(g.spot) ? 'bad' : 'muted');
     return true;
   },
+  // Every general the player could take on right now: wanderers in the player's towns
+  // (hire) and cornered enemy generals next to the player's towns (persuade).
+  opportunities() {
+    const P = this.player, out = [];
+    if (!P || !this.gold) return out;
+    for (const g of this.wanderers()) if (this.spots[g.spot].owner === P) {
+      const cost = this.hireCost(g);
+      out.push({ g, kind: 'hire', cost, spot: g.spot, ok: this.gold[P] >= cost, why: this.gold[P] >= cost ? '' : 'Not enough gold' });
+    }
+    for (const id of Object.keys(this.spots)) {
+      if (this.spots[id].owner === P || !this.neighborsOfPlayer(id)) continue;
+      for (const g of this.generalsAt(id)) {
+        const cost = this.persuadeCost(g);
+        if (cost == null) continue;
+        const envoy = this.envoyFor(id, P);
+        out.push({ g, kind: 'persuade', cost, spot: id, ok: !!envoy && this.gold[P] >= cost,
+          why: !envoy ? 'Needs a ready envoy next door' : this.gold[P] >= cost ? '' : 'Not enough gold' });
+      }
+    }
+    return out.sort((a, b) => (b.ok - a.ok) || (b.g.level - a.g.level));
+  },
+  // Refreshes the list, the map badges, and celebrates any new chance.
+  updateOpps() {
+    const list = this.opportunities();
+    this.oppSpots = {};
+    for (const o of list) if (!this.oppSpots[o.spot] || o.kind === 'hire') this.oppSpots[o.spot] = o.kind;
+    const keys = new Set(list.map(o => o.kind + ':' + o.g.id));
+    const fresh = this.oppSeen ? list.filter(o => !this.oppSeen.has(o.kind + ':' + o.g.id)) : [];
+    this.oppSeen = keys;
+    for (const o of fresh) {
+      o.fresh = true;
+      MapView.beacon(o.spot);
+      this.log(o.kind === 'hire' ? `Recruit chance: ${DATA.generals[o.g.id].name} (Lv ${o.g.level}) can be hired at ${DATA.spots[o.spot].name}!`
+        : `Recruit chance: ${DATA.generals[o.g.id].name} (Lv ${o.g.level}) is cut off at ${DATA.spots[o.spot].name} and can be persuaded!`, 'big');
+    }
+    if (fresh.length) Assets.sfx('magic-1', 0.45);
+    return list;
+  },
+  oppsHtml(list) {
+    if (!list.length) return '';
+    const shown = list.slice(0, 5);
+    return `<div class="opps ${list.some(o => o.fresh) ? 'fresh' : ''} ${list.some(o => o.ok) ? 'live' : ''}">
+      <div class="opps-h"><span class="opps-ic">!</span>Heroes to recruit<b class="opps-n">${list.length}</b></div>
+      ${shown.map(o => { const d = DATA.generals[o.g.id], fa = o.g.faction ? DATA.factions[o.g.faction] : null;
+        return `<button class="opp ${o.kind} ${o.ok ? 'ok' : ''} ${o.fresh ? 'fresh' : ''}" data-go="${o.spot}" title="${o.why || (o.kind === 'hire' ? 'Hire' : 'Persuade') + ' at ' + DATA.spots[o.spot].name}">
+          <img src="${Assets.portrait(o.g.id)}">
+          <span class="oi"><span class="on">${d.name} <span class="lv">Lv ${o.g.level}</span></span>
+          <span class="ow">${o.kind === 'hire' ? 'Hire' : 'Persuade'}${fa ? ` (${fa.name})` : ''} at ${DATA.spots[o.spot].name}</span></span>
+          <span class="oc">${o.cost}g</span></button>`; }).join('')}
+      ${list.length > shown.length ? `<div class="hint">...and ${list.length - shown.length} more</div>` : ''}</div>`;
+  },
+
   neighborsOfPlayer(spot) { return this.neighbors(spot).some(n => this.spots[n].owner === this.player); },
 
   // Each new turn: wanderers drift on, and sometimes a new one arrives.
@@ -457,6 +512,8 @@ const Game = {
   async resolveAttack(from, to, att, def, how) {
     this.busy = true;
     await this.fight(from, to, att, def, this.player, this.spots[to].owner, how === 'live' ? 'att' : null);
+    this.select(this.spots[to].owner === this.player && this.generalsAt(to).length ? to : from);
+    if (this.juiceWait) { await sleep(this.juiceWait); this.juiceWait = 0; }   // let the capture celebration play
     await this.flushEvents();
     this.busy = false;
     this.select(this.spots[to].owner === this.player && this.generalsAt(to).length ? to : from);
@@ -524,6 +581,7 @@ const Game = {
         } else if (DATA.factions[defF].neutral && !DATA.generals[g.id].lord) {
           g.faction = attF; g.spot = to; g.acted = true;          // free generals join the conqueror
           this.log(`${DATA.generals[g.id].name} has joined the ${DATA.factions[attF].name}!`, attF === this.player ? 'good' : '');
+          if (attF === this.player) MapView.recruit(to, DATA.generals[g.id].name, 'hire');
         } else if (DATA.generals[g.id].lord) {
           g.alive = false;
           this.log(`${DATA.generals[g.id].name} was captured.`, defF === this.player ? 'bad' : '');
@@ -534,6 +592,8 @@ const Game = {
       }
       const mine = attF === this.player, theirs = defF === this.player;
       this.log(`${DATA.factions[attF].name} captured ${spotName}!`, mine ? 'good' : theirs ? 'bad' : '');
+      MapView.capture(to, attF, mine ? 'mine' : theirs ? 'lost' : 'other');
+      if (mine) this.juiceWait = [0, 500, 1300, 2600][MapView.tierOf(DATA.spots[to].kind)];
       if (mine) { this.queueEvents('won', { spot: to }); this.queueEvents('capture', { spot: to }); }
       if (this.spotsOf(defF).length === 0 && !DATA.factions[defF].neutral) {
         for (const g of this.gensOf(defF)) { if (DATA.generals[g.id].lord) g.alive = false; else this.makeWanderer(g); }
@@ -937,18 +997,26 @@ const Game = {
   renderPanel() {
     const p = $('#panel');
     const id = this.ui.selected;
+    const opps = this.oppsHtml(this.updateOpps());
+    const wireOpps = () => p.querySelectorAll('[data-go]').forEach(el => el.onclick = () => {
+      if (this.busy) return;
+      const s = DATA.spots[el.dataset.go];
+      MapView.centerOn(s.x, s.y);
+      this.select(el.dataset.go);
+    });
     if (!id) {
       const rows = Object.keys(DATA.factions).filter(f => this.spotsOf(f).length).map(f => {
         const fa = DATA.factions[f];
-        return `<tr><td><i class="dot" style="background:${fa.color}"></i>${fa.name}${f === this.player ? ' (you)' : ''}</td>
+        return `<tr><td><img class="crest" src="${Heraldry.icon(f)}" alt="">${fa.name}${f === this.player ? ' (you)' : ''}</td>
           <td>${this.spotsOf(f).length}</td><td>${this.gensOf(f).length}</td></tr>`;
       }).join('');
-      p.innerHTML = `<h2>The Realm</h2><table class="realm"><tr><th>Faction</th><th>Towns</th><th>Generals</th></tr>${rows}</table>
+      p.innerHTML = `${opps}<h2>The Realm</h2><table class="realm"><tr><th>Faction</th><th>Towns</th><th>Generals</th></tr>${rows}</table>
         <p class="hint">Click one of your towns (yellow names) to command the generals there.
         Then click a road neighbour: <b>white</b> = move, <b>red</b> = attack.</p>
         ${this.wanderers().length ? `<h3 class="wh">Wandering generals</h3>${this.wanderers().map(g =>
           `<div class="hint">${DATA.generals[g.id].name} <span class="lv">Lv ${g.level}</span> at ${DATA.spots[g.spot].name}</div>`).join('')}
           <p class="hint">Hire them when they are in one of your towns.</p>` : ''}`;
+      wireOpps();
       return;
     }
     const s = DATA.spots[id], owner = this.spots[id].owner, fa = DATA.factions[owner];
@@ -969,7 +1037,7 @@ const Game = {
         ${own ? `<div class="gs">${g.acted ? 'done' : this.ui.picked.has(g.id) ? 'ready' : ''}</div>`
           : pc == null ? (d.lord ? '<div class="gs muted" title="Lords cannot be persuaded">loyal</div>'
             : '<div class="gs muted" title="Can still fall back to a neighbouring town of their own side. Cut them off first.">can retreat</div>')
-          : `<button class="persuade" data-per="${g.id}" ${!envoy || this.gold[this.player] < pc ? 'disabled' : ''}
+          : `<button class="persuade ${!envoy || this.gold[this.player] < pc ? '' : 'glow'}" data-per="${g.id}" ${!envoy || this.gold[this.player] < pc ? 'disabled' : ''}
               title="${envoy ? `Envoy: ${DATA.generals[envoy.id].name} from ${DATA.spots[envoy.spot].name}` : 'Needs one of your generals who has not acted, in a town next to this one'}">Persuade<br>${pc}g</button>`}</div>`;
     }).join('') || '<p class="muted">No generals here.</p>';
 
@@ -980,12 +1048,12 @@ const Game = {
         <div class="gi"><div class="gn">${d.name} <span class="lv">Lv ${g.level}</span></div>
         <div class="gu">${roleTag(g.id)} ${DATA.units[d.leads].name} - squad ${Math.ceil(d.max / 2)}/${d.max}</div>
         <div class="gu">Leaves in ${g.stay} turn${g.stay === 1 ? '' : 's'}</div></div>
-        ${own ? `<button data-hire="${g.id}" ${this.gold[this.player] < c ? 'disabled' : ''}>Hire ${c}g</button>` : ''}</div>`;
+        ${own ? `<button class="hirebtn ${this.gold[this.player] < c ? '' : 'glow'}" data-hire="${g.id}" ${this.gold[this.player] < c ? 'disabled' : ''}>Hire ${c}g</button>` : ''}</div>`;
     }).join('')}</div>${own ? '' : '<p class="hint">Capture this town to hire them.</p>'}` : '';
 
     const picked = [...this.ui.picked].map(g => this.gens[g]);
     const cost = this.recruitCost(picked);
-    p.innerHTML = `<h2 style="color:${fa.color}">${s.name}</h2>
+    p.innerHTML = `${opps}<h2 style="color:${fa.color}">${s.name}</h2>
       <div class="sub">${fa.name} - ${s.kind} - +${s.income} gold</div>
       <div class="gens">${list}</div>
       ${own ? `<div class="actions">
@@ -998,6 +1066,7 @@ const Game = {
            ${envoy ? `Envoy: <b>${DATA.generals[envoy.id].name}</b> (${DATA.spots[envoy.spot].name}), who uses their turn.`
            : 'You also need a general who has not acted, in one of your towns next to this one, to go as envoy.'}</p>` : ''}`}
       ${wlist}`;
+    wireOpps();
     p.querySelectorAll('[data-per]').forEach(el => el.onclick = () => {
       if (this.busy) return;
       const r = this.persuade(el.dataset.per, this.player);

@@ -10,6 +10,7 @@ Open `index.html` through any local web server (for example `python3 -m http.ser
 - `js/events.js` – story events: the prologue, faction openings, region discoveries, random events, milestones and endings.
 - `js/map.js` – the map: 92 towns, roads and landmark positions (made by `tools/genmap.py`, safe to hand-edit).
 - `js/art.js` – pixel art drawn in code: each region's buildings, landmarks and scenery.
+- `js/heraldry.js` – faction banners: random symbols in faction colours, each side with its own glow effect.
 - `js/game.js` – campaign state, turns, AI opponents, panels and dialogs.
 - `js/battle.js` – the real-time battle simulation and drawing.
 - `js/terrain.js` – battlefield ground: forests, rivers, swamps and town walls.
