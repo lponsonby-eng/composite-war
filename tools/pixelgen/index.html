@@ -73,12 +73,19 @@
   </section>
 </main>
 <script src="pixelgen.js"></script>
+<script src="medieval.js"></script>
 <script>
 const $ = id => document.getElementById(id);
 const G = PixelGen.GENERATORS;
 let selected = null, timers = [];
 
-for (const [k, g] of Object.entries(G)) $('kind').add(new Option(`${g.label} (${g.size})`, k));
+const groups = {};
+for (const [k, g] of Object.entries(G)) {
+  const name = g.group || 'Classic 16px';
+  if (!groups[name]) { groups[name] = document.createElement('optgroup'); groups[name].label = name; }
+  groups[name].appendChild(new Option(`${g.label} (${g.size})`, k));
+}
+for (const name of Object.keys(groups).reverse()) $('kind').appendChild(groups[name]);
 $('faction').add(new Option('Any / random', ''));
 for (const [k, f] of Object.entries(PixelGen.FACTIONS)) $('faction').add(new Option(f.name, k));
 
@@ -121,7 +128,8 @@ function animCanvas(img, anim, track, scale) {
 function thumb(res) {
   const a = res.anim;
   if (res.kind === 'hero' || res.kind === 'monster' || res.kind === 'fx') return animCanvas(res.img, a, a.tracks[0], res.kind === 'fx' ? 3 : 5);
-  if (res.kind === 'tile') { const c = toCanvas(tiled(res.img, 2), 2); return c; }
+  if (res.kind === 'soldier') return animCanvas(res.img, a, a.tracks[0], 3);
+  if (res.kind === 'tile' || res.kind === 'field') { const c = toCanvas(tiled(res.img, 2), 2); return c; }
   const s = Math.max(1, Math.floor(120 / Math.max(res.img.w, res.img.h)));
   const c = toCanvas(res.img, s); c.className = 'checker'; return c;
 }
@@ -148,11 +156,11 @@ function showDetail(res) {
   left.innerHTML = `<h2>${res.name} &middot; seed ${res.seed}</h2><div class="meta">${G[res.kind].label}, ${res.img.w} x ${res.img.h} px</div>`;
   if (res.anim && res.anim.tracks[0].length > 1) {
     const an = document.createElement('div'); an.className = 'anims';
-    const labels = res.kind === 'hero' ? ['down', 'up', 'left', 'right', 'attack'] : res.kind === 'monster' ? ['down', 'up', 'left', 'right'] : ['play'];
+    const labels = res.anim.labels ? res.anim.labels : res.kind === 'hero' ? ['down', 'up', 'left', 'right', 'attack'] : res.kind === 'monster' ? ['down', 'up', 'left', 'right'] : ['play'];
     res.anim.tracks.forEach((t, i) => { const w = document.createElement('div'); w.style.textAlign = 'center'; w.appendChild(animCanvas(res.img, res.anim, t, z)); const s = document.createElement('div'); s.className = 'hint'; s.textContent = labels[i] || ''; w.appendChild(s); an.appendChild(w); });
     left.appendChild(an);
   }
-  if (res.kind === 'tile') { const c = toCanvas(tiled(res.img, 3), Math.max(1, z - 3)); left.appendChild(c); left.insertAdjacentHTML('beforeend', '<div class="hint">3 x 3 repeat to check the seams</div>'); }
+  if (res.kind === 'tile' || res.kind === 'field') { const c = toCanvas(tiled(res.img, 3), Math.max(1, z - 3)); left.appendChild(c); left.insertAdjacentHTML('beforeend', '<div class="hint">3 x 3 repeat to check the seams</div>'); }
   if (res.colors) {
     const sw = document.createElement('div'); sw.className = 'swatches';
     for (const r of res.colors) { const row = document.createElement('div'); for (const c of r) { const s = document.createElement('span'); s.style.background = c; s.title = c + ' (click to copy)'; s.onclick = () => navigator.clipboard && navigator.clipboard.writeText(c); row.appendChild(s); } sw.appendChild(row); }

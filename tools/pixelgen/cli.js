@@ -21,6 +21,7 @@ const fs = require('fs');
 const path = require('path');
 const zlib = require('zlib');
 const PixelGen = require('./pixelgen.js');
+require('./medieval.js');                                   // adds the Medieval 32px set
 
 // ---------------------------------------------------------------- PNG encoder
 const CRC = new Int32Array(256).map((_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c; });

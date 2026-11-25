@@ -1011,7 +1011,7 @@
   }
 
   const GENERATORS = {
-    hero:     { fn: genHero,     label: 'Hero / unit sheet', size: '64 x 112', options: { cls: ['random', 'warrior', 'marksman', 'mage', 'healer'], weapon: ['random', 'sword', 'axe', 'spear', 'bow', 'crossbow', 'staff', 'wand'], hat: ['random', 'none', 'helmet', 'horned', 'hood', 'wizard', 'cap', 'bandana', 'circlet'] } },
+    hero:     { group: 'Classic 16px', fn: genHero,     label: 'Hero / unit sheet', size: '64 x 112', options: { cls: ['random', 'warrior', 'marksman', 'mage', 'healer'], weapon: ['random', 'sword', 'axe', 'spear', 'bow', 'crossbow', 'staff', 'wand'], hat: ['random', 'none', 'helmet', 'horned', 'hood', 'wizard', 'cap', 'bandana', 'circlet'] } },
     portrait: { fn: genPortrait, label: 'Portrait', size: '38 x 38', options: { cls: ['random', 'warrior', 'marksman', 'mage', 'healer'], hat: ['random', 'none', 'helmet', 'hood', 'wizard', 'circlet'] } },
     monster:  { fn: genMonster,  label: 'Monster sheet', size: '64 x 64', options: { body: ['random', 'blob', 'beast', 'flyer', 'eye', 'bug', 'spirit'] } },
     fx:       { fn: genFx,       label: 'Effect strip', size: '32 x 32 frames', options: { fx: ['random', 'burst', 'slash', 'sparkle', 'smoke', 'ring', 'orb'], element: ['faction', ...Object.keys(ELEMENTS)] } },
@@ -1031,7 +1031,10 @@
     return out;
   }
 
-  const PixelGen = { generate, GENERATORS, FACTIONS, ELEMENTS, ramp, Grid, makeRng, hashSeed };
+  const PixelGen = { generate, GENERATORS, FACTIONS, ELEMENTS, FACTION_ELEMENT, ramp, Grid, makeRng, hashSeed,
+    // shared helpers, used by add-on generator sets such as gothic.js
+    R, pack, mix, hueShift, hexRgb, rgbHex, rgbToHsl, hslToRgb, band, rampAt, dither, factionPal, pickSkin,
+    tileNoise, fbm, voronoi, SKIN, HAIR, EYES, METAL, GOLD, WOOD, LEATHER, OUTLINE };
   if (typeof module !== 'undefined' && module.exports) module.exports = PixelGen;
   else root.PixelGen = PixelGen;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -50,6 +50,17 @@ They draw at the game's own sizes, in faction colours with hue-shifted ramps and
 - **item**: 16 x 16 icons (sword, axe, spear, bow, staff, shield, potion, gem, scroll, ring)
 - **palette**: colour ramps for a faction or base colour, with harmony colours, skin and metal
 
+**Medieval 32px set** (`tools/pixelgen/medieval.js`), in the spirit of late-medieval battle art such as
+Danville's *The White Company*: realistic proportions, readable faces and beards, plate and mail with hard
+highlights, and heraldry on everything. Each faction gets its own coat of arms (rolled from its name), so a
+whole army's surcoats, shields, banners and tents match:
+- **arms**: 32 x 36 coat of arms on a heater shield (divisions, ordinaries and charges, keeping the rule of tincture)
+- **soldier**: 128 x 232 sheet of 32 x 40 frames (front/back/left/right; walk, attack) plus two fallen bodies in blood;
+  troops: knight, man-at-arms, captain, spearman, archer, crossbowman, levy
+- **field**: 64 x 64 seamless ground (leafy meadow, stony camp, mud, rutted road)
+- **decal**: blood pools, scorch marks and trampled grass
+- **prop**: striped pavilion tent, palisade, gatehouse, banner, hay bale, campfire
+
 Open `tools/pixelgen/index.html` in a browser to browse seeds, preview animations and download PNGs,
 or write files from the command line:
 
