@@ -182,7 +182,8 @@ const MapView = {
       ctx.beginPath(); ctx.ellipse(x + 4, y + 1, bw * 0.55, bw * 0.16, 0, 0, Math.PI * 2); ctx.fill();
       HD.draw(ctx, im, x - w / 2, y - h + 2 * LS, w, h);
     }
-    // region names last, so no tree or rock covers them
+    // region names: placed now, clear of the towns as far as possible
+    this.regionNames = [];
     for (const [reg, p] of lm) {
       const rn = DATA.regions[reg].name;
       ctx.font = '13px PixelFont';
@@ -200,10 +201,9 @@ const MapView = {
         const o = overlap(p.x + dx, p.y + dy) + (Math.abs(dx) + Math.abs(dy - 18)) * 0.5;   // prefer just below the landmark
         if (o < best) { best = o; x = p.x + dx; ty = p.y + dy; }
       }
-      ctx.fillStyle = 'rgba(14,10,24,0.75)'; ctx.fillRect(Math.round(x - tw / 2), ty - 12, tw, 16);
-      ctx.fillStyle = '#c9a15a'; ctx.fillRect(Math.round(x - tw / 2), ty + 4, tw, 1.5);
-      ctx.fillRect(Math.round(x - tw / 2) - 1.5, ty - 12, 1.5, 17.5); ctx.fillRect(Math.round(x + tw / 2), ty - 12, 1.5, 17.5);
-      label(ctx, rn, x, ty, '#f6ecd0', 'center', 13);
+      // drawn live each frame (see drawRegionNames), so they stay sharp and readable at any zoom
+      const home = Object.values(DATA.factions).find(f => f.home === reg && !f.neutral);
+      this.regionNames.push({ name: rn, x, y: ty - 4, trim: home ? home.color : '#c9a15a' });
     }
     return cv;
   },
@@ -355,6 +355,7 @@ const MapView = {
     this.drawBeams(ctx, dt);
     for (const id of order) if (vis(DATA.spots[id].x, DATA.spots[id].y)) this.drawSpot(ctx, id, game, ui);
     this.drawWeather(ctx, vis, vx0, vy0, vx1, vy1);
+    this.drawRegionNames(ctx, vis);
     this.drawFx(ctx, dt);
     if (this.flash > 0.01) {                   // full-screen flash
       ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -516,6 +517,30 @@ const MapView = {
       ctx.globalAlpha = 1;
     }
     this.texts = this.texts.filter(t => t.age < t.dur);
+  },
+
+  // Region names on plates, drawn every frame on top of the map so the text is crisp at
+  // any zoom and never smaller than about 15 screen pixels. Trimmed in the colour of the
+  // faction whose home the region is (gold for the Heartlands).
+  drawRegionNames(ctx, vis) {
+    const dpr = window.devicePixelRatio || 1, z = this.scale / dpr;
+    const fs = Math.max(13, 15 / z);                         // world pixels
+    for (const r of this.regionNames || []) {
+      if (!vis(r.x, r.y, 120)) continue;
+      ctx.font = `${fs}px PixelFont`;
+      const tw = ctx.measureText(r.name).width + fs * 0.9, th = fs * 1.25, x0 = r.x - tw / 2, y0 = r.y - th / 2;
+      const px = 1 / z;                                      // one screen pixel, in world pixels
+      ctx.fillStyle = 'rgba(10,8,20,0.82)';
+      ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x0, y0, tw, th, 3 * px) : ctx.rect(x0, y0, tw, th); ctx.fill();
+      ctx.strokeStyle = r.trim; ctx.lineWidth = 1.5 * px;
+      ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x0, y0, tw, th, 3 * px) : ctx.rect(x0, y0, tw, th); ctx.stroke();
+      ctx.fillStyle = r.trim; ctx.fillRect(x0 + 2 * px, y0 + th - 3 * px, tw - 4 * px, 1.5 * px);
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.lineJoin = 'round'; ctx.lineWidth = 3 * px; ctx.strokeStyle = '#0a0814';
+      ctx.strokeText(r.name, r.x, r.y - th * 0.06);
+      ctx.fillStyle = '#fff4d6'; ctx.fillText(r.name, r.x, r.y - th * 0.06);
+    }
+    ctx.textBaseline = 'alphabetic';
   },
 
   // Volcano smoke, crystal sparkles, fireflies.
