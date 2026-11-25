@@ -392,3 +392,58 @@ body[data-mode="battle"] #bminimap { top: 118px; }
 #panel .opp .oc { font-size: 16px; font-weight: 700; }
 #panel .opp img { width: 36px; height: 36px; }
 #panel .opp { grid-template-columns: 38px 1fr auto; }
+
+/* ---------- dialogs and popups: bigger, clearer text ---------- */
+#modal { background: rgba(4, 4, 10, .74); }
+#modal .box { font-size: 17px; color: #f6eedb; line-height: 1.4; padding: 20px 24px;
+  box-shadow: 0 0 0 2px var(--edge-dark), inset 0 0 0 2px #0b0c14, 0 12px 40px rgba(0, 0, 0, .6); }
+#modal h2 { font-size: 30px; font-weight: 700; line-height: 1.15; text-shadow: 0 2px 0 #000; }
+#modal h3 { font-size: 20px; font-weight: 700; }
+#modal p { margin: 8px 0; }
+#modal .muted, #modal .hint { color: #c4cadf; }
+#modal .mbtns { gap: 10px; margin-top: 18px; }
+#modal .mbtns button { font-size: 18px; font-weight: 700; padding: 7px 18px; }
+#modal button { font-size: 16px; }
+/* attack / defend */
+#modal .vs-mid { font-size: 32px; font-weight: 700; }
+#modal .odds { font-size: 17px; font-weight: 700; color: #f6eedb; }
+#modal .chip { font-size: 15px; color: #c4cadf; gap: 8px; margin-bottom: 8px; }
+#modal .chip b { font-size: 18px; font-weight: 700; color: #f6eedb; }
+#modal .chip img { width: 40px; height: 40px; }
+#modal .terr { font-size: 16px; color: #c4cadf; }
+#modal .warn { font-size: 16px; font-weight: 700; }
+/* battle results */
+#modal table.res { font-size: 16px; }
+#modal table.res th { font-size: 17px; font-weight: 700; color: var(--accent); padding-top: 10px; }
+#modal table.res td { padding: 6px 0; border-top: 1px solid rgba(255, 255, 255, .07); }
+#modal table.res td + td { padding-left: 18px; white-space: nowrap; }
+#modal .box:has(table.res) { min-width: min(560px, 100%); }
+#modal table.res .good { font-weight: 700; }
+#modal table.res .bad { font-weight: 700; }
+/* recruit window */
+#modal table.rect td { font-size: 16px; padding: 6px 7px; }
+#modal table.rect td.st { font-size: 15px; color: #c4cadf; }
+#modal table.rect b { font-size: 18px; }
+#modal .uico { width: 36px; height: 36px; }
+#modal .sigl { font-size: 16px; color: #d8dcec; }
+/* story scenes */
+#modal .scene img { width: 88px; height: 88px; border-radius: 3px; }
+#modal .scene .who { font-size: 22px; font-weight: 700; }
+#modal .scene p { font-size: 19px; line-height: 1.45; color: #fff6e0; }
+#modal .scene.narr p { color: #ece2c6; }
+#modal .story .result { font-size: 18px; font-weight: 700; }
+/* formation screen */
+#modal .frow h3 { font-size: 19px; }
+#modal .fslot img { width: 42px; height: 42px; }
+#modal .fslot { font-size: 15px; grid-template-columns: 44px 1fr auto; }
+#modal .fslot .gn { font-size: 18px; font-weight: 700; }
+#modal .fslot .fi { font-size: 15px; line-height: 1.35; }
+#modal .fslot .fi b { font-size: 18px; font-weight: 700; }
+#modal .fslot .sq { font-size: 15px; color: #c4cadf; }
+#modal .fmv button { font-size: 14px; padding: 1px 8px; }
+@media (max-width: 760px) {
+  #modal .box { font-size: 16px; padding: 16px; }
+  #modal h2 { font-size: 24px; }
+  #modal .scene img { width: 64px; height: 64px; }
+  #modal .scene p { font-size: 17px; }
+}
