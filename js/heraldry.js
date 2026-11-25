@@ -26,93 +26,169 @@ const Heraldry = {
   style(f) { return this.STYLE[f] || { cloth: darken(DATA.factions[f].color, 0.5), trim: '#e8d8a0', sym: '#ffffff', glow: DATA.factions[f].color, fx: 'pulse' }; },
 
   // banner sizes by town rank: 1 village, 2 town, 3 capital / city
-  SIZE: [null, { w: 11, h: 15, k: 1 }, { w: 13, h: 18, k: 1 }, { w: 18, h: 25, k: 2 }],
+  SIZE: [null, { w: 15, h: 20 }, { w: 17, h: 24 }, { w: 21, h: 30 }],
+  N: 11,                                                   // symbols are 11 x 11
 
   poleLen(tier) { return this.SIZE[tier].h + (tier === 3 ? 9 : 7); },
   setSeed(s) { this.seed = s; this.cache = {}; },
   newSeed() { this.setSeed(1 + Math.floor(Math.random() * 1e9)); return this.seed; },
+  rng(f, salt) {
+    let h = this.seed + salt * 7919;
+    for (const ch of f) h = Math.imul(h ^ ch.charCodeAt(0), 2654435761);
+    return makeRng(h);
+  },
 
-  // A symmetric 7x7 symbol: random left half mirrored, denser toward the middle.
+  // An 11x11 symbol built in layers, mirrored left to right (sometimes top to bottom too):
+  // a frame (ring, diamond, shield, cross or corners) in the accent colour, a random core
+  // shape, ornaments above and below, then highlights on the upper-left edges.
+  // Cells: 0 empty, 1 main, 2 accent, 3 highlight.
   symbol(f) {
     const key = 'sym:' + f;
     if (this.cache[key]) return this.cache[key];
-    let h = this.seed;
-    for (const ch of f) h = Math.imul(h ^ ch.charCodeAt(0), 2654435761);
-    const rng = makeRng(h);
-    let grid;
-    for (let tries = 0; tries < 40; tries++) {
-      grid = Array.from({ length: 7 }, () => Array(7).fill(0));
-      for (let y = 0; y < 7; y++) for (let x = 0; x < 4; x++) {
-        const centre = 1 - (Math.abs(x - 3) + Math.abs(y - 3)) / 7;
-        if (rng() < 0.25 + centre * 0.55) grid[y][x] = grid[y][6 - x] = 1;
+    const N = this.N, C = 5, rng = this.rng(f, 1);
+    const blank = () => Array.from({ length: N }, () => Array(N).fill(0));
+    const set = (g, x, y, v) => { if (x >= 0 && y >= 0 && x < N && y < N) { g[y][x] = v; g[y][N - 1 - x] = v; } };
+    let g;
+    for (let tries = 0; tries < 60; tries++) {
+      g = blank();
+      const vsym = rng() < 0.35;
+      // 1. frame
+      const frame = ['ring', 'diamond', 'shield', 'cross', 'corners', 'arch'][Math.floor(rng() * 6)];
+      for (let y = 0; y < N; y++) for (let x = 0; x <= C; x++) {
+        const dx = C - x, dy = y - C, r = Math.hypot(dx, dy);
+        let on = false;
+        if (frame === 'ring') on = Math.abs(r - 4.6) < 0.5;
+        else if (frame === 'diamond') on = dx + Math.abs(dy) === 5;
+        else if (frame === 'shield') on = (y === 0 && dx <= 4) || (dx === 4 && y <= 6) || (y > 6 && dx === 10 - y);
+        else if (frame === 'cross') on = (dx === 0 && (y <= 1 || y >= N - 2)) || (dx >= 4 && Math.abs(dy) === 0);
+        else if (frame === 'corners') on = (dx === 5 && Math.abs(dy) >= 3) || (Math.abs(dy) === 5 && dx >= 3);
+        else if (frame === 'arch') on = (y <= 5 && Math.abs(Math.hypot(dx, y - 5) - 5) < 0.5) || (dx === 5 && y > 5);
+        if (on) set(g, x, y, 2);
       }
-      // drop lone pixels so the symbol reads as one shape
-      for (let y = 0; y < 7; y++) for (let x = 0; x < 7; x++) if (grid[y][x] &&
-        ![[0, 1], [0, -1], [1, 0], [-1, 0]].some(([dx, dy]) => (grid[y + dy] || [])[x + dx])) grid[y][x] = 0;
-      const n = grid.flat().reduce((a, b) => a + b, 0);
-      const spine = grid.reduce((a, r) => a + r[3], 0);
-      const rows = grid.filter(r => r.some(Boolean)).length;
-      if (n >= 17 && n <= 33 && spine >= 4 && rows >= 6) break;
+      // 2. core shape in the middle 7x7, denser toward the centre
+      const dens = 0.3 + rng() * 0.25;
+      for (let y = 2; y <= 8; y++) for (let x = 2; x <= C; x++) {
+        if (vsym && y > C) continue;
+        const near = 1 - (Math.abs(x - C) + Math.abs(y - C)) / 6;
+        if (rng() < dens + near * 0.5) { set(g, x, y, 1); if (vsym) set(g, x, N - 1 - y, 1); }
+      }
+      // 3. ornaments: a crest above, a point below, studs on the sides
+      const top = Math.floor(rng() * 4), bot = Math.floor(rng() * 3);
+      if (top === 1) { set(g, C, 1, 1); set(g, C - 1, 2, 1); }                         // spike
+      if (top === 2) { set(g, C - 2, 1, 2); set(g, C, 1, 2); set(g, C - 1, 2, 1); }      // crown
+      if (top === 3) { set(g, C, 0, 2); set(g, C, 1, 1); }                              // jewel
+      if (bot === 1) { set(g, C, 9, 1); set(g, C, 10, 2); }
+      if (bot === 2) { set(g, C - 1, 9, 1); set(g, C - 2, 10, 2); }
+      if (rng() < 0.5) { set(g, 1, C, 2); set(g, 0, C, 1); }
+      // drop lone main pixels
+      for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) if (g[y][x] === 1 &&
+        ![[0, 1], [0, -1], [1, 0], [-1, 0]].some(([ox, oy]) => (g[y + oy] || [])[x + ox])) g[y][x] = 0;
+      const core = g.flat().filter(v => v === 1).length, spine = g.reduce((a, r) => a + (r[C] === 1), 0);
+      if (core >= 18 && core <= 46 && spine >= 4) break;
     }
-    return (this.cache[key] = grid);
+    // 4. highlights where the main shape meets empty space above or to the left
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++)
+      if (g[y][x] === 1 && (!(g[y - 1] || [])[x] || !g[y][x - 1]) && (x <= C)) g[y][x] = 3;
+    return (this.cache[key] = g);
   },
 
-  // The still banner (cloth + trim + symbol), and a blurred copy of the symbol for its glow.
+  // A woven pattern for the cloth, also random per faction.
+  pattern(f) {
+    const key = 'pat:' + f;
+    if (this.cache[key]) return this.cache[key];
+    const kinds = {
+      diamond: (x, y) => (x + y) % 4 === 0 || (x - y + 400) % 4 === 0,
+      stripe: x => x % 3 === 0,
+      check: (x, y) => (Math.floor(x / 2) + Math.floor(y / 2)) % 2 === 0,
+      chevron: (x, y) => (y + Math.abs(x - 8)) % 4 === 0,
+      scale: (x, y) => (y % 3 === 0 && x % 2 === 0) || (y % 3 === 1 && x % 4 === 1),
+      dots: (x, y) => x % 3 === 1 && y % 3 === 1,
+    };
+    const names = Object.keys(kinds);
+    return (this.cache[key] = kinds[names[Math.floor(this.rng(f, 2)() * names.length)]]);
+  },
+
+  // The still banner, plus its glow layers (blurred symbol, blurred silhouette).
   sprite(f, tier, mine) {
     const key = `b:${f}:${tier}:${mine ? 1 : 0}`;
     if (this.cache[key]) return this.cache[key];
-    const S = this.SIZE[tier], st = this.style(f), sym = this.symbol(f);
-    const W = S.w + 2, H = S.h + 2;
+    const S = this.SIZE[tier], st = this.style(f), sym = this.symbol(f), pat = this.pattern(f), N = this.N;
+    const W = S.w + 2, H = S.h + 4;
     const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
     const c = cv.getContext('2d');
-    const tail = tier === 3 ? 4 : 3;                       // pointed / forked bottom
-    const rowSpan = y => {                                // cloth width inset at row y (0..S.h-1)
-      const fromBottom = S.h - 1 - y;
-      if (fromBottom >= tail) return null;
-      return tail - fromBottom;
+    const trim = mine ? '#ffd84a' : st.trim, trimLo = darken(trim, 0.35);
+    const tail = tier === 3 ? 5 : 4, mid = (S.w - 1) / 2;
+    const inCloth = (x, y) => {
+      if (x < 0 || y < 0 || x >= S.w || y >= S.h) return false;
+      const fb = S.h - 1 - y;
+      if (fb >= tail) return true;
+      const cut = tail - fb, d = Math.abs(x - mid);
+      return tier === 3 ? d >= cut * 1.3 : d <= mid - cut * (mid / tail);   // capitals: forked; others: pointed
     };
-    const trim = mine ? '#ffd84a' : st.trim;
+    // cloth: shaded top to bottom, woven pattern, double trim
     for (let y = 0; y < S.h; y++) for (let x = 0; x < S.w; x++) {
-      const cut = rowSpan(y), mid = (S.w - 1) / 2, d = Math.abs(x - mid);
-      if (cut != null) {
-        if (tier === 3 ? d < cut * 1.2 : d > mid - cut * 1.6) continue;   // capitals: swallow tail; others: point
+      if (!inCloth(x, y)) continue;
+      const edge = !inCloth(x - 1, y) || !inCloth(x + 1, y) || !inCloth(x, y - 1) || !inCloth(x, y + 1);
+      const inner = !edge && (!inCloth(x - 2, y) || !inCloth(x + 2, y) || !inCloth(x, y - 2) || !inCloth(x, y + 2));
+      let col;
+      if (edge) col = (x + y) % 2 ? trim : trimLo;
+      else if (inner) col = darken(st.cloth, 0.35);
+      else {
+        const shade = y / S.h;
+        col = shade < 0.25 ? lighten(st.cloth, 0.12) : shade > 0.75 ? darken(st.cloth, 0.18) : st.cloth;
+        if (pat(x, y)) col = lighten(st.cloth, 0.22);
       }
-      const edge = x === 0 || x === S.w - 1 || y === 0;
-      R(c, x + 1, y + 1, 1, 1, edge ? trim : st.cloth);
+      R(c, x + 1, y + 1, 1, 1, col);
     }
-    // inner trim line and a top bar
-    if (tier >= 2) for (let x = 2; x < S.w - 2; x++) R(c, x + 1, 3, 1, 1, hexA(trim, 0.7));
-    // outline: any empty pixel next to cloth
-    const img = c.getImageData(0, 0, W, H), d = img.data, filled = (x, y) => x >= 0 && y >= 0 && x < W && y < H && d[(y * W + x) * 4 + 3] > 0;
-    const out = [];
-    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++)
-      if (!filled(x, y) && (filled(x - 1, y) || filled(x + 1, y) || filled(x, y - 1) || filled(x, y + 1))) out.push([x, y]);
-    for (const [x, y] of out) R(c, x, y, 1, 1, '#120a18');
-    // the symbol with a dark outline
-    const k = S.k, sx = 1 + Math.floor((S.w - 7 * k) / 2), sy = 1 + (tier === 3 ? 4 : tier === 2 ? 5 : 3);
-    for (let y = 0; y < 7; y++) for (let x = 0; x < 7; x++) if (sym[y][x])
+    // top band with studs
+    for (let x = 1; x < S.w - 1; x++) R(c, x + 1, 2, 1, 1, x % 3 === 1 ? '#ffffff' : trim);
+    for (let x = 1; x < S.w - 1; x++) R(c, x + 1, 3, 1, 1, darken(st.cloth, 0.45));
+    // symbol on a roundel, centred
+    const sx = 1 + Math.floor((S.w - N) / 2), sy = tier === 3 ? 6 : 5;
+    if (tier >= 2) {                                         // a dark roundel behind the symbol
+      for (let y = -1; y <= N; y++) for (let x = -1; x <= N; x++) {
+        const r = Math.hypot(x - 5, y - 5);
+        if (r <= 6.4 && inCloth(sx + x - 1, sy + y - 1)) R(c, sx + x, sy + y, 1, 1, r > 5.6 ? trimLo : darken(st.cloth, 0.3));
+      }
+    }
+    const dark = darken(st.cloth, 0.7);
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) if (sym[y][x])
       for (const [ox, oy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
         const nx = x + ox, ny = y + oy;
-        if (nx < 0 || ny < 0 || nx > 6 || ny > 6 || !sym[ny][nx]) R(c, sx + (x + ox) * k, sy + (y + oy) * k, k, k, darken(st.cloth, 0.55));
+        if (nx < 0 || ny < 0 || nx >= N || ny >= N || !sym[ny][nx]) R(c, sx + nx, sy + ny, 1, 1, dark);
       }
-    for (let y = 0; y < 7; y++) for (let x = 0; x < 7; x++) if (sym[y][x]) {
-      R(c, sx + x * k, sy + y * k, k, k, st.sym);
-      if (k > 1) R(c, sx + x * k, sy + y * k, 1, 1, '#ffffff');
+    const COL = [null, st.sym, trim, '#ffffff'];
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) if (sym[y][x]) R(c, sx + x, sy + y, 1, 1, COL[sym[y][x]]);
+    // crisp copy of the symbol (with its outline) drawn again over the glow so the design stays sharp
+    const crisp = document.createElement('canvas'); crisp.width = W; crisp.height = H;
+    crisp.getContext('2d').drawImage(cv, sx - 1, sy - 1, N + 2, N + 2, sx - 1, sy - 1, N + 2, N + 2);
+    // capitals: corner gems and a second band
+    if (tier === 3) {
+      for (const [x, y] of [[2, 4], [S.w - 3, 4], [2, S.h - tail - 2], [S.w - 3, S.h - tail - 2]]) { R(c, x + 1, y + 1, 1, 1, '#ffffff'); R(c, x + 1, y + 2, 1, 1, st.glow || trim); }
+      for (let x = 2; x < S.w - 2; x++) if (inCloth(x, S.h - tail - 3)) R(c, x + 1, S.h - tail - 2, 1, 1, x % 2 ? trim : trimLo);
     }
-    // glow: blurred symbol in the glow colour, on a padded canvas
-    let glow = null;
+    // fringe under the cloth
+    for (let x = 0; x < S.w; x++) {
+      let y = S.h - 1; while (y > 0 && !inCloth(x, y)) y--;
+      if (inCloth(x, y) && x % 2 === 0) R(c, x + 1, y + 2, 1, 1 + (x % 4 === 0 ? 1 : 0), trim);
+    }
+    // outline everything
+    const d = c.getImageData(0, 0, W, H).data, filled = (x, y) => x >= 0 && y >= 0 && x < W && y < H && d[(y * W + x) * 4 + 3] > 0;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++)
+      if (!filled(x, y) && (filled(x - 1, y) || filled(x + 1, y) || filled(x, y - 1) || filled(x, y + 1))) R(c, x, y, 1, 1, '#120a18');
+
+    // glow layers
+    let glow = null, rim = null;
     if (st.glow) {
-      const P = 8;
-      const g0 = document.createElement('canvas'); g0.width = W + P * 2; g0.height = H + P * 2;
-      const gc = g0.getContext('2d');
-      for (let y = 0; y < 7; y++) for (let x = 0; x < 7; x++) if (sym[y][x]) R(gc, P + sx + x * k - 1, P + sy + y * k - 1, k + 2, k + 2, st.glow);
-      glow = document.createElement('canvas'); glow.width = g0.width; glow.height = g0.height;
-      const g2 = glow.getContext('2d');
-      g2.filter = `blur(${tier === 3 ? 3 : 2}px)`;
-      g2.drawImage(g0, 0, 0); g2.drawImage(g0, 0, 0);
-      glow.pad = P;
+      const P = 10, mk = draw => { const a = document.createElement('canvas'); a.width = W + P * 2; a.height = H + P * 2; draw(a.getContext('2d')); return a; };
+      const blur = (src, px, times) => mk(g2 => { g2.filter = `blur(${px}px)`; for (let i = 0; i < times; i++) g2.drawImage(src, 0, 0); });
+      const symSrc = mk(gc => { for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) if (sym[y][x]) R(gc, P + sx + x, P + sy + y, 1, 1, sym[y][x] === 1 ? st.glow : lighten(st.glow, 0.5)); });
+      glow = mk(g2 => { g2.filter = 'blur(3px)'; g2.drawImage(symSrc, 0, 0); g2.drawImage(symSrc, 0, 0); g2.filter = 'blur(1.5px)'; g2.drawImage(symSrc, 0, 0); });
+      const sil = mk(gc => { gc.drawImage(cv, P, P); gc.globalCompositeOperation = 'source-in'; gc.fillStyle = st.glow; gc.fillRect(0, 0, W + P * 2, H + P * 2); });
+      rim = blur(sil, 3, 3);
+      glow.pad = rim.pad = P;
     }
-    cv.glow = glow; cv.symY = sy + 3.5 * k; cv.symX = sx + 3.5 * k;
+    cv.glow = glow; cv.rim = rim; cv.crisp = crisp; cv.symY = sy + 5; cv.symX = sx + 5;
     return (this.cache[key] = cv);
   },
 
@@ -122,7 +198,8 @@ const Heraldry = {
     if (this.cache[key]) return this.cache[key];
     const st = this.style(f), cv = document.createElement('canvas'); cv.width = cv.height = 64;
     const c = cv.getContext('2d'), g = c.createRadialGradient(32, 32, 0, 32, 32, 32);
-    g.addColorStop(0, hexA(st.glow, 0.9)); g.addColorStop(0.35, hexA(st.glow, 0.35)); g.addColorStop(1, hexA(st.glow, 0));
+    g.addColorStop(0, hexA(st.glow, 1));
+    g.addColorStop(0.3, hexA(st.glow, 0.55)); g.addColorStop(0.65, hexA(st.glow, 0.18)); g.addColorStop(1, hexA(st.glow, 0));
     c.fillStyle = g; c.fillRect(0, 0, 64, 64);
     return (this.cache[key] = cv);
   },
@@ -130,14 +207,14 @@ const Heraldry = {
   // How bright the glow is right now, per effect.
   level(fx, t, seed) {
     switch (fx) {
-      case 'pulse': return 0.55 + 0.35 * Math.sin(t * 2.2 + seed);
-      case 'flicker': return 0.6 + 0.25 * Math.sin(t * 13 + seed) * Math.sin(t * 7.3 + seed * 2) + 0.15 * Math.sin(t * 3 + seed);
-      case 'throb': { const b = (t * 1.1 + seed) % 1; return 0.4 + 0.6 * (Math.exp(-b * 14) + 0.7 * Math.exp(-Math.max(0, b - 0.18) * 14) * (b > 0.18)); }
-      case 'void': return 0.5 + 0.3 * Math.sin(t * 0.9 + seed);
-      case 'frost': return 0.55 + 0.2 * Math.sin(t * 3 + seed) + 0.15 * (Math.sin(t * 17 + seed * 3) > 0.92);
-      case 'ripple': return 0.6 + 0.2 * Math.sin(t * 2.6 + seed);
-      case 'rays': return 0.7 + 0.2 * Math.sin(t * 1.5 + seed);
-      case 'spores': return 0.5 + 0.25 * Math.sin(t * 1.7 + seed);
+      case 'pulse': return 0.8 + 0.3 * Math.sin(t * 2.2 + seed);
+      case 'flicker': return 0.85 + 0.3 * Math.sin(t * 13 + seed) * Math.sin(t * 7.3 + seed * 2) + 0.15 * Math.sin(t * 3 + seed);
+      case 'throb': { const b = (t * 1.1 + seed) % 1; return 0.65 + 0.6 * (Math.exp(-b * 14) + 0.7 * Math.exp(-Math.max(0, b - 0.18) * 14) * (b > 0.18)); }
+      case 'void': return 0.8 + 0.3 * Math.sin(t * 0.9 + seed);
+      case 'frost': return 0.8 + 0.2 * Math.sin(t * 3 + seed) + 0.2 * (Math.sin(t * 17 + seed * 3) > 0.92);
+      case 'ripple': return 0.85 + 0.2 * Math.sin(t * 2.6 + seed);
+      case 'rays': return 0.95 + 0.2 * Math.sin(t * 1.5 + seed);
+      case 'spores': return 0.8 + 0.25 * Math.sin(t * 1.7 + seed);
       default: return 0;
     }
   },
@@ -167,9 +244,12 @@ const Heraldry = {
     if (st.fx && lv > 0) {
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
-      const hs = (tier === 3 ? 58 : tier === 2 ? 44 : 36) * (st.fx === 'void' ? 1.2 : 1);
-      ctx.globalAlpha = Math.min(1, lv * (st.fx === 'void' ? 0.45 : 0.6));
+      const hs = (tier === 3 ? 96 : tier === 2 ? 70 : 56) * (st.fx === 'void' ? 1.2 : 1);
+      ctx.globalAlpha = Math.min(1, lv * 0.9);
       ctx.drawImage(this.halo(f), cx - hs / 2, cy - hs / 2, hs, hs);
+      ctx.globalAlpha = Math.min(1, lv);                          // glowing edge around the cloth
+      ctx.drawImage(im.rim, bx - im.rim.pad, by - im.rim.pad);
+      if (tier === 3) { ctx.globalAlpha = Math.min(1, lv * 0.5); ctx.drawImage(im.rim, bx - im.rim.pad, by - im.rim.pad); }
       ctx.globalAlpha = 1;
       this.behind(ctx, st, cx, cy, tier, t, seed, lv);
       ctx.restore();
@@ -185,9 +265,15 @@ const Heraldry = {
     if (st.fx && im.glow && lv > 0) {
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
-      ctx.globalAlpha = Math.min(0.75, lv * 0.6);
+      ctx.globalAlpha = Math.min(1, lv * 0.7);
       const off = Math.round(Math.sin(t * 2.4 + seed - (im.symY) * 0.22) * 1.4 * (im.symY / im.height));
       ctx.drawImage(im.glow, bx - im.glow.pad + off, by - im.glow.pad);
+      ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+      for (let r = im.symY - 7; r < im.symY + 7; r++) {                   // sharp symbol on top, swaying with the cloth
+        const o2 = Math.round(Math.sin(t * 2.4 + seed - r * 0.22) * 1.4 * (r / im.height));
+        ctx.drawImage(im.crisp, 0, r, im.width, 1, bx + o2, by + r, im.width, 1);
+      }
+      ctx.globalCompositeOperation = 'lighter';
       ctx.globalAlpha = 1;
       this.front(ctx, st, cx, by, im, tier, t, seed, lv);
       ctx.restore();
@@ -196,11 +282,11 @@ const Heraldry = {
 
   // Effects behind the banner: rotating rays, expanding ripples, a dark aura.
   behind(ctx, st, cx, cy, tier, t, seed, lv) {
-    const sc = tier === 3 ? 1.5 : 1;
+    const sc = tier === 3 ? 2 : tier === 2 ? 1.4 : 1.2;
     if (st.fx === 'rays') {
-      ctx.fillStyle = hexA(st.glow, 0.35 * lv);
-      for (let i = 0; i < 8; i++) {
-        const a = t * 0.6 + seed + i * Math.PI / 4, r0 = 6 * sc, r1 = (15 + 3 * Math.sin(t * 3 + i)) * sc;
+      ctx.fillStyle = hexA(st.glow, Math.min(1, 0.6 * lv));
+      for (let i = 0; i < 12; i++) {
+        const a = t * 0.6 + seed + i * Math.PI / 6, r0 = 6 * sc, r1 = (15 + 3 * Math.sin(t * 3 + i)) * sc;
         ctx.beginPath();
         ctx.moveTo(cx + Math.cos(a - 0.12) * r0, cy + Math.sin(a - 0.12) * r0);
         ctx.lineTo(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1);
@@ -208,17 +294,17 @@ const Heraldry = {
         ctx.fill();
       }
     } else if (st.fx === 'ripple') {
-      for (let i = 0; i < 2; i++) {
-        const k = (t * 0.6 + seed + i * 0.5) % 1;
-        ctx.strokeStyle = hexA(st.glow, 0.8 * (1 - k)); ctx.lineWidth = 1;
+      for (let i = 0; i < 3; i++) {
+        const k = (t * 0.6 + seed + i / 3) % 1;
+        ctx.strokeStyle = hexA(st.glow, Math.min(1, lv * (1 - k))); ctx.lineWidth = 1.5;
         ctx.beginPath(); ctx.ellipse(cx, cy, (4 + k * 14) * sc, (4 + k * 14) * sc * 0.8, 0, 0, Math.PI * 2); ctx.stroke();
       }
     } else if (st.fx === 'void') {                              // violet wisps circling the banner
-      for (let i = 0; i < 3; i++) {
-        const a = t * 1.1 + seed + i * 2.1, r = 10 * sc;
-        for (let j = 0; j < 4; j++) {
-          const b = a - j * 0.18;
-          ctx.fillStyle = hexA('#c88aff', (0.7 - j * 0.16) * lv);
+      for (let i = 0; i < 4; i++) {
+        const a = t * 1.1 + seed + i * 1.57, r = 11 * sc;
+        for (let j = 0; j < 6; j++) {
+          const b = a - j * 0.15;
+          ctx.fillStyle = hexA(j ? '#c88aff' : '#ffffff', Math.min(1, (1 - j * 0.15) * lv));
           ctx.fillRect(Math.round(cx + Math.cos(b) * r), Math.round(cy + Math.sin(b) * r * 0.7), 1, 1);
         }
       }
@@ -229,20 +315,20 @@ const Heraldry = {
   front(ctx, st, cx, by, im, tier, t, seed, lv) {
     const w = im.width, h = im.height;
     const dots = (n, fn) => { for (let i = 0; i < n; i++) fn(i, ((t * 0.5 + seed + i / n) % 1)); };
-    if (st.fx === 'flicker') dots(4, (i, k) => {               // embers rising from the cloth
+    if (st.fx === 'flicker') dots(8, (i, k) => {               // embers rising from the cloth
       ctx.fillStyle = hexA(i % 2 ? '#ffd040' : '#ff6a2a', 1 - k);
-      ctx.fillRect(Math.round(cx - w / 2 + ((i * 7 + seed * 3) % w) + Math.sin(t * 4 + i) * 2), Math.round(by + h * 0.6 - k * (h + 8)), 1, 1);
+      ctx.fillRect(Math.round(cx - w / 2 + ((i * 7 + seed * 3) % w) + Math.sin(t * 4 + i) * 2), Math.round(by + h * 0.6 - k * (h + 12)), i % 3 ? 1 : 2, i % 3 ? 1 : 2);
     });
-    else if (st.fx === 'frost') dots(4, (i, k) => {            // twinkling ice glints around the banner
+    else if (st.fx === 'frost') dots(7, (i, k) => {            // twinkling ice glints around the banner
       const tw = Math.max(0, Math.sin(t * 5 + i * 1.7 + seed));
       if (tw < 0.6) return;
       const x = Math.round(cx - w / 2 - 2 + ((i * 11 + seed * 5) % (w + 4))), y = Math.round(by + ((i * 7) % h));
       ctx.fillStyle = hexA('#ffffff', tw);
       ctx.fillRect(x, y - 1, 1, 3); ctx.fillRect(x - 1, y, 3, 1);
     });
-    else if (st.fx === 'spores') dots(3, (i, k) => {           // drifting motes
-      ctx.fillStyle = hexA(st.glow, Math.sin(k * Math.PI));
-      ctx.fillRect(Math.round(cx + Math.sin(t * 1.3 + i * 2 + seed) * (w / 2 + 3)), Math.round(by + h - k * (h + 10)), 1, 1);
+    else if (st.fx === 'spores') dots(6, (i, k) => {           // drifting motes
+      ctx.fillStyle = hexA(i % 2 ? '#d8ffe8' : st.glow, Math.sin(k * Math.PI));
+      ctx.fillRect(Math.round(cx + Math.sin(t * 1.3 + i * 2 + seed) * (w / 2 + 4)), Math.round(by + h - k * (h + 14)), i % 3 ? 1 : 2, i % 3 ? 1 : 2);
     });
     else if (st.fx === 'throb' && lv > 0.9) {                  // the beat flashes the symbol white
       ctx.globalAlpha = (lv - 0.9) * 4;
@@ -250,7 +336,7 @@ const Heraldry = {
       ctx.globalAlpha = 1;
     } else if (st.fx === 'pulse') {                            // a glint sweeping down the cloth
       const k = (t * 0.35 + seed) % 1.6;
-      if (k < 1) { ctx.fillStyle = 'rgba(255,255,255,0.35)'; ctx.fillRect(Math.round(cx - w / 2 + 1), Math.round(by + 1 + k * (h - 4)), w - 2, 1); }
+      if (k < 1) { ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.fillRect(Math.round(cx - w / 2 + 1), Math.round(by + 1 + k * (h - 4)), w - 2, 1); }
     }
   },
 
@@ -263,7 +349,7 @@ const Heraldry = {
     const c = cv.getContext('2d');
     if (st.glow) { c.globalCompositeOperation = 'lighter'; c.drawImage(this.halo(f), -4, -4, cv.width + 8, cv.height + 8); c.globalCompositeOperation = 'source-over'; }
     c.drawImage(im, 3, 3);
-    if (im.glow) { c.globalCompositeOperation = 'lighter'; c.globalAlpha = 0.7; c.drawImage(im.glow, 3 - im.glow.pad, 3 - im.glow.pad); }
+    if (im.glow) { c.globalCompositeOperation = 'lighter'; c.globalAlpha = 0.9; c.drawImage(im.glow, 3 - im.glow.pad, 3 - im.glow.pad); }
     return (this.cache[key] = cv.toDataURL());
   },
 };

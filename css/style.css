@@ -321,5 +321,5 @@ button.persuade.glow { border-color: #ff7ad9; background: #5a2a52; }
 }
 
 /* ---------- faction crests ---------- */
-img.crest { width: 15px; height: 24px; image-rendering: pixelated; vertical-align: middle; margin-right: 6px; }
+img.crest { width: 18px; height: 26px; image-rendering: pixelated; vertical-align: middle; margin-right: 6px; }
 table.realm td { vertical-align: middle; }
