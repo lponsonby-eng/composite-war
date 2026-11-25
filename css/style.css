@@ -73,7 +73,7 @@ button.on { background: #3e4a86; border-color: var(--accent); }
 .gen[data-g]:hover { border-color: var(--edge-dark); }
 .gen.picked { border-color: var(--accent); }
 .gen.acted { opacity: .55; }
-.gen img { width: 38px; height: 38px; image-rendering: pixelated; border: 1px solid #000; }
+.gen img { width: 38px; height: 38px; image-rendering: auto; border: 1px solid #000; }
 .gn { font-size: 19px; }
 .gu { color: var(--muted); font-size: 16px; }
 .lord { font-size: 13px; color: #1c2034; background: var(--accent); padding: 0 4px; border-radius: 2px; vertical-align: 2px; }
@@ -111,7 +111,7 @@ body[data-mode="battle"] #battle-hud {
 .bh-1 .bh-gens { justify-content: flex-end; }
 .bh-gens { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 2px; }
 .bh-gen { display: flex; flex-direction: column; align-items: center; font-size: 15px; }
-.bh-gen img { width: 30px; height: 30px; image-rendering: pixelated; border: 1px solid #000; }
+.bh-gen img { width: 30px; height: 30px; image-rendering: auto; border: 1px solid #000; }
 .bh-gen.dead img { filter: grayscale(1) brightness(.5); }
 .bh-bar { width: 30px; height: 3px; background: #3a1d1d; }
 .bh-bar i { display: block; height: 100%; background: var(--accent); }
@@ -143,7 +143,7 @@ body[data-mode="battle"] #turn-banner { display: none; }
 .odds { font-size: 16px; color: var(--muted); }
 .chip { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; font-size: 16px; }
 .chip b { font-weight: normal; font-size: 18px; }
-.chip img { width: 30px; height: 30px; image-rendering: pixelated; border: 1px solid #000; }
+.chip img { width: 30px; height: 30px; image-rendering: auto; border: 1px solid #000; }
 
 /* ---------- title screen ---------- */
 #title-screen { position: fixed; inset: 0; display: grid; place-items: center; z-index: 10; padding: 16px;
@@ -155,7 +155,7 @@ body[data-mode="battle"] #turn-banner { display: none; }
 .fcards { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 10px; text-align: left; }
 .fcard { display: flex; gap: 10px; align-items: center; padding: 10px; border: 2px solid var(--fc); background: var(--panel-2); }
 .fcard:hover { box-shadow: 0 0 0 2px var(--fc); }
-.fcard img { width: 56px; height: 56px; image-rendering: pixelated; border: 1px solid #000; flex: none; }
+.fcard img { width: 56px; height: 56px; image-rendering: auto; border: 1px solid #000; flex: none; }
 .fn { font-size: 22px; color: var(--fc); }
 .fl { color: var(--accent); font-size: 16px; }
 .fb { color: var(--muted); font-size: 16px; }
@@ -207,7 +207,7 @@ table.rect td { padding: 4px 6px; border-top: 1px solid var(--panel-2); vertical
 table.rect tr.pref td { background: rgba(255, 216, 74, .07); }
 table.rect td.st { color: var(--muted); font-size: 14px; white-space: nowrap; }
 table.rect button { padding: 1px 7px; }
-.uico { width: 32px; height: 32px; image-rendering: pixelated; }
+.uico { width: 32px; height: 32px; image-rendering: auto; }
 @media (max-width: 760px) { table.rect td.st { display: none; } }
 
 /* ---------- big battles ---------- */
@@ -245,7 +245,7 @@ button.persuade { font-size: 13px; line-height: 1.1; padding: 2px 6px; }
 /* ---------- story events ---------- */
 .box.story { max-width: min(600px, 100%); }
 .scene { display: flex; gap: 14px; align-items: flex-start; }
-.scene img { width: 76px; height: 76px; image-rendering: pixelated; border: 2px solid var(--edge); flex: none; }
+.scene img { width: 76px; height: 76px; image-rendering: auto; border: 2px solid var(--edge); flex: none; }
 .scene .who { color: var(--accent); font-size: 20px; }
 .scene p { margin: 4px 0 0; font-size: 18px; line-height: 1.35; }
 .scene.narr p { font-style: italic; color: #e6dcc0; }
@@ -261,7 +261,7 @@ button.persuade { font-size: 13px; line-height: 1.1; padding: 2px 6px; }
 .fslot { display: grid; grid-template-columns: 40px 1fr auto; gap: 8px; align-items: center; padding: 4px; margin-bottom: 6px;
   border: 2px solid transparent; border-radius: 3px; background: var(--panel); cursor: pointer; }
 .fslot:hover { border-color: var(--edge); }
-.fslot img { width: 38px; height: 38px; image-rendering: pixelated; border: 1px solid #000; }
+.fslot img { width: 38px; height: 38px; image-rendering: auto; border: 1px solid #000; }
 .fslot .sq { font-size: 13px; }
 .fmv { display: flex; flex-direction: column; gap: 2px; }
 .fmv button { padding: 0 6px; font-size: 12px; }
@@ -300,7 +300,7 @@ button.persuade { font-size: 13px; line-height: 1.1; padding: 2px 6px; }
 .opps-n { margin-left: auto; font-weight: normal; background: var(--bad); color: #fff; border-radius: 10px; padding: 0 7px; font-size: 15px; }
 .opp { display: grid; grid-template-columns: 32px 1fr auto; gap: 6px; align-items: center; width: 100%; text-align: left;
   padding: 3px 5px; margin-top: 4px; background: var(--panel-2); border-color: var(--edge-dark); }
-.opp img { width: 30px; height: 30px; image-rendering: pixelated; border: 1px solid #000; }
+.opp img { width: 30px; height: 30px; image-rendering: auto; border: 1px solid #000; }
 .opp .oi { display: flex; flex-direction: column; min-width: 0; }
 .opp .on { font-size: 16px; }
 .opp .ow { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -321,5 +321,5 @@ button.persuade.glow { border-color: #ff7ad9; background: #5a2a52; }
 }
 
 /* ---------- faction crests ---------- */
-img.crest { width: 18px; height: 26px; image-rendering: pixelated; vertical-align: middle; margin-right: 6px; }
+img.crest { width: 18px; height: 26px; image-rendering: auto; vertical-align: middle; margin-right: 6px; }
 table.realm td { vertical-align: middle; }

@@ -85,11 +85,10 @@ const MapView = {
       return false;
     };
 
-    // 3. Paint
-    const cv = document.createElement('canvas');
-    cv.width = W; cv.height = H;
-    const ctx = cv.getContext('2d');
-    ctx.imageSmoothingEnabled = false;
+    // 3. Paint the ground one cell per pixel, then upscale it 4x with the pixel-art
+    //    scaler so coasts and borders get smooth curves (the map is kept at 2x detail).
+    const ground = new Uint32Array(gw * gh), colCache = {};
+    const toInt = col => colCache[col] || (colCache[col] = (() => { const [r, g, b] = hexRgb(col); return ((255 << 24) | (b << 16) | (g << 8) | r) >>> 0; })());
     const rng = makeRng(99);
     const WATER = {
       frost: ['#bcd8ee', '#a6c8e4', '#e8f4fc'],       // icy water
@@ -121,9 +120,11 @@ const MapView = {
         if (reg === 'frost' && n > 0.6 && fbm(x / 12, y / 12) > 0.55) col = '#f0f8ff';   // ice floes
         if (rng() < 0.015) col = '#8cc6ee';
       }
-      ctx.fillStyle = col;
-      ctx.fillRect(x, y, CELL, CELL);
+      ground[gy * gw + gx] = toInt(col);
     }
+    const cv = HD.upData(new Uint8ClampedArray(ground.buffer), gw, gh, 2, false);   // 4x of a 2-px cell = 2x world
+    const ctx = cv.getContext('2d');
+    ctx.setTransform(2, 0, 0, 2, 0, 0);
 
     // 4. Roads, styled per region (stone, sand, planks...)
     const ROAD = { frost: ['#8a9cb0', '#c8d6e4'], ember: ['#2a2220', '#6a5a50'], sun: ['#b08850', '#e8cc90'],
@@ -165,7 +166,7 @@ const MapView = {
       const big = name[0] === '@';
       const im = big ? Art.landmark(DATA.regions[name.slice(1)].landmark) : Art.deco(name);
       if (!im || !im.width) continue;
-      ctx.drawImage(im, Math.round(x - im.width / 2), Math.round(y - im.height + (big ? 2 : 1)));
+      HD.draw(ctx, im, Math.round(x - im.width / 2), Math.round(y - im.height + (big ? 2 : 1)));
       if (big) label(ctx, DATA.regions[name.slice(1)].name, x, y + 12, '#f6ecd0', 'center', 10);   // region name
     }
     return cv;
@@ -291,8 +292,9 @@ const MapView = {
     ctx.fillStyle = '#1d3557';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.setTransform(this.scale, 0, 0, this.scale, this.ox, this.oy);
+    ctx.imageSmoothingEnabled = this.scale < 2;           // the map is stored at 2x detail
+    ctx.drawImage(this.terrain, 0, 0, this.W, this.H);
     ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(this.terrain, 0, 0);
 
     // visible area in world pixels, so off-screen towns are skipped
     const [vx0, vy0] = this.toWorld(0, 0), [vx1, vy1] = this.toWorld(canvas.width, canvas.height);
@@ -565,7 +567,7 @@ const MapView = {
     const size = { village: 0, town: 1, capital: 2, city: 2, shrine: style === 'village' ? 3 : 0 }[s.kind] || 0;
     const im = Art.building(style, size);
     const bx = Math.round(s.x - 24), by = Math.round(s.y - 34);
-    ctx.drawImage(im, bx, by);
+    HD.draw(ctx, im, bx, by);
     // flag pole planted on the roof's highest point
     const poleX = bx + im.box.tx, poleBase = by + im.box.ty + 2;
     let lift = 1;

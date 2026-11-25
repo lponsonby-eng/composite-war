@@ -193,13 +193,13 @@ class Terrain {
     trees.sort((a, b) => a[1] - b[1]);
     for (const [x, y] of trees) {
       const im = Art.deco(this.trees[Math.floor(rng() * this.trees.length)]);
-      if (im && im.width) ctx.drawImage(im, Math.round(x), Math.round(y - (im.height - 16)));
+      if (im && im.width) HD.draw(ctx, im, Math.round(x), Math.round(y - (im.height - 16)));
     }
     // solid rocks: crystal pillars by the lakes, boulders elsewhere
     const rockArt = this.region === 'azure' || this.type === 'crystal' ? 'crystal' : this.region === 'frost' ? 'icerock' : this.region === 'ember' ? 'ashrock' : 'boulder';
     for (const [x, y] of rocks.sort((a, b) => a[1] - b[1])) {
       const im = Art.deco(rockArt);
-      ctx.drawImage(im, Math.round(x - 8), Math.round(y - im.height + 2));
+      HD.draw(ctx, im, Math.round(x - 8), Math.round(y - im.height + 2));
     }
     if (this.walls) {
       this.drawWall(ctx);
@@ -209,7 +209,7 @@ class Terrain {
       for (let i = 0; i < 7; i++) {
         const im = Art.building(style, i === 0 ? 2 : (i % 3 === 0 ? 1 : 0));
         const x = this.wallX + 70 + (i % 3) * 70 + r2() * 20, y = this.H * (0.18 + Math.floor(i / 3) * 0.32) + r2() * 30 + 40;
-        ctx.drawImage(im, Math.round(x - 24), Math.round(y - 34));
+        HD.draw(ctx, im, Math.round(x - 24), Math.round(y - 34));
       }
     }
   }

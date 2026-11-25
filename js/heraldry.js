@@ -188,8 +188,9 @@ const Heraldry = {
       rim = blur(sil, 3, 3);
       glow.pad = rim.pad = P;
     }
-    cv.glow = glow; cv.rim = rim; cv.crisp = crisp; cv.symY = sy + 5; cv.symX = sx + 5;
-    return (this.cache[key] = cv);
+    const hd = HD.up(cv);                                   // 4x detail, drawn at the original size
+    Object.assign(hd, { glow, rim, crisp: HD.up(crisp, false), symY: sy + 5, symX: sx + 5, lo: cv });
+    return (this.cache[key] = hd);
   },
 
   // Soft round halo in the glow colour (drawn additively behind the banner).
@@ -225,15 +226,16 @@ const Heraldry = {
     const pole = this.poleLen(tier);
     const seed = (x * 0.37 + y * 0.11) % 6.28;
     const lift = o.lift == null ? 1 : o.lift;
-    const bx = Math.round(x - im.width / 2), by = Math.round(y + 3 + (1 - lift) * (pole - S.h - 4));
+    const IW = im.lw, IH = im.lh, R4 = im.res;
+    const bx = Math.round(x - IW / 2), by = Math.round(y + 3 + (1 - lift) * (pole - S.h - 4));
     const lv = st.fx ? this.level(st.fx, t, seed) * (o.dim ? 0.5 : 1) : 0;
-    const cx = bx + im.width / 2, cy = by + im.symY;
+    const cx = bx + IW / 2, cy = by + im.symY;
 
     // pole, crossbar and finial
     ctx.fillStyle = '#120a18'; ctx.fillRect(x - 1, y - 1, 3, pole + 2);
     ctx.fillStyle = '#7a5a36'; ctx.fillRect(x, y, 1, pole);
-    ctx.fillStyle = '#120a18'; ctx.fillRect(bx - 1, by - 1, im.width + 2, 3);
-    ctx.fillStyle = o.mine ? '#ffd84a' : '#a88a5a'; ctx.fillRect(bx, by, im.width, 1);
+    ctx.fillStyle = '#120a18'; ctx.fillRect(bx - 1, by - 1, IW + 2, 3);
+    ctx.fillStyle = o.mine ? '#ffd84a' : '#a88a5a'; ctx.fillRect(bx, by, IW, 1);
     if (tier === 3 || o.mine) {                                     // crown finial
       ctx.fillStyle = '#120a18'; ctx.fillRect(x - 3, y - 5, 7, 5);
       ctx.fillStyle = o.mine ? '#ffd84a' : '#d8d8e0';
@@ -256,22 +258,27 @@ const Heraldry = {
     }
 
     // the banner, swaying: each row shifted a little, more toward the bottom
-    for (let r = 0; r < im.height; r++) {
-      const off = Math.round(Math.sin(t * 2.4 + seed - r * 0.22) * 1.4 * (r / im.height));
-      ctx.drawImage(im, 0, r, im.width, 1, bx + off, by + r, im.width, 1);
+    const prevSmooth = ctx.imageSmoothingEnabled;
+    HD.smooth(ctx, R4);
+    for (let r = 0; r < IH; r++) {
+      const off = Math.round(Math.sin(t * 2.4 + seed - r * 0.22) * 1.4 * (r / IH));
+      ctx.drawImage(im, 0, r * R4, im.width, R4, bx + off, by + r, IW, 1);
     }
+    ctx.imageSmoothingEnabled = prevSmooth;
 
     // glowing symbol and front effects
     if (st.fx && im.glow && lv > 0) {
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
       ctx.globalAlpha = Math.min(1, lv * 0.7);
-      const off = Math.round(Math.sin(t * 2.4 + seed - (im.symY) * 0.22) * 1.4 * (im.symY / im.height));
+      const off = Math.round(Math.sin(t * 2.4 + seed - (im.symY) * 0.22) * 1.4 * (im.symY / IH));
       ctx.drawImage(im.glow, bx - im.glow.pad + off, by - im.glow.pad);
       ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
       for (let r = im.symY - 7; r < im.symY + 7; r++) {                   // sharp symbol on top, swaying with the cloth
-        const o2 = Math.round(Math.sin(t * 2.4 + seed - r * 0.22) * 1.4 * (r / im.height));
-        ctx.drawImage(im.crisp, 0, r, im.width, 1, bx + o2, by + r, im.width, 1);
+        const o2 = Math.round(Math.sin(t * 2.4 + seed - r * 0.22) * 1.4 * (r / IH));
+        HD.smooth(ctx, R4);
+        ctx.drawImage(im.crisp, 0, r * R4, im.width, R4, bx + o2, by + r, IW, 1);
+        ctx.imageSmoothingEnabled = prevSmooth;
       }
       ctx.globalCompositeOperation = 'lighter';
       ctx.globalAlpha = 1;
@@ -313,7 +320,7 @@ const Heraldry = {
 
   // Effects in front: embers, ice glints, spores, a heartbeat flash.
   front(ctx, st, cx, by, im, tier, t, seed, lv) {
-    const w = im.width, h = im.height;
+    const w = im.lw, h = im.lh;
     const dots = (n, fn) => { for (let i = 0; i < n; i++) fn(i, ((t * 0.5 + seed + i / n) % 1)); };
     if (st.fx === 'flicker') dots(8, (i, k) => {               // embers rising from the cloth
       ctx.fillStyle = hexA(i % 2 ? '#ffd040' : '#ff6a2a', 1 - k);
@@ -344,11 +351,12 @@ const Heraldry = {
   icon(f) {
     const key = 'i:' + f;
     if (this.cache[key]) return this.cache[key];
-    const im = this.sprite(f, 2, false), st = this.style(f);
-    const cv = document.createElement('canvas'); cv.width = im.width + 6; cv.height = im.height + 6;
+    const im = this.sprite(f, 2, false), st = this.style(f), K = 4;
+    const cv = document.createElement('canvas'); cv.width = (im.lw + 6) * K; cv.height = (im.lh + 6) * K;
     const c = cv.getContext('2d');
+    c.scale(K, K);
     if (st.glow) { c.globalCompositeOperation = 'lighter'; c.drawImage(this.halo(f), -4, -4, cv.width + 8, cv.height + 8); c.globalCompositeOperation = 'source-over'; }
-    c.drawImage(im, 3, 3);
+    c.drawImage(im, 3, 3, im.lw, im.lh);
     if (im.glow) { c.globalCompositeOperation = 'lighter'; c.globalAlpha = 0.9; c.drawImage(im.glow, 3 - im.glow.pad, 3 - im.glow.pad); }
     return (this.cache[key] = cv.toDataURL());
   },

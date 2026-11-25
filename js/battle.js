@@ -712,13 +712,14 @@ class Battle {
   // ------------------------------------------------------------------ drawing
   buildBackground() {
     const cv = document.createElement('canvas');
-    cv.width = this.W; cv.height = this.H;
+    cv.width = this.W * 2; cv.height = this.H * 2;            // drawn at twice the detail
     const ctx = cv.getContext('2d');
+    ctx.scale(2, 2);
     let seed = 0; for (const ch of this.opts.spotName) seed = seed * 31 + ch.charCodeAt(0);
     const rng = makeRng(seed);
     const T = Assets.img;
     for (let y = 0; y < this.H; y += 16) for (let x = 0; x < this.W; x += 16)
-      ctx.drawImage(rng() < 0.7 ? T['tile:ground_grass'] : T['tile:ground_grass2'], x, y);
+      HD.draw(ctx, rng() < 0.7 ? T['tile:ground_grass'] : T['tile:ground_grass2'], x, y);
     const tint = (DATA.regions[this.terrain.region] || {}).battle;
     if (tint) {                                    // recolour the grass to the region's ground (snow, sand, ash...)
       ctx.globalCompositeOperation = 'color'; ctx.fillStyle = tint; ctx.fillRect(0, 0, this.W, this.H);
@@ -729,7 +730,7 @@ class Battle {
     for (let i = 0; i < 160; i++) {
       const n = ['grass_tuft', 'grass_tuft', 'bush'][Math.floor(rng() * 3)];
       const x = Math.floor(rng() * (this.W - 16)), y = Math.floor(rng() * (this.H - 16));
-      if (lush && this.terrain.kindAt(x + 8, y + 8) === GROUND.grass) ctx.drawImage(T['tile:' + n], x, y);
+      if (lush && this.terrain.kindAt(x + 8, y + 8) === GROUND.grass) HD.draw(ctx, T['tile:' + n], x, y);
     }
     this.terrain.draw(ctx);
     return cv;
@@ -760,8 +761,9 @@ class Battle {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = '#16241a'; ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.setTransform(this.scale, 0, 0, this.scale, this.ox, this.oy);
+    ctx.imageSmoothingEnabled = this.scale < 2;
+    ctx.drawImage(this.bg, 0, 0, this.W, this.H);
     ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(this.bg, 0, 0);
     const [vx0, vy0] = this.toWorld(0, 0), [vx1, vy1] = this.toWorld(canvas.width, canvas.height);
     const onScreen = (x, y) => x > vx0 - 30 && x < vx1 + 30 && y > vy0 - 40 && y < vy1 + 30;
 
@@ -775,7 +777,7 @@ class Battle {
       ctx.fillStyle = z.frost ? 'rgba(160,220,255,0.28)' : `rgba(255,90,40,${0.15 + 0.15 * Math.sin(this.time * 20)})`;
       ctx.strokeStyle = z.frost ? 'rgba(220,245,255,0.8)' : 'rgba(255,150,60,0.9)'; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.ellipse(z.x, z.y, z.r, z.r * 0.6, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-      if (z.warn) { const k = 1 - (z.until - this.time); const im = Assets.img['fx:fireball']; if (im) ctx.drawImage(im, 0, 0, 16, 16, Math.round(z.x - 8 + (1 - k) * 60), Math.round(z.y - 8 - (1 - k) * 160), 16, 16); }
+      if (z.warn) { const k = 1 - (z.until - this.time); const im = Assets.img['fx:fireball']; if (im) HD.draw(ctx, im, 0, 0, 16, 16, Math.round(z.x - 8 + (1 - k) * 60), Math.round(z.y - 8 - (1 - k) * 160), 16, 16); }
     }
 
     // selected squads: their destination
@@ -818,7 +820,7 @@ class Battle {
       if (!im) continue;
       ctx.save(); ctx.translate(Math.round(p.x), Math.round(p.y));
       if (p.img !== 'shuriken') ctx.rotate(p.angle); else ctx.rotate(this.time * 20);
-      ctx.drawImage(im, -Math.floor(im.width / 2), -Math.floor(im.height / 2));
+      HD.draw(ctx, im, -Math.floor(im.width / 2), -Math.floor(im.height / 2));
       ctx.restore();
     }
     for (const f of this.fx) if (this.cellVisible(f.x, f.y)) Assets.drawFx(ctx, f.name, f.t, f.x, f.y);
