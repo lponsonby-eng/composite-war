@@ -140,44 +140,14 @@ class Terrain {
   // ---------------------------------------------------------------- drawing
   // Draws the ground onto the battle background (under the units).
   draw(ctx) {
-    const C = this.C, T = Assets.img, rng = makeRng(99);
+    const C = this.C, rng = makeRng(99);
     const trees = [], rocks = [];
     for (let y = 0; y < this.rows; y++) for (let x = 0; x < this.cols; x++) {
       const k = this.kind[y * this.cols + x], px = x * C, py = y * C;
-      const n = (r, g, b, j) => { const v = Math.floor((rng() - 0.5) * j); return `rgb(${r + v},${g + v},${b + v})`; };
-      if (k === GROUND.forest) {
-        ctx.fillStyle = n(46, 92, 42, 14); ctx.fillRect(px, py, C, C);
-        if ((x + y * 3) % 2 === 0 && rng() < 0.7) trees.push([px - 4 + rng() * 4, py - 10 + rng() * 4]);
-      } else if (k === GROUND.water || k === GROUND.ford) {
-        rng(); rng();                                     // drawn below as smooth shapes (keep the random sequence)
-      } else if (k === GROUND.snow) {
-        ctx.fillStyle = n(236, 242, 250, 8); ctx.fillRect(px, py, C, C);
-        if (rng() < 0.3) { ctx.fillStyle = '#c4d4e6'; ctx.fillRect(px + Math.floor(rng() * 5), py + Math.floor(rng() * 6), 3, 1); }
-      } else if (k === GROUND.ice) {
-        ctx.fillStyle = n(176, 214, 238, 8); ctx.fillRect(px, py, C, C);
-        if (rng() < 0.25) { ctx.fillStyle = '#ffffff'; ctx.fillRect(px + 1 + Math.floor(rng() * 4), py + 1 + Math.floor(rng() * 4), 2, 1); }
-      } else if (k === GROUND.sand) {
-        ctx.fillStyle = n(238, 210, 140, 10); ctx.fillRect(px, py, C, C);
-        if ((x + y) % 3 === 0) { ctx.fillStyle = '#c8a050'; ctx.fillRect(px, py + 5, C, 1); ctx.fillStyle = '#fae6a8'; ctx.fillRect(px, py + 4, C, 1); }
-      } else if (k === GROUND.lava) {
-        ctx.fillStyle = rng() < 0.5 ? '#e8501e' : '#ff7a2a'; ctx.fillRect(px, py, C, C);
-        if (rng() < 0.3) { ctx.fillStyle = '#ffd04a'; ctx.fillRect(px + Math.floor(rng() * 5), py + Math.floor(rng() * 5), 3, 2); }
-      } else if (k === GROUND.rock) {
-        rocks.push([px + 4, py + 8]);
-      } else if (k === GROUND.mud) {
-        ctx.fillStyle = n(92, 76, 44, 16); ctx.fillRect(px, py, C, C);
-        if (rng() < 0.2) { ctx.fillStyle = '#4c6a3a'; ctx.fillRect(px + 2, py + 2, 2, 2); }
-      }
+      if (k === GROUND.forest && (x + y * 3) % 2 === 0 && rng() < 0.7) trees.push([px - 4 + rng() * 4, py - 10 + rng() * 4]);
+      else if (k === GROUND.rock) rocks.push([px + 4, py + 8]);
     }
-    // dark crust around lava pools
-    for (let y = 0; y < this.rows; y++) for (let x = 0; x < this.cols; x++) {
-      if (this.kind[y * this.cols + x] !== GROUND.lava) continue;
-      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-        const k2 = this.kind[(y + dy) * this.cols + x + dx];
-        if (k2 !== undefined && k2 !== GROUND.lava) { ctx.fillStyle = '#2a1a14'; ctx.fillRect((x + dx) * C, (y + dy) * C, C, C); }
-      }
-    }
-    this.drawWater(ctx);
+    this.drawGround(ctx);
     trees.sort((a, b) => a[1] - b[1]);
     for (const [x, y] of trees) {
       const im = Art.deco(this.trees[Math.floor(rng() * this.trees.length)]);
@@ -202,21 +172,68 @@ class Terrain {
     }
   }
 
-  // Rivers, lakes and fords as smooth shapes: the cell grid is blended into a soft
-  // field and cut at the halfway line, so banks curve instead of stepping. Gameplay
-  // still uses the cells; the drawn edge moves by at most half a cell.
-  drawWater(ctx) {
+  // Every kind of ground is drawn as a smooth shape instead of square cells: each
+  // kind's cells are lightly blurred into a field and traced at the halfway line, with
+  // gently wobbling edges. Gameplay still uses the cells; a drawn edge moves by at
+  // most half a cell. Layers go bottom to top so water sits over sand, and so on.
+  drawGround(ctx) {
+    const G = GROUND;
+    const cl = v => Math.max(0, Math.min(255, Math.round(v)));
+    // forest floor in the region's own colours (ash under burnt trees, snow under pines...)
+    const FLOOR = { ember: [74, 58, 52], frost: [196, 210, 222], sun: [150, 128, 74], bog: [52, 70, 36], shadow: [56, 60, 70],
+      darkwood: [34, 70, 40], azure: [52, 120, 104] }[this.region] || [46, 92, 42];
+    this.layer(ctx, [G.forest], { edge: [FLOOR[0] * 0.65, FLOOR[1] * 0.65, FLOOR[2] * 0.65, 120], paint: (wx, wy, w, n) => {
+      const v = (n(wx / 10, wy / 10) - 0.5) * 18 + (n(wx / 3 + 9, wy / 3) > 0.72 ? -10 : 0);
+      return [FLOOR[0] + v, FLOOR[1] + v, FLOOR[2] + v * 0.6]; } });
+    this.layer(ctx, [G.mud], { edge: [74, 62, 36, 140], paint: (wx, wy, w, n, h) => {
+      const v = (n(wx / 9, wy / 9) - 0.5) * 20, pool = n(wx / 14 + 20, wy / 14);
+      if (pool > 0.66) return h(wx, wy) < 0.03 ? [150, 170, 160] : [62 + v * 0.5, 58 + v * 0.5, 40];      // puddles
+      return [92 + v, 76 + v, 44 + v * 0.6]; } });
+    this.layer(ctx, [G.sand], { edge: [204, 172, 104, 150], paint: (wx, wy, w, n) => {
+      const v = (n(wx / 12, wy / 12) - 0.5) * 14, dune = Math.sin(wy / 3.2 + n(wx / 16, wy / 16) * 7);
+      if (dune > 0.9) return [250, 232, 172];                              // ripple crests
+      if (dune < -0.93) return [206, 166, 92];                             // ripple shadows
+      return [238 + v, 210 + v, 140 + v]; } });
+    this.layer(ctx, [G.snow], { edge: [196, 212, 230, 150], paint: (wx, wy, w, n) => {
+      const v = (n(wx / 14, wy / 14) - 0.5) * 12, drift = Math.sin(wx / 5 + n(wx / 20, wy / 20) * 8);
+      if (drift > 0.94) return [204, 218, 234];
+      return [236 + v, 242 + v, 250 + v * 0.3]; } });
+    this.layer(ctx, [G.ice], { edge: [120, 160, 196, 200], rim: [228, 244, 255], paint: (wx, wy, w, n, h) => {
+      const v = (n(wx / 12, wy / 12) - 0.5) * 16, crack = Math.abs(n(wx / 7 + 5, wy / 7) - 0.5) < 0.02;
+      if (crack) return [140, 180, 214];
+      if (h(Math.floor(wx / 3), Math.floor(wy)) < 0.02) return [255, 255, 255];
+      return [176 + v, 214 + v, 238 + v * 0.4]; } });
+    this.layer(ctx, [G.lava], { edge: [42, 26, 20, 255], edgeFrom: 0.3, rim: [120, 40, 20], paint: (wx, wy, w, n) => {
+      const f = n(wx / 8, wy / 8) * 0.6 + n(wx / 3 + 7, wy / 3) * 0.4, hot = Math.min(1, (w - 0.5) / 0.3);
+      if (f > 0.68 && hot > 0.5) return [255, 220, 90];                  // bright veins
+      return [cl(220 + 30 * f), cl(70 + 80 * f * hot), cl(24 + 20 * f)]; } });
+    this.layer(ctx, [G.water, G.ford], { edge: [46, 62, 30, 150], rim: [150, 200, 236], sub: G.ford, paint: (wx, wy, w, n, h, f) => {
+      if (f > 0.5) {                                                      // ford: wet sand with ripples
+        const v = n(wx / 5, wy / 5) * 18 - 9;
+        if (h(Math.floor(wx / 4 + Math.sin(wy / 4) * 2), Math.floor(wy / 1.5)) < 0.05) return [120, 160, 196];
+        return [182 + v, 156 + v, 104 + v];
+      }
+      const depth = Math.min(1, (w - 0.5) / 0.3), v = (n(wx / 14 + 30, wy / 14) - 0.5) * 14;
+      if (depth > 0.3 && h(Math.floor(wx / 5 + Math.sin(wy / 3)), Math.floor(wy)) < 0.035) return [150, 200, 242];   // glints
+      return [92 - depth * 44 + v, 156 - depth * 50 + v, 222 - depth * 34 + v]; } });
+  }
+
+  // One smooth layer for the cells of `kinds`. opts.paint(wx, wy, w, noise, hash, subField)
+  // gives the colour inside; opts.edge is an [r,g,b,a] band just outside the shape
+  // (from opts.edgeFrom to 0.5); opts.rim a thin line just inside it; opts.sub a kind
+  // whose own field is passed to paint (fords inside a river).
+  layer(ctx, kinds, opts) {
     const C = this.C, cols = this.cols, rows = this.rows, S = 2;          // 2 pixels per world pixel
-    const wet = new Float32Array(cols * rows), ford = new Float32Array(cols * rows);
+    const main = new Float32Array(cols * rows), sub = new Float32Array(cols * rows);
     let x0 = cols, y0 = rows, x1 = -1, y1 = -1;
     for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
       const k = this.kind[y * cols + x];
-      if (k !== GROUND.water && k !== GROUND.ford) continue;
-      wet[y * cols + x] = 1; if (k === GROUND.ford) ford[y * cols + x] = 1;
+      if (!kinds.includes(k)) continue;
+      main[y * cols + x] = 1; if (k === opts.sub) sub[y * cols + x] = 1;
       x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y);
     }
     if (x1 < 0) return;
-    // soften the cell staircase: two passes of a small blur, then the field is cut at 0.5
+    // soften the cell staircase: two passes of a small blur
     const blur = a => {
       for (let pass = 0; pass < 2; pass++) {
         const t = new Float32Array(a.length);
@@ -226,40 +243,33 @@ class Terrain {
           a[y * cols + x] = (t[Math.max(0, y - 1) * cols + x] + 2 * t[y * cols + x] + t[Math.min(rows - 1, y + 1) * cols + x]) / 4;
       }
     };
-    blur(wet); blur(ford);
-    for (let i = 0; i < wet.length; i++) if (this.kind[i] === GROUND.water || this.kind[i] === GROUND.ford) wet[i] = Math.max(wet[i], 0.62);   // no cell of water vanishes
+    blur(main); if (opts.sub != null) blur(sub);
+    for (let i = 0; i < main.length; i++) if (kinds.includes(this.kind[i])) main[i] = Math.max(main[i], 0.62);   // no cell vanishes
     const at = (a, x, y) => a[Math.max(0, Math.min(rows - 1, y)) * cols + Math.max(0, Math.min(cols - 1, x))];
-    const field = (a, wx, wy) => {                                    // smooth (bilinear, eased) blend of the cells
+    const field = (a, wx, wy) => {
       const u = wx / C - 0.5, v = wy / C - 0.5, ix = Math.floor(u), iy = Math.floor(v);
       let tx = u - ix, ty = v - iy; tx = tx * tx * (3 - 2 * tx); ty = ty * ty * (3 - 2 * ty);
       return (at(a, ix, iy) * (1 - tx) + at(a, ix + 1, iy) * tx) * (1 - ty) + (at(a, ix, iy + 1) * (1 - tx) + at(a, ix + 1, iy + 1) * tx) * ty;
     };
-    const noise = makeNoise(77);
+    const noise = makeNoise(77 + kinds[0]);
+    const hash = (x, y) => { const h = Math.imul(Math.floor(x) * 374761393 + Math.floor(y) * 668265263, 1274126177); return ((h ^ (h >>> 15)) >>> 0) / 4294967296; };
     const px0 = Math.max(0, (x0 - 1) * C), py0 = Math.max(0, (y0 - 1) * C);
     const pw = Math.min(this.W, (x1 + 2) * C) - px0, ph = Math.min(this.H, (y1 + 2) * C) - py0;
     const cv = document.createElement('canvas'); cv.width = pw * S; cv.height = ph * S;
     const c = cv.getContext('2d'), img = c.createImageData(cv.width, cv.height), d = img.data;
-    const put = (i, r, g, b, a = 255) => { d[i] = r; d[i + 1] = g; d[i + 2] = b; d[i + 3] = a; };
-    const hash = (x, y) => { let h = Math.imul(x * 374761393 + y * 668265263, 1274126177); return ((h ^ (h >>> 15)) >>> 0) / 4294967296; };
+    const e0 = opts.edgeFrom != null ? opts.edgeFrom : 0.4;
     for (let Y = 0; Y < cv.height; Y++) for (let X = 0; X < cv.width; X++) {
       const wx = px0 + X / S, wy = py0 + Y / S;
       const wob = (noise(wx / 9, wy / 9) - 0.5) * 0.22;
-      const w = field(wet, wx, wy) + wob, i = (Y * cv.width + X) * 4;
-      if (w < 0.4) continue;
-      if (w < 0.5) { put(i, 46, 62, 30, Math.round(150 * (w - 0.4) / 0.1)); continue; }   // damp, dark bank
-      const f = field(ford, wx, wy) + wob * 0.5;
-      if (f > 0.5) {                                                  // ford: wet sand with ripples
-        const n = noise(wx / 5, wy / 5) * 18 - 9;
-        if (hash(Math.floor(wx / 4 + Math.sin(wy / 4) * 2), Math.floor(wy / 1.5)) < 0.05) put(i, 120, 160, 196);
-        else put(i, 182 + n, 156 + n, 104 + n);
-        continue;
-      }
-      const depth = Math.min(1, (w - 0.5) / 0.3);                    // shallow near the bank, deeper in the middle
-      const n = (noise(wx / 14 + 30, wy / 14) - 0.5) * 14;
-      let r = 92 - depth * 44 + n, g = 156 - depth * 50 + n, b = 222 - depth * 34 + n;
-      if (w < 0.56) { r = 150; g = 200; b = 236; }                   // bright waterline
-      if (depth > 0.3 && hash(Math.floor(wx / 5 + Math.sin(wy / 3)), Math.floor(wy)) < 0.035) { r = 150; g = 200; b = 242; }   // glints
-      put(i, r, g, b);
+      const w = field(main, wx, wy) + wob, i = (Y * cv.width + X) * 4;
+      if (w < e0) continue;
+      let col, a = 255;
+      if (w < 0.5) {
+        if (!opts.edge) continue;
+        col = opts.edge; a = opts.edge[3] === 255 ? 255 : Math.round(opts.edge[3] * (w - e0) / (0.5 - e0));
+      } else if (opts.rim && w < 0.56 && !(opts.sub != null && field(sub, wx, wy) + wob * 0.5 > 0.5)) col = opts.rim;
+      else col = opts.paint(wx, wy, w, noise, hash, opts.sub != null ? field(sub, wx, wy) + wob * 0.5 : 0);
+      d[i] = Math.max(0, Math.min(255, col[0])); d[i + 1] = Math.max(0, Math.min(255, col[1])); d[i + 2] = Math.max(0, Math.min(255, col[2])); d[i + 3] = a;
     }
     c.putImageData(img, 0, 0);
     ctx.drawImage(cv, px0, py0, pw, ph);
