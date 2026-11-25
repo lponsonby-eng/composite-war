@@ -275,23 +275,92 @@ class Terrain {
     ctx.drawImage(cv, px0, py0, pw, ph);
   }
 
+  // The town wall as continuous ramparts: rounded stone runs with brick courses and
+  // battlements on the attackers' side, round towers flanking each gate and along
+  // the wall, a cobbled gateway with open doors, and a soft shadow on the town side.
+  // Gameplay still uses the wall cells; this only draws them.
   drawWall(ctx) {
-    const C = this.C, x = Math.floor(this.wallX / C) * C;
-    for (let y = 0; y < this.rows; y++) {
-      if (this.kind[y * this.cols + Math.floor(this.wallX / C)] !== GROUND.wall) continue;
-      const py = y * C;
-      ctx.fillStyle = '#2a2630'; ctx.fillRect(x - 1, py - 4, C + 2, C + 4);      // outline + height
-      ctx.fillStyle = (y % 2) ? '#9a96a4' : '#8a8694'; ctx.fillRect(x, py - 3, C, C + 2);
-      ctx.fillStyle = '#b8b4c2'; ctx.fillRect(x, py - 3, C, 1);                  // lit top edge
-      ctx.fillStyle = '#5e5a68'; ctx.fillRect(x, py + 2, C, 1);                  // mortar line
-      ctx.fillRect(x + (y % 2 ? 2 : 5), py - 3, 1, 5);
+    const C = this.C, col = Math.floor(this.wallX / C), x = col * C, w = C, LIFT = 5;
+    const segs = [];
+    let start = null;
+    for (let y = 0; y <= this.rows; y++) {
+      const on = y < this.rows && this.kind[y * this.cols + col] === GROUND.wall;
+      if (on && start == null) start = y;
+      if (!on && start != null) { segs.push([start * C, y * C]); start = null; }
     }
-    // gate posts
-    for (const g of this.gates) for (const gy of [g - 22, g + 12]) {
-      ctx.fillStyle = '#2a2630'; ctx.fillRect(x - 2, gy - 2, C + 4, 12);
-      ctx.fillStyle = '#6b4a2a'; ctx.fillRect(x - 1, gy - 1, C + 2, 10);
-      ctx.fillStyle = '#8a6438'; ctx.fillRect(x - 1, gy - 1, C + 2, 1);
+    const rr = (rx, ry, rw, rh, r) => { ctx.beginPath(); ctx.roundRect ? ctx.roundRect(rx, ry, rw, rh, r) : ctx.rect(rx, ry, rw, rh); };
+    const OUT = '#2a2630';
+
+    // gateways: cobbles across the gap, worn into the ground
+    for (let k = 0; k + 1 < segs.length; k++) {
+      const a = segs[k][1], b = segs[k + 1][0];
+      ctx.fillStyle = 'rgba(40,32,24,0.35)'; rr(x - 10, a - 1, w + 20, b - a + 2, 4); ctx.fill();
+      ctx.fillStyle = '#a8987a'; rr(x - 8, a, w + 16, b - a, 3); ctx.fill();
+      for (let yy = a + 1.5; yy < b - 1; yy += 2.5) for (let xx = x - 7 + ((yy * 2) % 2 ? 1.2 : 0); xx < x + w + 7; xx += 2.5) {
+        ctx.fillStyle = (xx * 7 + yy * 3) % 5 < 2 ? '#8a7a5e' : '#c0b090'; ctx.fillRect(xx, yy, 1.6, 1.4);
+      }
     }
+
+    for (const [y0, y1] of segs) {
+      // shadow cast on the town side
+      const sh = ctx.createLinearGradient(x + w, 0, x + w + 12, 0);
+      sh.addColorStop(0, 'rgba(20,16,30,0.4)'); sh.addColorStop(1, 'rgba(20,16,30,0)');
+      ctx.fillStyle = sh; ctx.fillRect(x + w, y0 - 2, 12, y1 - y0 + 4);
+      // body: outline, then stone shaded from the lit outer face to the inner face
+      ctx.fillStyle = OUT; rr(x - 1.5, y0 - LIFT - 1, w + 3, y1 - y0 + LIFT + 2, 2.5); ctx.fill();
+      const body = ctx.createLinearGradient(x, 0, x + w, 0);
+      body.addColorStop(0, '#c2becc'); body.addColorStop(0.35, '#a29eae'); body.addColorStop(1, '#787484');
+      ctx.fillStyle = body; rr(x - 0.5, y0 - LIFT, w + 1, y1 - y0 + LIFT, 2); ctx.fill();
+      // brick courses with staggered joints
+      ctx.fillStyle = 'rgba(58,54,72,0.5)';
+      for (let yy = y0 - LIFT + 2.5, r = 0; yy < y1 - 0.5; yy += 2.5, r++) {
+        ctx.fillRect(x, yy, w, 0.5);
+        for (let xx = x + (r % 2 ? 1.5 : 3.5); xx < x + w - 0.5; xx += 4) ctx.fillRect(xx, yy - 2, 0.5, 2);
+      }
+      // wall-walk along the top, and the shaded foot of the wall
+      ctx.fillStyle = 'rgba(255,255,255,0.18)'; ctx.fillRect(x + 2, y0 - LIFT + 1, 2.5, y1 - y0 + LIFT - 2);
+      ctx.fillStyle = 'rgba(30,26,40,0.35)'; ctx.fillRect(x - 0.5, y1 - 1.5, w + 1, 1.5);
+      // battlements on the outer (attackers') edge
+      for (let yy = y0 - LIFT + 1; yy < y1 - 2; yy += 4) {
+        ctx.fillStyle = OUT; rr(x - 3, yy - 0.5, 3.5, 3, 0.8); ctx.fill();
+        ctx.fillStyle = '#d4d0de'; ctx.fillRect(x - 2.5, yy, 2.5, 1.2);
+        ctx.fillStyle = '#9894a6'; ctx.fillRect(x - 2.5, yy + 1.2, 2.5, 1.3);
+      }
+    }
+
+    // round towers: at both ends of every run (so each gate is flanked) and along long runs
+    const tower = (cx, cy) => {
+      ctx.fillStyle = 'rgba(20,16,30,0.35)'; ctx.beginPath(); ctx.ellipse(cx + 4, cy + 3, 9, 4.5, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = OUT; rr(cx - 7.5, cy - 9, 15, 13, 4); ctx.fill();                       // drum
+      const g = ctx.createLinearGradient(cx - 7, 0, cx + 7, 0);
+      g.addColorStop(0, '#c6c2d0'); g.addColorStop(0.4, '#a6a2b2'); g.addColorStop(1, '#6e6a7a');
+      ctx.fillStyle = g; rr(cx - 6.5, cy - 8, 13, 11, 3.5); ctx.fill();
+      ctx.fillStyle = 'rgba(58,54,72,0.45)';
+      for (let yy = cy - 5; yy < cy + 2; yy += 2.5) ctx.fillRect(cx - 6, yy, 12, 0.5);
+      ctx.fillStyle = OUT; ctx.beginPath(); ctx.ellipse(cx, cy - 9, 8, 4.5, 0, 0, Math.PI * 2); ctx.fill();   // top
+      ctx.fillStyle = '#b8b4c4'; ctx.beginPath(); ctx.ellipse(cx, cy - 9, 7, 3.6, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#6a6678'; ctx.beginPath(); ctx.ellipse(cx, cy - 9, 4.6, 2.2, 0, 0, Math.PI * 2); ctx.fill();
+      for (let a = 0; a < 8; a++) {                                                               // crenellations round the rim
+        const t = a / 8 * Math.PI * 2, mx = cx + Math.cos(t) * 6.3, my = cy - 9 + Math.sin(t) * 3.1;
+        ctx.fillStyle = OUT; rr(mx - 1.3, my - 1.6, 2.6, 2.6, 0.6); ctx.fill();
+        ctx.fillStyle = Math.sin(t) < 0 || Math.cos(t) < 0 ? '#dcd8e6' : '#a8a4b4'; ctx.fillRect(mx - 0.8, my - 1.1, 1.6, 1.4);
+      }
+    };
+    const doors = (cx, cy, dir) => {                                     // a wooden door swung open toward the town
+      ctx.fillStyle = OUT; rr(cx + 4, cy + dir * 1 - 1.5, 9, 3, 0.8); ctx.fill();
+      ctx.fillStyle = '#7a5430'; ctx.fillRect(cx + 4.5, cy + dir * 1 - 1, 8, 2);
+      ctx.fillStyle = '#a07040'; ctx.fillRect(cx + 4.5, cy + dir * 1 - 1, 8, 0.6);
+      ctx.fillStyle = '#3a2a1a'; ctx.fillRect(cx + 7, cy + dir * 1 - 1, 0.5, 2); ctx.fillRect(cx + 10, cy + dir * 1 - 1, 0.5, 2);
+    };
+    const cx = x + w / 2, spots = [];
+    for (let k = 0; k < segs.length; k++) {
+      const [y0, y1] = segs[k];
+      spots.push(y0 + 3, y1 - 1);
+      const n = Math.floor((y1 - y0) / 110);
+      for (let i = 1; i <= n; i++) spots.push(Math.round(y0 + (y1 - y0) * i / (n + 1)));
+      if (k + 1 < segs.length) { doors(cx, y1 + 1, 1); doors(cx, segs[k + 1][0] - 2, -1); }
+    }
+    for (const y of spots.sort((a, b) => a - b)) tower(cx, y);
   }
 }
 const GROUND_NAMES = Object.keys(GROUND);
