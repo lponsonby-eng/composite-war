@@ -428,6 +428,8 @@ body[data-mode="battle"] #bminimap { top: 118px; }
 #modal .sigl { font-size: 16px; color: #d8dcec; }
 /* story scenes */
 #modal .scene img { width: 88px; height: 88px; border-radius: 3px; }
+/* generated hero portraits are 64 px pixel art: shown at exactly 2x, with hard pixel edges */
+#modal .scene img.pt { width: 128px; height: 128px; image-rendering: pixelated; border-radius: 4px; }
 #modal .scene .who { font-size: 22px; font-weight: 700; }
 #modal .scene p { font-size: 19px; line-height: 1.45; color: #fff6e0; }
 #modal .scene.narr p { color: #ece2c6; }
@@ -445,6 +447,7 @@ body[data-mode="battle"] #bminimap { top: 118px; }
   #modal .box { font-size: 16px; padding: 16px; }
   #modal h2 { font-size: 24px; }
   #modal .scene img { width: 64px; height: 64px; }
+  #modal .scene img.pt { width: 64px; height: 64px; }
   #modal .scene p { font-size: 17px; }
 }
 
@@ -454,3 +457,10 @@ body[data-mode="battle"] #bminimap { top: 118px; }
 .lmpow b { color: var(--fc); font-weight: 700; }
 .lmk { float: right; font-weight: 700; color: var(--accent); }
 .lmtag { font-size: 12px; font-weight: 700; color: #1c2034; background: var(--accent); border-radius: 3px; padding: 0 5px; white-space: nowrap; }
+
+/* ---------- battle morale ---------- */
+.bh-bar.mo i { background: #9fe8a0; }
+.bh-bar.mo.wavering i { background: #ffd06a; }
+.bh-bar.mo.routing i { background: #ff7a6a; }
+.bh-st { display: block; font-size: 11px; font-weight: 700; color: #9fe8a0; letter-spacing: .02em; }
+.bh-st.wavering { color: #ffd06a; } .bh-st.routing { color: #ff8a7a; }

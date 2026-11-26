@@ -3,7 +3,7 @@
 //  dunes, lava, crystals and town walls.
 //  The field is a grid of 8x8 cells. Every cell has a ground kind (how fast units
 //  move through it, how much cover it gives) and a height (0 = low ground, about
-//  1 = a hilltop). High ground lets shooters reach further and see further, gives
+//  1 = a hilltop). High ground lets shooters reach further (and see further with fog), gives
 //  melee the edge downhill and slows anyone climbing; forests hide the units in them.
 //  The layout comes from the town's `terrain` (see FIELD_RECIPES) and region, and
 //  `walls`, seeded by the town's id so the same town always gives the same field.
@@ -30,6 +30,7 @@ const REGION_FIELD = { darkwood: { forests: 5 }, bog: { streams: 1, lakes: 1 }, 
 
 class Terrain {
   constructor(spotId, W, H) {
+    this.spotId = spotId;
     const s = DATA.spots[spotId] || {};
     this.W = W; this.H = H; this.C = 8;
     this.cols = Math.ceil(W / this.C); this.rows = Math.ceil(H / this.C);
@@ -264,6 +265,9 @@ class Terrain {
         for (let k = 1; k <= 6; k++) this.cover[i + k] = DATA.ground.wall.behindCover;  // shelter behind the wall
       }
     }
+    // scattered trees along the top and bottom edges
+    for (let x = 40; x < (this.walls ? this.wallX - 60 : W - 40); x += 70) for (const edge of [0, 1]) if (rng() < 0.55)   // (not inside a town)
+      this.blob(x + (rng() - 0.5) * 40, edge ? H - 20 - rng() * 30 : 20 + rng() * 30, 10 + rng() * 14, G.forest, [G.grass, G.snow, G.sand, G.mud]);
     // never block the starting areas: no water, lava or rocks where armies deploy
     const blocks = [G.water, G.lava, G.rock, G.ice];
     for (let y = 0; y < this.rows; y++) for (let x = 0; x < this.cols; x++) {
@@ -482,9 +486,10 @@ class Terrain {
     }
     spots.push([wx + 205, mid + 16, 2, 82]);
     spots.sort((a, b) => a[1] - b[1]);
+    let n = 0;
     for (const [x, y, size, want] of spots) {               // want: drawn width of the building itself
       if (y > H - 4) continue;
-      const im = Art.building(style, size), bw = im.box.x1 - im.box.x0 + 1;
+      const im = Art.building(style, size, size === 2 ? this.spotId || 1 : `${this.spotId}:${n++ % 6}`), bw = im.box.x1 - im.box.x0 + 1;
       const sc = Math.min(3.2, want / bw), half = bw * sc / 2;
       ctx.fillStyle = 'rgba(20,16,30,0.32)';
       ctx.beginPath(); ctx.ellipse(x + 3, y + 1, half * 0.95, half * 0.28, 0, 0, Math.PI * 2); ctx.fill();

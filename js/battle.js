@@ -25,7 +25,10 @@ class Battle {
     this.factions = [opts.attFaction, opts.defFaction];
     this.playerSide = opts.playerSide === 'att' ? 0 : opts.playerSide === 'def' ? 1 : -1;
     this.headless = !!opts.headless;
-    this.units = []; this.squads = []; this.projs = []; this.fx = []; this.texts = [];
+    this.fog = !!DATA.battle.fog;
+    this.men = opts.men || (this.headless ? 1 : (B.men || 1));   // figures per campaign soldier (opts.men: for testing)
+    this.stats = { loss: 0, flank: 0, rear: 0, charge: 0, general: 0, hits: 0 };
+    this.units = []; this.squads = []; this.projs = []; this.fx = []; this.texts = []; this.dead = [];
     this.zones = []; this.pending = []; this.custom = {};
     this.time = 0; this.limit = DATA.battleTimeLimit;
     this.done = false; this.banner = null;
@@ -97,12 +100,13 @@ class Battle {
     for (const p of best) { this.putSquad(p.q, p.x, p.y); this.squads.push(p.q); }
   }
 
-  // A general's squad: the hero and their soldiers (placed later by putSquad).
+  // A general's squad: the hero and their men (placed later by putSquad). In a live
+  // battle each campaign soldier takes the field as `this.men` men.
   makeSquad(g, side, row, faceX) {
     const sq = {
       id: g.id, side, members: [], order: side === 1 ? 'hold' : 'advance', tx: 0, ty: 0,
       face: [faceX, 0], faceEnd: [faceX, 0], files: 0, auto: true, cd: {}, castT: Math.random(), skills: DATA.skillsOf(g.id).slice(),
-      back: DATA.roleOf(g.id) === 'back', row, level: g.level || 1, chargeT: -99,
+      back: DATA.roleOf(g.id) === 'back', row, level: g.level || 1, chargeT: -99, charging: false, rankT: 0,
     };
     const L = DATA.battle.mp;
     sq.maxMp = L.base + L.perLevel * sq.level; sq.mp = sq.maxMp * L.start;
@@ -111,11 +115,13 @@ class Battle {
     sq.leader = this.makeUnit(g, side, true, 0, 0, null, 1, sq);
     this.units.push(sq.leader);
     const mix = g.mix || [], lv = g.lv || [];
-    for (let k = 0; k < g.troops; k++) {
+    for (let k = 0; k < g.troops; k++) for (let m = 0; m < this.men; m++) {
       const u = this.makeUnit(g, side, false, 0, 0, mix[k], lv[k] || 1, sq);
-      u.slotK = k;
+      u.slotK = sq.members.length; u.troopK = k;
       sq.members.push(u); this.units.push(u);
     }
+    const M = DATA.battle.morale;
+    sq.startN = Math.max(1, sq.members.length); sq.morale = Math.min(100, M.start + M.perLevel * (sq.level - 1)); sq.state = 'steady';
     this.rank(sq);
     return sq;
   }
@@ -154,25 +160,31 @@ class Battle {
   }
   buffSquad(q, buff) { for (const u of this.squadUnits(q)) u.buffs.push({ ...buff }); }
 
-  // Squad shape: soldiers per rank (files), how wide and how deep it stands.
-  autoFiles(n) { return clamp(Math.round(Math.sqrt(n * 2.2)), 2, 8); }
-  filesOf(sq) { return sq.files || this.autoFiles(Math.max(1, sq.nFront || 0, sq.nBack || 0)); }
-  squadWidth(sq, files = this.filesOf(sq)) { return Math.max(1, Math.min(files, Math.max(sq.nFront, sq.nBack, 1))) * DATA.battle.spacing; }
-  squadDepth(sq, files = this.filesOf(sq)) {
-    const D = DATA.battle.rankDepth;
-    return (Math.ceil(sq.nFront / files) + Math.ceil(sq.nBack / files) + 1) * D + D;
+  // Block shape: how many ranks deep and files wide a block of n men stands. By default
+  // a squarish block; `files` (a frontage the player drew) fixes the width instead.
+  blockShape(n, files = 0) {
+    if (files) { const f = Math.max(1, Math.min(files, n)); return { depth: Math.ceil(n / f), files: f }; }
+    const depth = Math.max(1, Math.min(8, Math.round(Math.sqrt(n / 2.4))));
+    return { depth, files: Math.ceil(n / depth) };
+  }
+  squadN(sq) { return Math.max(1, sq.nFront || 0, sq.nBack || 0); }
+  squadWidth(sq, files = sq.files) { return this.blockShape(this.squadN(sq), files).files * DATA.battle.spacing; }
+  squadDepth(sq, files = sq.files) {
+    const S = DATA.battle.spacing, d = n => n ? this.blockShape(n, files).depth : 0;
+    return (d(sq.nFront) + d(sq.nBack)) * S + 24;
   }
 
-  // Where soldier k stands relative to their general, facing the way the squad faces:
-  // frontline soldiers in ranks in front of the general, backline soldiers in ranks
-  // behind, `files` soldiers to a rank (a short last rank is centred).
-  slot(sq, k, face = sq.face, files = this.filesOf(sq)) {
-    const B = DATA.battle, SP = B.spacing, DP = B.rankDepth;
+  // Where man k stands relative to their general, facing the way the squad faces: a
+  // block of ranks, frontline men in front of the general, backline men (archers,
+  // casters) behind, each rank a little staggered.
+  slot(sq, k, face = sq.face, files = sq.files) {
     const back = sq.backIdx[k] != null;
     const i = (back ? sq.backIdx[k] : sq.frontIdx[k]) ?? 0;
-    const n = Math.max(1, back ? sq.nBack : (sq.nFront || sq.nBack)), w = Math.max(1, Math.min(n, files));
-    const rank = Math.floor(i / w), file = i % w, inRank = Math.min(w, n - rank * w);
-    const l = (file - (inRank - 1) / 2) * SP, f = back ? -(DP + 2 + rank * DP) : DP + 2 + rank * DP;
+    const n = Math.max(1, back ? sq.nBack : (sq.nFront || sq.nBack)), S = DATA.battle.spacing;
+    const { depth, files: fl } = this.blockShape(n, files);
+    const rank = i % depth, file = Math.floor(i / depth);
+    const jit = ((k * 37) % 5 - 2) * 0.5;
+    const f = back ? -(12 + rank * S) : 12 + (depth - 1 - rank) * S, l = (file - (fl - 1) / 2) * S + (rank % 2) * S * 0.5 + jit;
     const [fx, fy] = face;
     return [fx * f - fy * l, fy * f + fx * l];
   }
@@ -192,7 +204,8 @@ class Battle {
     const L = DATA.leveling, lv = (g.level || 1) - 1;
     const boost = 1 + lv * (isLeader ? L.leaderBonus : L.squadBonus);
     const sb = isLeader ? { hp: 1, atk: 1, def: 0 } : DATA.soldierBoost(slv);       // soldier level and tier
-    const hp = Math.round((isLeader ? t.hp * 5 : t.hp) * boost * sb.hp * (1 + (P.hp || 0) * k));
+    const big = this.men > 1 ? DATA.battle.menHp : 1;                                // big battles: tougher men, slower grind
+    const hp = Math.round((isLeader ? t.hp * 5 * (this.men > 1 ? 3 : 1) : t.hp) * big * boost * sb.hp * (1 + (P.hp || 0) * k));
     const V = DATA.battle.vision;
     return {
       side, gid: g.id, sq, isLeader, t, back: isLeader ? DATA.roleOf(g.id) === 'back' : t.role === 'back',
@@ -236,9 +249,9 @@ class Battle {
     const files = new Map();
     if (width > 20) {                                        // share the drawn frontage out
       const widest = Math.max(...rows.map(r => r.length)), each = (width - gap * (widest - 1)) / widest;
-      for (const q of squads) files.set(q, clamp(Math.round(each / B.spacing), 2, 16));
+      for (const q of squads) files.set(q, clamp(Math.round(each / B.spacing), 2, 60));
     }
-    const fOf = q => files.get(q) || this.filesOf(q);
+    const fOf = q => files.get(q) || q.files;
     const out = [];
     let back = 0, prevDepth = 0;
     rows.forEach((row, r) => {
@@ -287,7 +300,7 @@ class Battle {
     for (const q of this.squads) {
       if (q.side === this.playerSide || !q.leader.alive || q.order !== 'hold') continue;
       if (q.side === 1 && this.terrain.walls) continue;
-      const near = this.units.some(e => e.side !== q.side && e.alive && e.seen[q.side] && udist(e, q.leader) < 380);
+      const near = this.squads.some(e => e.side !== q.side && e.seenBy && e.seenBy[q.side] && Math.hypot(e.cx - q.leader.x, e.cy - q.leader.y) < 380);
       if (near || this.time > 70) q.order = 'advance';
     }
   }
@@ -445,6 +458,7 @@ class Battle {
     if (this.done || this.paused) return;
     this.time += dt;
     this.sizeUp();
+    this.moraleStep(dt);
     this.aiOrders();
 
     // skills: regenerate MP, walk-then-cast, and auto-casting
@@ -486,7 +500,7 @@ class Battle {
         u.walkT += dt;
         if (u.atkT <= 0) u.dir = faceDir(vx, vy);
       }
-      if (u.sq.order === 'retreat' || u.routing) { if (u.x < -6 || u.x > this.W + 6) u.escaped = true; }
+      if (u.sq.order === 'retreat' || u.routing) { if (u.x < -6 || u.x > this.W + 6 || u.y < 8 || u.y > this.H - 4) u.escaped = true; }
       else u.x = clamp(u.x, 4, this.W - 4);
       u.y = clamp(u.y, 14, this.H - 6);
     }
@@ -508,6 +522,56 @@ class Battle {
     else if (this.time >= this.limit) this.finish(1);
   }
 
+  // ------------------------------------------------------------------ morale
+  // Which side of tg's block u is striking: front, side (flank) or rear.
+  flankOf(u, tg) {
+    const q = tg.sq; if (q.cx == null) return 'front';
+    let dx = u.x - q.cx, dy = u.y - q.cy; const d = Math.hypot(dx, dy) || 1;
+    const dot = (dx / d) * q.face[0] + (dy / d) * q.face[1];
+    return dot > 0.35 ? 'front' : dot < -0.35 ? 'rear' : 'side';
+  }
+  // A melee blow shakes the block that takes it: more from the flank or rear, more from a charge.
+  shock(q, side, charged) {
+    const M = DATA.battle.morale;
+    let k = (side === 'rear' ? M.rear : side === 'side' ? M.flank : 0) + (charged ? M.charge : 0);
+    if (k) q.morale -= k / q.startN;
+    this.stats.hits++; if (side !== 'front') this.stats[side === 'rear' ? 'rear' : 'flank'] += (side === 'rear' ? M.rear : M.flank) / q.startN; if (charged) this.stats.charge += M.charge / q.startN;
+  }
+  // Morale each step: blocks wheel toward the enemy they fight, recover out of contact,
+  // waver, rout (and rally once safe), and a rout shakes nearby friends.
+  moraleStep(dt) {
+    const M = DATA.battle.morale, turn = DATA.battle.turnRate * dt;
+    for (const q of this.squads) {
+      if (!q.alive) { q.state = 'lost'; continue; }
+      // wheel to face the enemy block (unless marching to an ordered spot)
+      if (q.tsq && q.order !== 'move' && q.state !== 'routing' && (q.order !== 'hold' || q.closest < 90)) {
+        const want = Math.atan2(q.tsq.cy - q.cy, q.tsq.cx - q.cx), now = Math.atan2(q.face[1], q.face[0]);
+        let da = ((want - now + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+        da = Math.max(-turn, Math.min(turn, da));
+        q.face = [Math.cos(now + da), Math.sin(now + da)];
+      }
+      const engaged = q.closest < 70, leaderless = !q.leader.alive;
+      if (!engaged && !leaderless) q.morale = Math.min(100, q.morale + M.recover * dt);
+      const was = q.state;
+      if (q.state === 'routing') {
+        if (!leaderless && !q.leader.escaped && !engaged && q.morale >= M.rally) q.state = 'steady';
+      } else q.state = q.morale < M.rout ? 'routing' : q.morale < M.wavering ? 'wavering' : 'steady';
+      if (q.state !== was) {
+        const all = q.members.concat([q.leader]);
+        if (q.state === 'routing') {
+          for (const u of all) if (u.alive && !u.escaped) { u.routing = true; u.routT = 1e9; }
+          this.sel.delete(q);
+          if (!this.headless) this.texts.push({ x: q.cx, y: q.cy - 30, s: 'Routed!', life: 1.6, color: '#ff8a7a' });
+          for (const f of this.squads) if (f !== q && f.side === q.side && f.live && Math.hypot(f.cx - q.cx, f.cy - q.cy) < 240) f.morale -= M.nearbyRout;
+        } else if (was === 'routing') {
+          for (const u of all) if (u.alive && !u.escaped) u.routing = false;
+          q.order = 'hold'; q.tx = q.leader.x; q.ty = q.leader.y;
+          if (!this.headless) this.texts.push({ x: q.cx, y: q.cy - 30, s: 'Rallied!', life: 1.6, color: '#9fe8a0' });
+        } else if (q.state === 'wavering' && !this.headless) this.texts.push({ x: q.cx, y: q.cy - 30, s: 'Wavering', life: 1.2, color: '#ffd06a' });
+      }
+    }
+  }
+
   applyBuffs(u) {
     const b = u.b; b.atk = 1; b.def = 0; b.spd = 1; b.range = 0; b.view = 0;
     if (!u.buffs.length) return;
@@ -525,10 +589,10 @@ class Battle {
       const s = Math.min(speed, d * 4);
       return [(gx - u.x) / d * s, (gy - u.y) / d * s];
     };
-    if (u.routing) {                                     // general fell: run away and vanish
+    if (u.routing) {                                     // routed: run for your own edge of the field
       u.routT -= dt;
       if (u.routT <= 0) { u.alive = false; this.addFx('smoke', u.x, u.y - 6, 0.5); }
-      return [(u.side === 0 ? -1 : 1) * u.spd * 1.3, 0];
+      return [(u.side === 0 ? -1 : 1) * u.spd * 1.25, ((u.slotK || 0) % 3 - 1) * u.spd * 0.25];
     }
     if (q.order === 'retreat') return go(u.side === 0 ? -30 : this.W + 30, u.y, u.spd * 1.2);
 
@@ -582,13 +646,22 @@ class Battle {
         if (u.cdLeft <= 0 && !u.heal) { this.attack(u, tg); u.cdLeft = u.cd; u.atkT = 0.25; }
         return [0, 0];
       }
-      // engagement charge: pushing frontline troops break into a run near their target
+      // engagement charge: a pushing frontline block breaks into a run as it closes
+      // (the general's distance sets it off for the whole block)
       const CH = DATA.battle.charge, pushing = q.order === 'advance' || q.order === 'attack';
       let speed = u.spd;
-      if (!u.back && pushing && d < CH.dist) {
+      if (u.isLeader) {
+        const was = q.charging;
+        q.charging = !q.back && pushing && d < CH.dist;
+        if (q.charging && !was) this.chargeCry(q);
+      }
+      if (!u.back && pushing && (q.charging || d < CH.dist) && q.state !== 'routing') {
         speed *= CH.speed;
-        if (!u.charging) { u.charging = true; u.impact = true; this.chargeCry(q); }
+        if (!u.charging) { u.charging = true; u.impact = true; }
       } else { u.charging = false; if (!pushing) u.impact = false; }
+      // in a big block only the men near the enemy break ranks; the rest keep their places
+      // and the block presses forward behind its general
+      if (this.men > 1 && !u.isLeader && !u.back && L.alive && d > 36 && q.state !== 'routing' && q.order !== 'attack') return go(ax, ay, speed);
       let [vx, vy] = go(tg.x, tg.y, speed);
       // backline: don't walk out in front of your own front line
       const fx = this.frontX[u.side];
@@ -625,24 +698,35 @@ class Battle {
 
   // Which visible enemy to go for. Holding squads only fight near their post;
   // wall defenders deal with anyone inside first; frontline protects its backline.
+  // The squad picks an enemy block (see sizeUp); each man goes for the nearest man of
+  // that block, or anyone already close. Holding squads only fight near their post;
+  // wall defenders deal with anyone inside first.
   pickTarget(u) {
-    const q = u.sq, T = this.terrain, G = DATA.roles.front.guardRadius;
+    const q = u.sq, T = this.terrain;
     const walled = u.side === 1 && T.walls && u.x > T.wallX, inside = e => e.x > T.wallX + 6;
     const anchor = u.isLeader ? (q.order === 'hold' ? { x: q.tx, y: q.ty } : u) : q.leader.alive ? q.leader : u;
     const leash = q.order === 'hold' ? 150 : q.order === 'attack' ? 240 : u.isLeader ? 1e9 : 170;
-    const mine = u.back ? [] : this.units.filter(a => a.side === u.side && a.back && a.alive && !a.routing && udist(a, u) < 260);
     let best = null, bd = 1e9;
-    for (const e of this.units) {
-      if (e.side === u.side || !e.alive || e.escaped || e.routing || !e.seen[u.side]) continue;
-      const d2 = (e.x - u.x) ** 2 + (e.y - u.y) ** 2, r2 = (this.unitReach(u, e) + 4) ** 2;
-      if (Math.hypot(e.x - anchor.x, e.y - anchor.y) > leash && d2 > r2) continue;
-      if (walled && !inside(e) && d2 > r2) continue;
-      let s = d2;
-      if (q.order === 'attack' && e.sq === q.target?.sq) s -= 40000;          // ordered target first
-      if (mine.length && mine.some(a => Math.abs(a.x - e.x) < G && Math.abs(a.y - e.y) < G)) s -= G * G;
-      if (s < bd) { bd = s; best = e; }
-    }
+    const consider = e => {
+      if (e.side === u.side || !e.alive || e.escaped || e.routing || !e.seen[u.side]) return;
+      const d2 = (e.x - u.x) ** 2 + (e.y - u.y) ** 2, r2 = (this.unitReach(u, e) + 4) ** 2;   // shooters reach further downhill
+      if (d2 > r2 && Math.hypot(e.x - anchor.x, e.y - anchor.y) > leash) return;
+      if (walled && !inside(e) && d2 > r2) return;
+      if (d2 < bd) { bd = d2; best = e; }
+    };
+    for (const e of this.nearby(u, Math.max(48, (u.range + u.b.range) * 1.5 + 8))) consider(e);
+    const tq = q.order === 'attack' && q.target ? q.target.sq : q.tsq;
+    if (tq) { consider(tq.leader); for (const e of tq.members) consider(e); }
     return best;
+  }
+  // Enemies within r of u, from the grid built in sizeUp.
+  nearby(u, r) {
+    const out = [], C = this.gridC, n = Math.ceil(r / C), cx = Math.floor(u.x / C), cy = Math.floor(u.y / C);
+    for (let gx = cx - n; gx <= cx + n; gx++) for (let gy = cy - n; gy <= cy + n; gy++) {
+      const cell = this.grid && this.grid.get(gx * 4096 + gy); if (!cell) continue;
+      for (const e of cell) if (e.side !== u.side) out.push(e);
+    }
+    return out;
   }
 
   separate() {
@@ -657,8 +741,9 @@ class Battle {
         for (const b of cell) {
           if (b === a) continue;
           const dx = b.x - a.x, dy = b.y - a.y, d2 = dx * dx + dy * dy;
-          if (d2 < P2 && d2 > 0.0001) {
-            const d = Math.sqrt(d2), push = (P - d) * 0.12, nx = a.x - dx / d * push, ny = a.y - dy / d * push;
+          const R0 = this.men > 1 ? DATA.battle.personalMen : P;
+          if (d2 < R0 * R0 && d2 > 0.0001) {
+            const d = Math.sqrt(d2), push = (R0 - d) * 0.12, nx = a.x - dx / d * push, ny = a.y - dy / d * push;
             if (this.terrain.passable(nx, ny)) { a.x = nx; a.y = ny; }
           }
         }
@@ -691,8 +776,8 @@ class Battle {
 
   mostHurt(u) {
     let best = null, worst = 0.999;
-    for (const a of this.units) {
-      if (a.side !== u.side || !a.alive || a.escaped || a.routing) continue;
+    for (const a of u.sq.members.concat([u.sq.leader])) {
+      if (!a.alive || a.escaped || a.routing) continue;
       const f = a.hp / a.maxHp;
       if (f < worst && Math.hypot(a.x - u.x, a.y - u.y) <= u.range + 4) { worst = f; best = a; }
     }
@@ -710,29 +795,73 @@ class Battle {
 
   // Once per step: who can see whom (fog of war), each unit's nearest enemy and
   // nearest frontline enemy, and where each side's front line is. A coarse grid keeps it fast.
+  // Built to stay fast with hundreds of men: a fine grid for who is close to whom, a coarse
+  // sight map per side (a cell is seen if any man of that side sees it), and per squad its
+  // centre, whether it is seen, and the enemy block it is facing up to.
   sizeUp() {
     const live = this.units.filter(u => u.alive && !u.escaped && !u.routing);
-    const grid = new Map(), C = 64;
+    const grid = new Map(), C = 32;
+    this.grid = grid; this.gridC = C;
     const T = this.terrain, B = DATA.battle, spot = B.forestSpot;
+    for (const q of this.squads) if (q.rerank && this.time - q.rankT > 0.8) { this.rank(q); q.rerank = false; q.rankT = this.time; }   // ranks close up
     for (const u of live) {
       u.seen[0] = u.seen[1] = false;
       u.h = T.heightAt(u.x, u.y); u.hidden = T.hidesAt(u.x, u.y) && u.revealT <= 0;
       const k = Math.floor(u.x / C) * 4096 + Math.floor(u.y / C);
       (grid.get(k) || grid.set(k, []).get(k)).push(u);
     }
+    // sight: without fog of war everyone sees the whole field
+    if (!this.fog) for (const e of live) { e.seen[0] = e.seen[1] = true; }
+    else {
+    const V = 40, vw = Math.ceil(this.W / V) + 1, vh = Math.ceil(this.H / V) + 1;
+    const sight = [new Uint8Array(vw * vh), new Uint8Array(vw * vh)];
+    for (const u of live) {
+      const r = this.viewOf(u), cx = u.x / V, cy = u.y / V, n = Math.ceil(r / V), S = sight[u.side];   // hilltops see further
+      const x0 = Math.max(0, Math.floor(cx) - n), x1 = Math.min(vw - 1, Math.floor(cx) + n), y0 = Math.max(0, Math.floor(cy) - n), y1 = Math.min(vh - 1, Math.floor(cy) + n);
+      for (let gy = y0; gy <= y1; gy++) for (let gx = x0; gx <= x1; gx++)
+        if (!S[gy * vw + gx] && (gx + 0.5 - cx) ** 2 + (gy + 0.5 - cy) ** 2 <= (r / V) ** 2) S[gy * vw + gx] = 1;
+    }
+    for (const e of live) { const i = Math.floor(e.y / V) * vw + Math.floor(e.x / V); e.seen[0] = !!sight[0][i] || e.side === 0; e.seen[1] = !!sight[1][i] || e.side === 1; }
+    }
+    // troops in woods are only seen by enemies close by (or for a moment after they attack)
+    for (const e of live) if (e.hidden && e.seen[1 - e.side] && !this.spotted(e, spot)) e.seen[1 - e.side] = false;
+    // each man's nearest enemy (only close ones matter: pinning, stepping back, being caught in melee)
     for (const u of live) {
       u.closestD = 1e9; u.frontFoe = null; u.frontFoeD = 1e9;
-      const r = this.viewOf(u), n = Math.ceil(r / C), cx = Math.floor(u.x / C), cy = Math.floor(u.y / C);
-      for (let gx = cx - n; gx <= cx + n; gx++) for (let gy = cy - n; gy <= cy + n; gy++) {
+      const cx = Math.floor(u.x / C), cy = Math.floor(u.y / C);
+      for (let gx = cx - 1; gx <= cx + 1; gx++) for (let gy = cy - 1; gy <= cy + 1; gy++) {
         const cell = grid.get(gx * 4096 + gy); if (!cell) continue;
         for (const e of cell) {
           if (e.side === u.side) continue;
           const d = Math.hypot(e.x - u.x, e.y - u.y);
-          if (d <= r && (!e.hidden || d <= spot)) e.seen[u.side] = true;     // troops in woods are only seen up close
           if (d < u.closestD) u.closestD = d;
           if (!e.back && d < u.frontFoeD) { u.frontFoeD = d; u.frontFoe = e; }
         }
       }
+    }
+    // squads: centre, seen or not, how close the enemy is, and which enemy block to go for
+    for (const q of this.squads) {
+      const all = q.members.concat([q.leader]).filter(u => u.alive && !u.escaped);
+      const m = all.filter(u => !u.routing);
+      q.live = m.length; q.alive = all.length;
+      if (!m.length) { q.seenBy = [false, false]; q.closest = 1e9; if (all.length) { q.cx = all.reduce((a, u) => a + u.x, 0) / all.length; q.cy = all.reduce((a, u) => a + u.y, 0) / all.length; } continue; }
+      q.cx = m.reduce((a, u) => a + u.x, 0) / m.length; q.cy = m.reduce((a, u) => a + u.y, 0) / m.length;
+      q.seenBy = [m.some(u => u.seen[0]), m.some(u => u.seen[1])];
+      q.closest = Math.min(...m.map(u => u.closestD));
+    }
+    for (const q of this.squads) {
+      if (!q.live) { q.tsq = null; continue; }
+      const T = this.terrain, walled = q.side === 1 && T.walls;
+      let best = null, bd = 1e9;
+      for (const e of this.squads) {
+        if (e.side === q.side || !e.live || !e.seenBy[q.side]) continue;
+        let d = Math.hypot(e.cx - q.cx, e.cy - q.cy);
+        if (walled && e.cx > T.wallX) d -= 400;                                     // intruders first
+        if (!q.back) for (const f of this.squads)                                     // protect your own backline
+          if (f.side === q.side && f.back && f.live && Math.hypot(f.cx - e.cx, f.cy - e.cy) < 120) d -= 150;
+        if (d < bd) { bd = d; best = e; }
+      }
+      q.tsq = best;
     }
     for (const s of [0, 1]) {
       const seen = live.filter(e => e.side !== s && e.seen[s]);
@@ -744,6 +873,15 @@ class Battle {
     });
   }
 
+  // Is any enemy of e within r of it (grid from sizeUp)?
+  spotted(e, r) {
+    const C = this.gridC, n = Math.ceil(r / C), cx = Math.floor(e.x / C), cy = Math.floor(e.y / C);
+    for (let gx = cx - n; gx <= cx + n; gx++) for (let gy = cy - n; gy <= cy + n; gy++) {
+      const cell = this.grid.get(gx * 4096 + gy); if (!cell) continue;
+      for (const o of cell) if (o.side !== e.side && (o.x - e.x) ** 2 + (o.y - e.y) ** 2 <= r * r) return true;
+    }
+    return false;
+  }
   // How far a unit sees: further from high ground.
   viewOf(u) { return (u.view + u.b.view) * (1 + DATA.battle.hills.view * u.h); }
 
@@ -770,9 +908,14 @@ class Battle {
       dmg *= C.chargeMul;
     }
     else if (u.impact && !u.t.proj) dmg *= DATA.battle.charge.impact;  // infantry charging home
+    const charged = (u.run >= C.chargeRun && u.cav) || (u.impact && !u.t.proj);
     u.run = 0; u.impact = false; u.revealT = 2;                       // fighting gives away a hidden position
     if (!u.t.proj) dmg *= 1 + DATA.battle.hills.melee * clamp(u.h - tg.h, -1, 1);   // fighting downhill
+    if (u.sq.state === 'wavering') dmg *= DATA.battle.morale.waverAtk;
     if (u.t.antiCav && tg.cav) dmg *= DATA.antiCavMul;               // spears against horses
+    const side = u.t.proj ? 'front' : this.flankOf(u, tg);            // blows into a block's flank or rear land hard
+    if (side !== 'front') dmg *= DATA.battle.flank[side];
+    if (!u.t.proj) this.shock(tg.sq, side, charged);
     if (u.back) dmg *= R.power;                                    // shooting from safety hits hard...
     if (u.back && u.closestD < R.exposedRange) dmg *= R.meleePenalty;   // ...but caught in melee, much less
     if (u.t.proj) {
@@ -780,7 +923,7 @@ class Battle {
         splash: u.splash || 0, img: u.t.proj, speed: u.t.splash ? 170 : 250, angle: 0 });
       if (!this.headless && u.t.splash && this.seenByPlayer(u)) Assets.sfx('magic-1', 0.25);
     } else {
-      this.addFx('slash', tg.x, tg.y - 6, 0.25);
+      if (!this.headless && (this.men === 1 || Math.random() < 0.3)) this.fx.push({ name: 'arc', x: tg.x, y: tg.y - 7, t: 0, dur: 0.22, a: Math.atan2(tg.y - u.y, tg.x - u.x), flip: Math.random() < 0.5 });
       if (!this.headless && this.seenByPlayer(u)) Assets.sfx('sword', 0.3);
       this.damage(tg, dmg, u.gid, false, u);
     }
@@ -793,16 +936,22 @@ class Battle {
     const def = (v.def + v.b.def + fort) * (ranged ? 1 - DATA.roles.back.pierce : 1);       // arrows and spells pierce armour
     const dmg = Math.max(1, Math.round(amount * (0.85 + Math.random() * 0.3) - def));
     v.hp -= dmg; v.hitT = 0.12;
-    if (!this.headless) this.texts.push({ x: v.x, y: v.y - 16, s: String(dmg), life: 0.6, color: v.isLeader ? '#ffd84a' : '#ffffff' });
+    if (!this.headless && (this.men === 1 || v.isLeader)) this.texts.push({ x: v.x, y: v.y - 16, s: String(dmg), life: 0.6, color: v.isLeader ? '#ffd84a' : '#ffffff' });
     if (v.hp <= 0) {
       v.alive = false;
-      if (byGid) this.xp[byGid] = (this.xp[byGid] || 0) + (v.isLeader ? DATA.leveling.killGeneral : DATA.leveling.killSoldier);
+      if (byGid) this.xp[byGid] = (this.xp[byGid] || 0) + (v.isLeader ? DATA.leveling.killGeneral : DATA.leveling.killSoldier / this.men);
+      const M = DATA.battle.morale, sq = v.sq;
+      if (!v.isLeader) { sq.morale -= M.losses / sq.startN; this.stats.loss += M.losses / sq.startN; }
       if (src) src.kills++;
-      if (!v.isLeader) this.rank(v.sq);                                 // the ranks close up
+      if (!v.isLeader) v.sq.rerank = true;                              // the ranks close up (see sizeUp)
       this.addFx('smoke', v.x, v.y - 6, 0.5);
+      if (!this.headless && !v.isLeader && Assets.img[v.sprite] && Assets.img[v.sprite].corpse) {   // the body stays where it fell
+        this.dead.push({ x: v.x, y: v.y, sprite: v.sprite, flip: Math.random() < 0.5 });
+        if (this.dead.length > 400) this.dead.shift();
+      }
       if (!this.headless && this.seenByPlayer(v)) Assets.sfx('kill', 0.35);
-      if (v.isLeader) {
-        for (const u of v.sq.members) if (u.alive) { u.routing = true; u.routT = 1.2; }
+      if (v.isLeader) {                                  // the general falls: a heavy blow to morale; a small squad breaks at once
+        sq.morale -= M.general + (sq.startN < 12 ? 100 : 0);
         this.sel.delete(v.sq);
         this.banner = { text: `${DATA.generals[v.gid].name} has fallen!`, t: 2.5, side: v.side };
       }
@@ -816,10 +965,15 @@ class Battle {
     this.winner = winnerSide === 0 ? 'att' : 'def';
     const res = side => (side === 0 ? this.opts.attackers : this.opts.defenders).map(g => {
       const q = this.squads.find(s => s.id === g.id), leader = q.leader;
-      const left = q.members.filter(u => (u.alive || u.escaped) && !u.routing);
+      // men back into campaign soldiers: as many as the survivors make up, taking the
+      // soldiers whose men fared best (escaped routers count as survivors)
+      const byT = {};
+      for (const u of q.members) { const k = u.troopK ?? u.slotK; const b = byT[k] || (byT[k] = { u, alive: 0, kills: 0 }); b.kills += u.kills; if (u.alive || u.escaped) b.alive++; }   // men still running at the end got away
+      const tot = Object.values(byT).reduce((a, b) => a + b.alive, 0), keep = Math.round(tot / this.men);
+      const left = Object.values(byT).sort((a, b) => b.alive - a.alive).slice(0, keep).filter(b => b.alive).map(b => Object.assign(Object.create(b.u), { kills: Math.round(b.kills / this.men) }));
       const troops = left.length;
       const L = DATA.leveling, won = (side === 0) === (winnerSide === 0);
-      const xp = (this.xp[g.id] || 0) + L.fought + (won ? L.won : 0);
+      const xp = Math.round((this.xp[g.id] || 0) + L.fought + (won ? L.won : 0));
       const ok = leader.alive || leader.escaped;
       const P = DATA.promotion;
       const lv = left.map(u => Math.min(P.maxLevel, u.lv + P.survive + (won ? P.win : 0) + u.kills * P.kill));
@@ -838,20 +992,20 @@ class Battle {
   sideInfo(side) {
     return this.squads.filter(q => q.side === side).map(q => ({
       id: q.id, q, hp: Math.max(0, q.leader.hp / q.leader.maxHp), alive: q.leader.alive, mp: q.mp / q.maxMp,
-      troops: q.members.filter(u => u.alive && !u.routing && !u.escaped).length,
+      troops: q.members.filter(u => u.alive && !u.routing && !u.escaped).length, morale: Math.max(0, q.morale) / 100, state: q.state,
     }));
   }
 
   // ------------------------------------------------------------------ fog of war
   seenByPlayer(u) { return this.playerSide < 0 || u.side === this.playerSide || u.seen[this.playerSide]; }
   cellVisible(x, y) {
-    if (this.playerSide < 0) return true;
+    if (this.playerSide < 0 || !this.fog) return true;
     const i = Math.floor(y / this.fogC) * this.fw + Math.floor(x / this.fogC);
     return this.visible[i] === 1;
   }
 
   updateFog() {
-    if (this.playerSide < 0) return;
+    if (this.playerSide < 0 || !this.fog) return;
     const C = this.fogC, fw = this.fw, fh = this.fh, vis = this.visible, lit = this.fogLit, ex = this.explored;
     vis.fill(0); lit.fill(0);
     for (const u of this.units) {
@@ -901,11 +1055,19 @@ class Battle {
       id.data[i + 3] = 255;
     }
     lc.putImageData(id, 0, 0);
-    ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(lo, 0, 0, lw * 4, lh * 4);
-    ctx.globalAlpha = 0.16;
-    for (let y = 0; y < this.H; y += 16) for (let x = 0; x < this.W; x += 16) HD.draw(ctx, T['tile:ground_grass'], x, y);
-    ctx.globalAlpha = 1;
+    const meadow = typeof Gen !== 'undefined' && Gen.on && PixelGen.generate('field', { seed: (seed >>> 0) % 9973 + 1, field: 'meadow' });
+    if (meadow) {
+      // generated leafy meadow, drawn so its pixels match the unit sprites (3/4 of a world pixel)
+      const tile = Gen.canvas(meadow.img, 64, 64, 0, 1), ts = 48;
+      ctx.imageSmoothingEnabled = false;
+      for (let y = 0; y < this.H; y += ts) for (let x = 0; x < this.W; x += ts) ctx.drawImage(tile, x, y, ts, ts);
+    } else {
+      ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(lo, 0, 0, lw * 4, lh * 4);
+      ctx.globalAlpha = 0.16;
+      for (let y = 0; y < this.H; y += 16) for (let x = 0; x < this.W; x += 16) HD.draw(ctx, T['tile:ground_grass'], x, y);
+      ctx.globalAlpha = 1;
+    }
     const tint = (DATA.regions[this.terrain.region] || {}).battle;
     if (tint) {                                    // recolour the grass to the region's ground (snow, sand, ash...)
       ctx.globalCompositeOperation = 'color'; ctx.fillStyle = tint; ctx.fillRect(0, 0, this.W, this.H);
@@ -913,10 +1075,15 @@ class Battle {
       ctx.globalAlpha = 1;
     }
     const lush = !['frost', 'sun', 'ember'].includes(this.terrain.region);
-    for (let i = 0; i < 90; i++) {
-      const n = ['grass_tuft', 'grass_tuft', 'bush'][Math.floor(rng() * 3)];
+    for (let i = 0; i < (meadow ? 26 : 90); i++) {
       const x = Math.floor(rng() * (this.W - 16)), y = Math.floor(rng() * (this.H - 16));
-      if (lush && this.terrain.kindAt(x + 8, y + 8) === GROUND.grass) HD.draw(ctx, T['tile:' + n], x, y);
+      if (!lush || this.terrain.kindAt(x + 8, y + 8) !== GROUND.grass) continue;
+      if (meadow) {                                // generated bushes, rocks and stumps
+        const kind = ['bush', 'bush', 'rock', 'stump'][Math.floor(rng() * 4)];
+        const p = PixelGen.generate('prop', { seed: 1 + Math.floor(rng() * 40), prop: kind }).img, c = Gen.canvas(p, p.w, p.h, 0, 1);
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(c, x, y, p.w * 0.75, p.h * 0.75);
+      } else HD.draw(ctx, T['tile:' + ['grass_tuft', 'grass_tuft', 'bush'][Math.floor(rng() * 3)]], x, y);
     }
     this.terrain.draw(ctx);
     return cv;
@@ -966,6 +1133,9 @@ class Battle {
       if (z.warn) { const k = 1 - (z.until - this.time); const im = Assets.img['fx:fireball']; if (im) HD.draw(ctx, im, 0, 0, 16, 16, Math.round(z.x - 8 + (1 - k) * 60), Math.round(z.y - 8 - (1 - k) * 160), 16, 16); }
     }
 
+    // the fallen, under everyone else
+    for (const d of this.dead || []) if (onScreen(d.x, d.y) && this.cellVisible(d.x, d.y)) Assets.drawCorpse(ctx, d.sprite, d.x, d.y, UNIT_SIZE.soldier, d.flip, 0.95);
+
     // selected squads: where they are going, as a faint ghost of the formation
     const lw = 1 / Math.max(0.5, this.cam.z);
     for (const q of this.sel) if (q.leader.alive && q.order === 'move') {
@@ -987,15 +1157,16 @@ class Battle {
     const list = this.units.filter(u => u.alive && !u.escaped && this.seenByPlayer(u) && onScreen(u.x, u.y)).sort((a, b) => a.y - b.y);
     for (const u of list) {                       // coloured shadows show which side a unit is on; selected squads get a ring
       const sel = this.sel.has(u.sq);
-      ctx.fillStyle = colors[u.side] + (u.isLeader ? 'ee' : 'aa');
-      ctx.beginPath(); ctx.ellipse(u.x, u.y + 1, u.isLeader ? 10 : 7.5, u.isLeader ? 3.8 : 3, 0, 0, Math.PI * 2); ctx.fill();
+      // a soft glow in the side's colour under every man (dimmer for big blocks so the ground still shows)
+      ctx.fillStyle = colors[u.side] + (u.isLeader ? 'cc' : this.men > 1 ? '55' : 'aa');
+      ctx.beginPath(); ctx.ellipse(u.x, u.y + 1, u.isLeader ? 10 : 6, u.isLeader ? 3.8 : 2.4, 0, 0, Math.PI * 2); ctx.fill();
       if (u.empowered > 0) {                       // landmark power: a pulsing glow in the side's colour
         const a = (0.25 + 0.2 * Math.sin(this.time * 4 + u.x)) * (0.5 + 0.5 * u.empowered);
         const g = ctx.createRadialGradient(u.x, u.y - 6, 1, u.x, u.y - 6, 13);
         g.addColorStop(0, `rgba(255,236,150,${a * 1.4})`); g.addColorStop(1, 'rgba(255,236,150,0)');
         ctx.fillStyle = g; ctx.fillRect(u.x - 13, u.y - 19, 26, 26);
       }
-      if (sel) { ctx.strokeStyle = '#ffe680'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.ellipse(u.x, u.y + 1, u.isLeader ? 12 : 9, u.isLeader ? 5 : 3.8, 0, 0, Math.PI * 2); ctx.stroke(); }
+      if (sel) { ctx.strokeStyle = 'rgba(120,200,255,0.95)'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.ellipse(u.x, u.y + 1, u.isLeader ? 12 : 7, u.isLeader ? 5 : 3, 0, 0, Math.PI * 2); ctx.stroke(); }
     }
     for (const u of list) {
       const moving = u.moving && u.atkT <= 0;
@@ -1006,18 +1177,26 @@ class Battle {
       if (!u.spriteO) u.spriteO = Assets.outlined(u.sprite, DATA.factions[this.factions[u.side]].neutral ? '#ffffff' : colors[u.side]);   // neutral troops: white
       Assets.drawUnit(ctx, u.spriteO, u.dir, moving ? frame : 0, u.atkT > 0, u.x - size / 2, top, alpha, size);
       if (u.isLeader) {
-        const fx = Math.round(u.x + 5), fy = Math.round(top - 9);
-        ctx.fillStyle = '#1a1020'; ctx.fillRect(fx - 1, fy - 1, 3, 13); ctx.fillRect(fx + 1, fy - 1, 9, 7);
-        ctx.fillStyle = '#7a5a36'; ctx.fillRect(fx, fy, 1, 11);
-        ctx.fillStyle = colors[u.side]; ctx.fillRect(fx + 1, fy, 8, 5);
         hpBar(ctx, u.x - 9, top - 3, 18, u.hp / u.maxHp, '#ffd84a');
         if (u.side === this.playerSide) hpBar(ctx, u.x - 9, top - 1, 18, u.sq.mp / u.sq.maxMp, '#6fb6ff');
-      } else if (u.hp < u.maxHp) {
+      } else if (u.hp < u.maxHp && this.men === 1) {                  // big battles: no bars over every man
         hpBar(ctx, u.x - 6, top - 2, 12, u.hp / u.maxHp, u.side === 0 ? '#7cf07c' : '#ff7a6a');
       }
       if (u.tier > 1) {                                   // promoted soldiers: silver pip (tier 2), two gold pips (tier 3)
         const col = u.tier === 3 ? '#ffd84a' : '#d8e0ec', px = Math.round(u.x) + 7, py = Math.round(top) + 2;
         for (let k = 0; k < u.tier - 1; k++) { ctx.fillStyle = '#1a1020'; ctx.fillRect(px - 1, py - 1 + k * 3, 4, 4); ctx.fillStyle = col; ctx.fillRect(px, py + k * 3, 2, 2); }
+      }
+    }
+    // each block's banner rises from its middle, with its morale when shaken
+    for (const q of this.squads) {
+      if (!q.live || !q.seenBy || !q.seenBy[Math.max(0, this.playerSide)] && this.playerSide >= 0 && q.side !== this.playerSide) continue;
+      if (!onScreen(q.cx, q.cy)) continue;
+      const f = this.factions[q.side], bx = Math.round(q.cx), by = Math.round(q.cy - 14);
+      if (typeof Heraldry !== 'undefined') Heraldry.draw(ctx, f, bx, by - Heraldry.poleLen(1), 1, this.time, { mine: q.side === this.playerSide, lift: 1 });
+      if (q.state !== 'steady') {
+        const txt = q.state === 'routing' ? 'Routing' : 'Wavering', col = q.state === 'routing' ? '#ff8a7a' : '#ffd06a';
+        ctx.font = '9px PixelFont'; ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeStyle = '#140c18';
+        ctx.strokeText(txt, bx, by - Heraldry.poleLen(1) - 4); ctx.fillStyle = col; ctx.fillText(txt, bx, by - Heraldry.poleLen(1) - 4);
       }
     }
     for (const p of this.projs) {
@@ -1029,11 +1208,18 @@ class Battle {
       HD.draw(ctx, im, -Math.floor(im.width / 2), -Math.floor(im.height / 2));
       ctx.restore();
     }
-    for (const f of this.fx) if (this.cellVisible(f.x, f.y)) Assets.drawFx(ctx, f.name, f.t, f.x, f.y);
+    for (const f of this.fx) {
+      if (!this.cellVisible(f.x, f.y)) continue;
+      if (f.name === 'arc') {                                  // a white sword-sweep, as in the reference battles
+        const k = f.t, a0 = f.a + (f.flip ? 1 : -1) * (1.1 - k * 1.6);
+        ctx.strokeStyle = `rgba(255,255,255,${0.95 * (1 - k)})`; ctx.lineWidth = 2.2 * (1 - k * 0.5); ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.arc(f.x, f.y, 7 + k * 3, a0 - 0.9, a0 + 0.9); ctx.stroke();
+      } else Assets.drawFx(ctx, f.name, f.t, f.x, f.y);
+    }
     for (const t of this.texts) if (this.cellVisible(t.x, t.y)) label(ctx, t.s, t.x, t.y, t.color, 'center', 12);
 
     // fog of war over everything, soft-edged
-    if (this.playerSide >= 0) {
+    if (this.playerSide >= 0 && this.fog) {
       ctx.imageSmoothingEnabled = true;
       ctx.drawImage(this.fogCanvas, 0, 0, this.fw * this.fogC, this.fh * this.fogC);
       ctx.imageSmoothingEnabled = false;
@@ -1069,14 +1255,15 @@ class Battle {
   // One squad's formation as a ghost at (p.x, p.y) facing p.face: a dot per soldier,
   // the general's banner spot, and an arrow showing which way they will face.
   drawGhost(ctx, p, alpha) {
-    const q = p.q, files = p.files || this.filesOf(q), col = DATA.factions[this.factions[q.side]].color;
+    const q = p.q, files = p.files || q.files, col = DATA.factions[this.factions[q.side]].color;
     ctx.globalAlpha = alpha;
     ctx.fillStyle = 'rgba(255,240,170,0.9)';
-    for (const u of q.members) if (u.alive && !u.routing) { const [ox, oy] = this.slot(q, u.slotK, p.face, files); ctx.fillRect(p.x + ox - 3.5, p.y + oy - 3.5, 7, 7); }
+    const dot = Math.max(3, DATA.battle.spacing * 0.55);
+    for (const u of q.members) if (u.alive && !u.routing) { const [ox, oy] = this.slot(q, u.slotK, p.face, files); ctx.fillRect(p.x + ox - dot / 2 - 1, p.y + oy - dot / 2 - 1, dot + 2, dot + 2); }
     ctx.fillStyle = col;
-    for (const u of q.members) if (u.alive && !u.routing) { const [ox, oy] = this.slot(q, u.slotK, p.face, files); ctx.fillRect(p.x + ox - 2.5, p.y + oy - 2.5, 5, 5); }
+    for (const u of q.members) if (u.alive && !u.routing) { const [ox, oy] = this.slot(q, u.slotK, p.face, files); ctx.fillRect(p.x + ox - dot / 2, p.y + oy - dot / 2, dot, dot); }
     ctx.fillStyle = '#ffe680'; ctx.fillRect(p.x - 2.5, p.y - 2.5, 5, 5);
-    const D = DATA.battle.rankDepth, [fx, fy] = p.face, w = this.squadWidth(q, files) / 2, tip = Math.ceil(Math.max(1, q.nFront) / files) * D + D + 8;
+    const [fx, fy] = p.face, w = this.squadWidth(q, files) / 2, tip = this.blockShape(Math.max(1, q.nFront), files).depth * DATA.battle.spacing + 22;
     ctx.strokeStyle = '#ffe680'; ctx.lineWidth = 1.5;
     ctx.beginPath();
     ctx.moveTo(p.x + fx * tip - fy * 7, p.y + fy * tip + fx * 7); ctx.lineTo(p.x + fx * (tip + 9), p.y + fy * (tip + 9)); ctx.lineTo(p.x + fx * tip + fy * 7, p.y + fy * tip - fx * 7);
@@ -1097,7 +1284,8 @@ class Battle {
       if (!q.leader.alive || q.leader.escaped) continue;
       const vis = this.squadUnits(q).filter(u => this.seenByPlayer(u));
       if (!vis.length) continue;
-      const c = centroid(vis), top = Math.min(...vis.map(u => u.y)) - (vis.includes(q.leader) ? 34 : 26);
+      const c = q.cx != null ? { x: q.cx, y: q.cy } : centroid(vis);
+      const top = c.y - 14 - (typeof Heraldry !== 'undefined' ? Heraldry.poleLen(1) : 20) - 18;     // just above the block's flag
       const sx = (c.x * this.scale + this.ox) / dpr, sy = (top * this.scale + this.oy) / dpr;
       if (sx < -40 || sy < -40 || sx > this.cw / dpr + 40 || sy > this.ch / dpr + 40) continue;
       const sel = this.sel.has(q), w = 44, h = 20, x0 = Math.round(sx - w / 2), y0 = Math.round(sy - h);
@@ -1113,8 +1301,13 @@ class Battle {
       label(ctx, String(alive), x0 + 32, y0 + 14, q.order === 'hold' || q.order === 'move' ? '#ffffff' : '#ffd8a0', 'center', 11);
       ctx.fillStyle = '#3a1820'; ctx.fillRect(x0, y0 + h + 1, w, 3);
       ctx.fillStyle = q.side === this.playerSide ? '#7cf07c' : '#ff7a6a'; ctx.fillRect(x0, y0 + h + 1, Math.round(w * alive / total), 3);
+      if (q.morale != null) {                                     // morale: blue when steady, amber wavering, red routing
+        ctx.fillStyle = '#1a1020'; ctx.fillRect(x0, y0 + h + 4, w, 3);
+        ctx.fillStyle = q.state === 'wavering' ? '#ffd06a' : q.state === 'routing' ? '#ff6a5a' : '#7ab8ff';
+        ctx.fillRect(x0, y0 + h + 4, Math.round(w * clamp(q.morale, 0, 100) / 100), 3);
+      }
       ctx.globalAlpha = 1;
-      this.bannerHits.push({ q, x0: x0 * dpr, y0: y0 * dpr, x1: (x0 + w) * dpr, y1: (y0 + h + 5) * dpr });
+      this.bannerHits.push({ q, x0: x0 * dpr, y0: y0 * dpr, x1: (x0 + w) * dpr, y1: (y0 + h + 7) * dpr });
     }
   }
   bannerAt(px, py) {
@@ -1144,7 +1337,7 @@ class Battle {
     }
     c.drawImage(this.thumb, 0, 0);
     c.imageSmoothingEnabled = true;
-    c.drawImage(this.fogCanvas, 0, 0, mc.width, mc.height);
+    if (this.fog) c.drawImage(this.fogCanvas, 0, 0, mc.width, mc.height);
     const colors = this.factions.map(f => DATA.factions[f].color);
     for (const u of this.units) {
       if (!u.alive || u.escaped || !this.seenByPlayer(u)) continue;
@@ -1167,7 +1360,7 @@ class Battle {
 // =============================================================================
 const SKILL_FX = {
   charge: (b, c) => { for (const u of c.team) { u.buffs.push({ spd: 1.7, until: b.time + c.S.dur }); u.run = 999; } },
-  rally: (b, c) => { for (const u of c.team) { u.hp = Math.min(u.maxHp, u.hp + u.maxHp * c.S.heal * c.pw); u.buffs.push({ def: c.S.def, until: b.time + c.S.dur }); } },
+  rally: (b, c) => { c.q.morale = Math.min(100, c.q.morale + 35); for (const u of c.team) { u.hp = Math.min(u.maxHp, u.hp + u.maxHp * c.S.heal * c.pw); u.buffs.push({ def: c.S.def, until: b.time + c.S.dur }); } },
   shieldwall: (b, c) => { for (const u of c.team) u.buffs.push({ def: c.S.def * c.pw, spd: c.S.spd, until: b.time + c.S.dur }); },
   eagleeye: (b, c) => { for (const u of c.team) u.buffs.push({ range: c.S.range * DATA.battle.rangeMul, view: c.S.view, until: b.time + c.S.dur }); },
   volley: (b, c) => {

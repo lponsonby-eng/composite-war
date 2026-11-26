@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pixelgen Studio</title>
+<style>
+  :root {
+    --bg: #14161f; --panel: #1d2030; --line: #2e3248; --text: #e8e6f0; --dim: #9a98b0;
+    --accent: #e8c860; --sel: #5a9cff;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.4 system-ui, sans-serif; }
+  header { padding: 14px 20px; border-bottom: 1px solid var(--line); display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+  header h1 { margin: 0; font-size: 20px; color: var(--accent); }
+  header span { color: var(--dim); font-size: 13px; }
+  main { display: grid; grid-template-columns: 260px 1fr; min-height: calc(100vh - 56px); }
+  aside { background: var(--panel); border-right: 1px solid var(--line); padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+  label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--dim); }
+  select, input { background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 7px 8px; font: inherit; }
+  .row { display: flex; gap: 8px; }
+  .row > * { flex: 1; min-width: 0; }
+  input { width: 100%; }
+  button { background: #2a2e44; color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; font: inherit; cursor: pointer; }
+  button:hover { border-color: var(--sel); }
+  button.primary { background: var(--accent); color: #1a1424; border-color: var(--accent); font-weight: 600; }
+  .work { padding: 16px 20px; display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+  .cell { background: var(--panel); border: 2px solid var(--line); border-radius: 8px; padding: 8px; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .cell.sel { border-color: var(--sel); }
+  .cell small { color: var(--dim); font-size: 12px; text-align: center; }
+  canvas { image-rendering: pixelated; image-rendering: crisp-edges; }
+  .checker { background-color: #2a2c3a; background-image: linear-gradient(45deg, #23252f 25%, transparent 25%, transparent 75%, #23252f 75%), linear-gradient(45deg, #23252f 25%, transparent 25%, transparent 75%, #23252f 75%); background-size: 16px 16px; background-position: 0 0, 8px 8px; }
+  .detail { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start; }
+  .detail h2 { margin: 0 0 6px; font-size: 16px; }
+  .detail .meta { color: var(--dim); font-size: 13px; margin-bottom: 10px; }
+  .anims { display: flex; gap: 10px; flex-wrap: wrap; }
+  .sheet { max-width: 100%; overflow: auto; }
+  code { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; display: block; font-size: 12px; white-space: pre-wrap; word-break: break-all; }
+  .swatches { display: flex; flex-direction: column; gap: 3px; }
+  .swatches div { display: flex; gap: 3px; }
+  .swatches span { width: 26px; height: 20px; border-radius: 3px; cursor: pointer; }
+  .hint { color: var(--dim); font-size: 12px; }
+  @media (max-width: 700px) { main { grid-template-columns: 1fr; } aside { border-right: 0; border-bottom: 1px solid var(--line); } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Pixelgen Studio</h1>
+  <span>Offline pixel-art generators for Composite War: no APIs, every picture comes from a seed.</span>
+</header>
+<main>
+  <aside>
+    <label>Generator <select id="kind"></select></label>
+    <label>Faction <select id="faction"></select></label>
+    <div id="opts" style="display:flex;flex-direction:column;gap:12px"></div>
+    <div class="row">
+      <label>Seed <input id="seed" type="number" value="1"></label>
+      <label>Shown <select id="count"><option>12</option><option selected>24</option><option>48</option></select></label>
+    </div>
+    <div class="row">
+      <button id="prev">&larr; Page</button>
+      <button id="next">Page &rarr;</button>
+    </div>
+    <button class="primary" id="roll">Roll new seeds</button>
+    <label>Preview zoom <input id="zoom" type="range" min="2" max="10" value="6"></label>
+    <p class="hint">Click a picture to inspect it, animate it and download it. Use the CLI (shown under the
+      picture) to write the same picture straight into <b>assets/</b>.</p>
+  </aside>
+  <section class="work">
+    <div class="detail" id="detail" hidden></div>
+    <div class="grid" id="grid"></div>
+  </section>
+</main>
+<script src="pixelgen.js"></script>
+<script src="medieval.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const G = PixelGen.GENERATORS;
+let selected = null, timers = [];
+
+const groups = {};
+for (const [k, g] of Object.entries(G)) {
+  const name = g.group || 'Classic 16px';
+  if (!groups[name]) { groups[name] = document.createElement('optgroup'); groups[name].label = name; }
+  groups[name].appendChild(new Option(`${g.label} (${g.size})`, k));
+}
+for (const name of Object.keys(groups).reverse()) $('kind').appendChild(groups[name]);
+$('faction').add(new Option('Any / random', ''));
+for (const [k, f] of Object.entries(PixelGen.FACTIONS)) $('faction').add(new Option(f.name, k));
+
+// remember the last settings in this browser
+try { const s = JSON.parse(localStorage.getItem('pixelgen') || '{}'); if (s.kind) $('kind').value = s.kind; if (s.faction !== undefined) $('faction').value = s.faction; if (s.seed) $('seed').value = s.seed; } catch (e) {}
+
+function buildOpts() {
+  $('opts').innerHTML = '';
+  for (const [k, vals] of Object.entries(G[$('kind').value].options)) {
+    const l = document.createElement('label'); l.textContent = k[0].toUpperCase() + k.slice(1);
+    const s = document.createElement('select'); s.id = 'opt-' + k; s.dataset.opt = k;
+    for (const v of vals) s.add(new Option(v, v));
+    s.onchange = render; l.appendChild(s); $('opts').appendChild(l);
+  }
+}
+function options() {
+  const o = { faction: $('faction').value || undefined };
+  for (const s of document.querySelectorAll('[data-opt]')) o[s.dataset.opt] = s.value;
+  return o;
+}
+function toCanvas(img, scale) {
+  const c = document.createElement('canvas');
+  c.width = img.w * scale; c.height = img.h * scale;
+  const x = c.getContext('2d'), raw = document.createElement('canvas');
+  raw.width = img.w; raw.height = img.h;
+  raw.getContext('2d').putImageData(new ImageData(img.toRGBA(), img.w, img.h), 0, 0);
+  x.imageSmoothingEnabled = false; x.drawImage(raw, 0, 0, c.width, c.height);
+  return c;
+}
+// A small looping animation of one track of frames.
+function animCanvas(img, anim, track, scale) {
+  const c = document.createElement('canvas');
+  c.width = anim.fw * scale; c.height = anim.fh * scale; c.className = 'checker';
+  const src = toCanvas(img, 1), x = c.getContext('2d'); x.imageSmoothingEnabled = false;
+  let i = 0;
+  const draw = () => { const f = track[i++ % track.length]; x.clearRect(0, 0, c.width, c.height); x.drawImage(src, f.x, f.y, anim.fw, anim.fh, 0, 0, c.width, c.height); };
+  draw(); if (track.length > 1) timers.push(setInterval(draw, 1000 / anim.fps));
+  return c;
+}
+function thumb(res) {
+  const a = res.anim;
+  if (res.kind === 'hero' || res.kind === 'monster' || res.kind === 'fx') return animCanvas(res.img, a, a.tracks[0], res.kind === 'fx' ? 3 : 5);
+  if (res.kind === 'soldier' || res.kind === 'champion' || res.kind === 'cavalry') return animCanvas(res.img, a, a.tracks[0], res.kind === 'soldier' ? 3 : 2);
+  if (res.kind === 'tile' || res.kind === 'field') { const c = toCanvas(tiled(res.img, 2), 2); return c; }
+  const s = Math.max(1, Math.floor(120 / Math.max(res.img.w, res.img.h)));
+  const c = toCanvas(res.img, s); c.className = 'checker'; return c;
+}
+function tiled(img, n) {
+  const g = new PixelGen.Grid(img.w * n, img.h * n);
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) g.blit(img, i * img.w, j * img.h);
+  return g;
+}
+function fileName(res) { return `${res.name}-${options().faction || 'any'}-${res.seed}.png`; }
+function download(img, scale, name) {
+  toCanvas(img, scale).toBlob(b => { const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); });
+}
+function cliFor(res) {
+  const o = options(), parts = ['node tools/pixelgen/cli.js', res.kind, '--seed', res.seed];
+  for (const [k, v] of Object.entries(o)) if (v && v !== 'random' && v !== 'faction') parts.push('--' + k, v);
+  return parts.join(' ');
+}
+
+function showDetail(res) {
+  selected = res.seed;
+  const d = $('detail'), z = +$('zoom').value;
+  d.hidden = false; d.innerHTML = '';
+  const left = document.createElement('div');
+  left.innerHTML = `<h2>${res.name} &middot; seed ${res.seed}</h2><div class="meta">${G[res.kind].label}, ${res.img.w} x ${res.img.h} px</div>`;
+  if (res.anim && res.anim.tracks[0].length > 1) {
+    const an = document.createElement('div'); an.className = 'anims';
+    const labels = res.anim.labels ? res.anim.labels : res.kind === 'hero' ? ['down', 'up', 'left', 'right', 'attack'] : res.kind === 'monster' ? ['down', 'up', 'left', 'right'] : ['play'];
+    res.anim.tracks.forEach((t, i) => { const w = document.createElement('div'); w.style.textAlign = 'center'; w.appendChild(animCanvas(res.img, res.anim, t, z)); const s = document.createElement('div'); s.className = 'hint'; s.textContent = labels[i] || ''; w.appendChild(s); an.appendChild(w); });
+    left.appendChild(an);
+  }
+  if (res.kind === 'tile' || res.kind === 'field') { const c = toCanvas(tiled(res.img, 3), Math.max(1, z - 3)); left.appendChild(c); left.insertAdjacentHTML('beforeend', '<div class="hint">3 x 3 repeat to check the seams</div>'); }
+  if (res.colors) {
+    const sw = document.createElement('div'); sw.className = 'swatches';
+    for (const r of res.colors) { const row = document.createElement('div'); for (const c of r) { const s = document.createElement('span'); s.style.background = c; s.title = c + ' (click to copy)'; s.onclick = () => navigator.clipboard && navigator.clipboard.writeText(c); row.appendChild(s); } sw.appendChild(row); }
+    left.appendChild(sw);
+    left.insertAdjacentHTML('beforeend', '<div class="hint">Click a swatch to copy its hex.</div>');
+  }
+  const right = document.createElement('div');
+  right.style.minWidth = '0'; right.style.flex = '1';
+  const sheet = toCanvas(res.img, Math.max(1, Math.min(z, Math.floor(560 / res.img.w) || 1)));
+  sheet.className = 'checker';
+  const sh = document.createElement('div'); sh.className = 'sheet'; sh.appendChild(sheet); right.appendChild(sh);
+  const btns = document.createElement('div'); btns.className = 'row'; btns.style.margin = '10px 0';
+  const b1 = document.createElement('button'); b1.className = 'primary'; b1.textContent = 'Download PNG (game size)'; b1.onclick = () => download(res.img, 1, fileName(res));
+  const b2 = document.createElement('button'); b2.textContent = 'Download x4 (preview)'; b2.onclick = () => download(res.img, 4, fileName(res).replace('.png', '@4x.png'));
+  btns.append(b1, b2); right.appendChild(btns);
+  const code = document.createElement('code'); code.textContent = cliFor(res); right.appendChild(code);
+  d.append(left, right);
+}
+
+function render() {
+  timers.forEach(clearInterval); timers = [];
+  try { localStorage.setItem('pixelgen', JSON.stringify({ kind: $('kind').value, faction: $('faction').value, seed: $('seed').value })); } catch (e) {}
+  const kind = $('kind').value, seed = +$('seed').value || 1, n = +$('count').value, o = options();
+  $('grid').innerHTML = '';
+  let first = null;
+  for (let i = 0; i < n; i++) {
+    const res = PixelGen.generate(kind, Object.assign({}, o, { seed: seed + i }));
+    const cell = document.createElement('div'); cell.className = 'cell' + (res.seed === selected ? ' sel' : '');
+    cell.appendChild(thumb(res));
+    const s = document.createElement('small'); s.textContent = `#${res.seed} ${res.name.replace(kind + '-', '')}`; cell.appendChild(s);
+    cell.onclick = () => { document.querySelectorAll('.cell.sel').forEach(e => e.classList.remove('sel')); cell.classList.add('sel'); showDetail(res); };
+    $('grid').appendChild(cell);
+    if (res.seed === selected || (!first && i === 0)) first = res;
+  }
+  if (first) showDetail(first);
+}
+
+$('kind').onchange = () => { selected = null; buildOpts(); render(); };
+$('faction').onchange = render;
+$('seed').onchange = render;
+$('count').onchange = render;
+$('zoom').oninput = render;
+$('prev').onclick = () => { $('seed').value = Math.max(1, +$('seed').value - +$('count').value); render(); };
+$('next').onclick = () => { $('seed').value = +$('seed').value + +$('count').value; render(); };
+$('roll').onclick = () => { $('seed').value = 1 + Math.floor(Math.random() * 99999); selected = null; render(); };
+buildOpts(); render();
+</script>
+</body>
+</html>

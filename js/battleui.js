@@ -249,7 +249,7 @@ const BattleUI = {
       const el = $('#bh-gens-' + s);
       const html = b.sideInfo(s).map(x => `<div class="bh-gen ${x.alive ? '' : 'dead'} ${b.sel.has(x.q) ? 'sel' : ''}" data-q="${x.id}">
         <img src="${Assets.portrait(x.id)}" title="${DATA.generals[x.id].name} Lv ${Game.gens[x.id].level}"><div class="bh-bar"><i style="width:${x.hp * 100}%"></i></div>
-        ${s === b.playerSide ? `<div class="bh-bar mp"><i style="width:${x.mp * 100}%"></i></div>` : ''}<span>${x.troops}</span></div>`).join('');
+        ${s === b.playerSide ? `<div class="bh-bar mp"><i style="width:${x.mp * 100}%"></i></div>` : ''}<div class="bh-bar mo ${x.state}" title="Morale: ${x.state}"><i style="width:${x.morale * 100}%"></i></div><span>${x.troops}</span><b class="bh-st ${x.state}">${x.alive ? { steady: 'Steady', wavering: 'Wavering', routing: 'Routing', lost: 'Broken' }[x.state] : 'Fallen'}</b></div>`).join('');
       if (el._html === html) continue;
       el._html = html; el.innerHTML = html;
       if (s === b.playerSide) el.querySelectorAll('[data-q]').forEach(d => {

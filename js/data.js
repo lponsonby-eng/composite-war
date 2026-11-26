@@ -22,25 +22,36 @@ window.DATA = {
   // further (rangeMul, also ground skills' reach) and spells cover more (areaMul).
   battle: {
     width: 2000, height: 1280,
-    vision: { soldier: 130, hero: 190, cavalry: 45, shooter: 45 },  // cavalry and shooters see further
+    // men: each campaign soldier takes the field as this many men in a live battle, so armies
+    // fight as blocks of hundreds (auto-resolved battles use 1 to stay fast; the balance is the same)
+    men: 5, menHp: 4,               // menHp: men in big battles are this much tougher, so blocks grind instead of melting
+    fog: false,                     // fog of war: true hides what your squads cannot see (and units only fight what their side sees)
+    vision: { soldier: 130, hero: 190, cavalry: 45, shooter: 45 },  // cavalry and shooters see further (only used with fog)
     mp: { base: 60, perLevel: 5, regen: 3, start: 0.6 },
+    // Morale (0-100 per squad). Losses, hits in the flank or rear, charges and a fallen general
+    // lower it; it recovers out of contact. Below wavering the squad fights worse; below rout it
+    // flees the field (and can rally once it is safe and above rally again).
+    morale: { start: 100, perLevel: 1, losses: 130, flank: 30, rear: 70, charge: 45, general: 45, nearbyRout: 12,
+      recover: 4, wavering: 60, rout: 25, rally: 50, waverAtk: 0.85 },
+    flank: { side: 1.3, rear: 1.6 },                                  // damage when hitting a block's flank or rear
+    turnRate: 0.7,                                                    // radians per second a block can wheel
     rangeMul: 1.45,              // ranged units' range and ground skills' reach
-    areaMul: 1.3,                // skill radii (troops stand further apart)
+    areaMul: 1.3,                // skill radii
     speedMul: 1.3,               // marching pace on the big field
-    spacing: 23,                 // pixels between soldiers side by side in a squad's ranks
-    rankDepth: 20,               // pixels between ranks
-    squadGap: 36,                // gap between neighbouring squads in a group formation
-    personal: 14,                // soldiers push apart closer than this
-    // Engagement charge: while advancing or attacking, frontline troops within `dist`
-    // of their target break into a run (speed x`speed`) and their first blow lands
-    // `impact` times harder (cavalry use their own, bigger charge bonus).
+    spacing: 9.5,                // pixels between men in a block (ranks and files)
+    squadGap: 40,                // gap between neighbouring blocks in a group formation
+    personal: 14,                // soldiers push apart closer than this (1 man per soldier)...
+    personalMen: 7.5,            // ...and in blocks of men
+    // Engagement charge: while advancing or attacking, a frontline block whose general is
+    // within `dist` of its target breaks into a run (speed x`speed`); each man's first blow
+    // lands `impact` times harder and shakes the enemy's morale like a cavalry charge.
     charge: { dist: 160, speed: 1.45, impact: 1.25 },
     // High ground (height 0 = low, ~1 = hilltop): shooters gain `range` x the height
-    // difference to their target as extra range (shooting uphill loses it), everyone
-    // sees `view` x their height further, melee hits `melee` x the difference harder
-    // downhill, and climbing slows units by `climb` per unit of rise per 100 px.
+    // difference to their target as extra range (shooting uphill loses it), melee hits
+    // `melee` x the difference harder downhill, climbing slows units by `climb` per unit of
+    // rise per 100 px, and (with fog) units see `view` x their height further.
     hills: { range: 0.4, view: 0.5, melee: 0.25, climb: 0.9 },
-    forestSpot: 60,              // units in a forest are only seen this close (or for a moment after they shoot)
+    forestSpot: 60,              // units in a forest are only seen by enemies this close (or for a moment after they attack)
   },
 
   // --- Hero skills -----------------------------------------------------------
