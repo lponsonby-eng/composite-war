@@ -67,7 +67,7 @@
   // ---- frame loop ----
   let last = performance.now(), hudT = 0, miniT = 0;
   function frame(now) {
-    const dt = Math.min(0.05, (now - last) / 1000);
+    const dt = Math.max(0, Math.min(0.05, (now - last) / 1000));   // never negative: the first frame can be stamped before the loop began
     last = now;
     if (Game.mode === 'battle' && Game.battle) {
       const b = Game.battle;
