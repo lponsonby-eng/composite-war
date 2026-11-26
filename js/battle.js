@@ -1167,6 +1167,8 @@ class Battle {
       } else HD.draw(ctx, T['tile:' + ['grass_tuft', 'grass_tuft', 'bush'][Math.floor(rng() * 3)]], x, y);
     }
     this.terrain.draw(ctx);
+    if (Look.on) Look.quantize(cv, Look.dither * 2);                  // the whole field in the shared palette (cv is 2x, so dither twice as big)
+    this.bgLook = Look.on;
     return cv;
   }
 
@@ -1192,6 +1194,7 @@ class Battle {
 
   render(ctx, canvas) {
     this.fit(canvas);
+    if (this.bgLook !== Look.on) { this.bg = this.buildBackground(); this.thumb = null; }   // the look was switched: redraw the field
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = '#16241a'; ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.setTransform(this.scale, 0, 0, this.scale, this.ox, this.oy);
@@ -1239,11 +1242,17 @@ class Battle {
 
     const colors = this.factions.map(f => DATA.factions[f].color);
     const list = this.units.filter(u => u.alive && !u.escaped && this.seenByPlayer(u) && onScreen(u.x, u.y)).sort((a, b) => a.y - b.y);
-    for (const u of list) {                       // coloured shadows show which side a unit is on; selected squads get a ring
+    for (const u of list) {                       // shadows under everyone (the look on: cast down-right, else a glow in the side's colour); selected squads get a ring
       const sel = this.sel.has(u.sq);
-      // a soft glow in the side's colour under every man (dimmer for big blocks so the ground still shows)
-      ctx.fillStyle = colors[u.side] + (u.isLeader ? 'cc' : this.men > 1 ? '55' : 'aa');
-      ctx.beginPath(); ctx.ellipse(u.x, u.y + 1, u.isLeader ? 10 : 6, u.isLeader ? 3.8 : 2.4, 0, 0, Math.PI * 2); ctx.fill();
+      if (Look.on) {
+        ctx.fillStyle = Look.unitShadow;
+        ctx.beginPath(); ctx.ellipse(u.x + 3, u.y + 1.5, u.isLeader ? 10 : 6.5, u.isLeader ? 3.6 : 2.4, 0, 0, Math.PI * 2); ctx.fill();
+        if (u.isLeader) { ctx.fillStyle = colors[u.side] + '99'; ctx.beginPath(); ctx.ellipse(u.x, u.y + 1, 9, 3.4, 0, 0, Math.PI * 2); ctx.fill(); }
+      } else {
+        // a soft glow in the side's colour under every man (dimmer for big blocks so the ground still shows)
+        ctx.fillStyle = colors[u.side] + (u.isLeader ? 'cc' : this.men > 1 ? '55' : 'aa');
+        ctx.beginPath(); ctx.ellipse(u.x, u.y + 1, u.isLeader ? 10 : 6, u.isLeader ? 3.8 : 2.4, 0, 0, Math.PI * 2); ctx.fill();
+      }
       if (u.empowered > 0) {                       // landmark power: a pulsing glow in the side's colour
         const a = (0.25 + 0.2 * Math.sin(this.time * 4 + u.x)) * (0.5 + 0.5 * u.empowered);
         const g = ctx.createRadialGradient(u.x, u.y - 6, 1, u.x, u.y - 6, 13);
@@ -1300,6 +1309,7 @@ class Battle {
         ctx.beginPath(); ctx.arc(f.x, f.y, 7 + k * 3, a0 - 0.9, a0 + 0.9); ctx.stroke();
       } else Assets.drawFx(ctx, f.name, f.t, f.x, f.y);
     }
+    Look.drawClouds(ctx, vx0, vy0, vx1, vy1, performance.now() / 1000);   // cloud shadows drift over everything, even while paused
     for (const t of this.texts) if (this.cellVisible(t.x, t.y)) label(ctx, t.s, t.x, t.y, t.color, 'center', 12);
 
     // fog of war over everything, soft-edged
@@ -1313,6 +1323,7 @@ class Battle {
       ctx.strokeStyle = '#ffe680'; ctx.lineWidth = 1 / this.cam.z;
       ctx.strokeRect(this.box.x0, this.box.y0, this.box.x1 - this.box.x0, this.box.y1 - this.box.y0);
     }
+    Look.grade(ctx, canvas.width, canvas.height, this.terrain.region);   // the colour pass, under the HUD
     const dpr = window.devicePixelRatio || 1;
     this.drawBanners(ctx, dpr);
     this.drawGroundInfo(ctx, canvas, dpr);

@@ -14,6 +14,7 @@ Open `index.html` through any local web server (for example `python3 -m http.ser
 - `js/game.js` – campaign state, turns, AI opponents, panels and dialogs.
 - `js/battle.js` – the real-time battle simulation and drawing, and the skill handlers (`SKILL_FX`).
 - `js/terrain.js` – battlefield generation: hills, forests, rivers, streams, lakes, swamps and town walls.
+- `js/look.js` – the battle look: shared palette, cast shadows, drifting clouds and the colour pass.
 - `js/battleui.js` – battle controls: selecting squads, orders, formations, skills, battle minimap.
 - `js/mapview.js` – draws the strategy map, scrolling, zoom and the minimap.
 - `js/assets.js` – loads images and sounds.
@@ -169,6 +170,16 @@ solid ground) and `buffSquad`. A ready-made **Blink** skill (short teleport of t
 squad, in formation) is in `DATA.skills`; give it to a hero by adding `'blink'` to their
 `skills` (or in `DATA.skillsOf`); computer heroes use it to jump onto enemy shooters, or
 to escape melee if they are backline.
+
+## Battle look
+`js/look.js` sets the battle's art direction on top of the drawing code. It uses one shared,
+muted palette: the battlefield ground is snapped to it with light ordered dithering, and every
+troop sprite is snapped to it before its team-colour outline is added, so sides stay clear.
+There is one light, from the top left: trees, rocks and houses cast shadows down and to the
+right, men stand on dark offset shadows, and soft cloud shadows drift across the field. Each
+frame gets a colour pass before the HUD is drawn: a little desaturation, a warm or cool grade
+for the region's light, and a vignette. Press **L** in battle (or the Look button) to switch it
+off and compare. Tune the palette, shadow offset, clouds and grade in `Look`.
 
 ## Formation screen
 Before every battle you fight yourself, the formation screen shows your squads in a

@@ -94,6 +94,7 @@ const BattleUI = {
       else if (k >= '1' && k <= '9') { const q = this.mine()[+k - 1]; if (q) { if (!e.shiftKey) b.sel.clear(); b.sel.add(q); if (e.ctrlKey || e.metaKey) this.centre(q); this.refresh(); } }
       else if (k === 'q' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); }
       else if (k === 'e') { b.sel = new Set(this.mine()); this.refresh(); }
+      else if (k === 'l') { Look.toggle(); this.refresh(); }
       else if (k === 'f' && this.focus()) this.centre(this.focus());
     });
   },
@@ -193,6 +194,7 @@ const BattleUI = {
     $('#battle-ctrl').innerHTML = `<div class="bc-row">
         <button data-act="pause" class="bc-pause"></button>
         <button data-s="1">x1</button><button data-s="2">x2</button><button data-s="4">x4</button>
+        <button data-act="look" title="Palette, shadows and colour grade on or off (L)"></button>
         <span class="sep"></span><span id="bc-sel" class="muted"></span>
         <button data-o="advance">Advance</button><button data-o="hold">Hold</button><button data-o="retreat">Retreat</button>
       </div>
@@ -204,6 +206,7 @@ const BattleUI = {
       <div class="bc-hint muted">Drag to select - right-click: move / attack (a gate: batter it) - right-drag: draw a front line - Space pause - Z X C V B skills</div>`;
     const ctr = $('#battle-ctrl');
     ctr.querySelector('[data-act="pause"]').onclick = () => this.togglePause();
+    ctr.querySelector('[data-act="look"]').onclick = () => { Look.toggle(); this.refresh(); };
     ctr.querySelectorAll('[data-s]').forEach(bt => bt.onclick = () => { Game.battleSpeed = +bt.dataset.s; this.refresh(); });
     ctr.querySelectorAll('[data-o]').forEach(bt => bt.onclick = () => {
       const list = b.sel.size ? [...b.sel] : this.mine();
@@ -225,6 +228,7 @@ const BattleUI = {
     const ctr = $('#battle-ctrl');
     ctr.querySelector('[data-act="pause"]').textContent = b.paused ? 'Play' : 'Pause';
     ctr.querySelector('[data-act="pause"]').classList.toggle('on', b.paused);
+    ctr.querySelector('[data-act="look"]').textContent = Look.on ? 'Look: on' : 'Look: off';
     ctr.querySelectorAll('[data-s]').forEach(bt => bt.classList.toggle('on', Game.battleSpeed === +bt.dataset.s));
     ctr.querySelectorAll('[data-f]').forEach(bt => bt.classList.toggle('on', b.formation === bt.dataset.f));
     const sel = [...b.sel].filter(q => q.leader.alive);

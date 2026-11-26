@@ -160,13 +160,16 @@ const Assets = {
 
   // A copy of a unit sheet with a 1-pixel outline in `col` around each figure (once),
   // so a side's soldiers read at a glance. Returns its key.
+  // With the battle look on (see Look), the figure is first snapped to the shared palette.
   outlined(sprite, col) {
-    const k = sprite + '|o' + col;
+    const pal = typeof Look !== 'undefined' && Look.on;
+    const k = sprite + '|o' + col + (pal ? '|p' : '');
     if (this.img[k]) return k;
     const src = this.img[sprite];
     if (!src || !src.width) return sprite;
     const cv = document.createElement('canvas'); cv.width = src.width; cv.height = src.height;
     const c = cv.getContext('2d'); c.drawImage(src, 0, 0);
+    if (pal) Look.quantize(cv);
     const W = cv.width, H = cv.height, d = c.getImageData(0, 0, W, H), p = d.data, a = new Uint8Array(W * H);
     const fw = src.fw || 16, fh = src.fh || 16;
     Object.assign(cv, { fw: src.fw, fh: src.fh, pad: src.pad, rows: src.rows, corpse: src.corpse, scale: src.scale });

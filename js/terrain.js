@@ -308,6 +308,7 @@ class Terrain {
     this.drawGround(ctx);
     this.drawHills(ctx);
     trees.sort((a, b) => a[1] - b[1]);
+    Look.castShadows(ctx, 2);                                         // trees and rocks cast shadows (the background is drawn at 2x)
     for (const [x, y] of trees) {
       const im = Art.deco(this.trees[Math.floor(rng() * this.trees.length)]);
       if (im && im.width) HD.draw(ctx, im, Math.round(x), Math.round(y - (im.height - 16)));
@@ -318,6 +319,7 @@ class Terrain {
       const im = Art.deco(rockArt);
       HD.draw(ctx, im, Math.round(x - 8), Math.round(y - im.height + 2));
     }
+    Look.noShadows(ctx);
     if (this.walls) {
       this.drawTown(ctx);
       this.drawWall(ctx);
@@ -512,7 +514,9 @@ class Terrain {
       const sc = Math.min(3.2, want / bw), half = bw * sc / 2;
       ctx.fillStyle = 'rgba(20,16,30,0.32)';
       ctx.beginPath(); ctx.ellipse(x + 3, y + 1, half * 0.95, half * 0.28, 0, 0, Math.PI * 2); ctx.fill();
+      Look.castShadows(ctx, 2);
       HD.draw(ctx, im, Math.round(x - 24 * sc), Math.round(y - 38 * sc), 48 * sc, 40 * sc);
+      Look.noShadows(ctx);
     }
   }
 
