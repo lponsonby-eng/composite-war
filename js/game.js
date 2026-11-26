@@ -325,7 +325,8 @@ const Game = {
       river: 'River: wade slowly or cross at the fords', swamp: 'Swamp: mud slows units',
       snow: 'Snowfield: deep drifts slow units, frozen ponds are fast but slippery', dunes: 'Dunes: sand slows units',
       lava: 'Lava field: walk around the molten pools', crystal: 'Crystal shore: crystal pillars block the way' }[s.terrain || 'plains'];
-    return t + (s.walls ? '. Walls: defenders shelter behind them, attackers must use the gates' : '');
+    return t + (s.walls ? '. Walls: defenders shelter behind them, attackers must use the gates' : '')
+      + '. Hills give shooters extra range; forests hide troops';
   },
 
   log(text, cls = '') {

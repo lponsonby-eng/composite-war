@@ -12,8 +12,8 @@ Open `index.html` through any local web server (for example `python3 -m http.ser
 - `js/art.js` – pixel art drawn in code: each region's buildings, landmarks and scenery.
 - `js/heraldry.js` – faction banners: random symbols in faction colours, each side with its own glow effect.
 - `js/game.js` – campaign state, turns, AI opponents, panels and dialogs.
-- `js/battle.js` – the real-time battle simulation and drawing.
-- `js/terrain.js` – battlefield ground: forests, rivers, swamps and town walls.
+- `js/battle.js` – the real-time battle simulation and drawing, and the skill handlers (`SKILL_FX`).
+- `js/terrain.js` – battlefield generation: hills, forests, rivers, streams, lakes, swamps and town walls.
 - `js/battleui.js` – battle controls: selecting squads, orders, formations, skills, battle minimap.
 - `js/mapview.js` – draws the strategy map, scrolling, zoom and the minimap.
 - `js/assets.js` – loads images and sounds.
@@ -49,17 +49,36 @@ Choices can give or cost gold, soldiers, XP, promotions or bring a wandering gen
 Add your own events by copying an entry; the format is described at the top of the file.
 
 ## Battles
-Battles are fought on a large field (1120 x 720) with scrolling, zoom, a minimap and
-**fog of war**: you only see (and your units only target) what your squads can see.
-Battles start paused. Select squads by clicking (Shift adds), dragging a box, or clicking
-their portraits; right-click the ground to move (tap on touch screens), right-click an
-enemy to attack. Groups move in a **formation** (Auto: frontline in front and backline
-behind; Line; Column; Wedge) at the slowest squad's pace. Orders: Advance, Hold, Retreat.
+Battles are fought on a large field (2000 x 1280) seen from high above, like a simplified
+Total War, with scrolling, zoom, a minimap and **fog of war**: the land always shows, but you
+only see (and your units only target) the enemy troops your squads can see. Every squad has
+a **banner** (side colour, troop-type symbol, troops left, strength bar) that stays readable
+at any zoom. Battles start paused. Select squads by clicking them or their banner (Shift
+adds), dragging a box, or clicking their portraits; right-click the ground to move (tap on
+touch screens), right-click an enemy to attack. **Right-drag draws a front line**: the
+selection spreads along it, each squad as wide as its share of the line (soldiers per rank
+to match), facing across it (to the left of the drag direction), with a ghost preview while
+you drag. Squads march facing the way they go and turn to their ordered facing on arrival.
+Groups move in a **formation** (Auto: frontline in front and backline behind; Line; Column;
+Wedge) at the slowest squad's pace. Orders: Advance, Hold, Retreat. Soldiers stand in ranks
+(`spacing` / `rankDepth`), and the ranks close up as they fall. Advancing or attacking
+frontline troops **charge** the last stretch (`charge`: faster, and a harder first blow;
+cavalry keep their bigger charge bonus). Ranged units reach further on the big field
+(`rangeMul`), and skills cover more ground (`areaMul`).
 Each hero has **skills** paid with MP (Charge, Rally, Shield Wall for warriors; Volley,
 Eagle Eye for marksmen; Meteor, Frost Field or Mass Heal, Blessing for mages): use the
 buttons or Z / X / C, and area skills land where you click. **Auto** lets a hero cast by
 themself; computer heroes always do. Space pauses. Tune it in `DATA.battle` and
 `DATA.skills`. Auto-resolved battles run the same simulation without drawing.
+
+**Adding skills.** What a skill does is a handler in `SKILL_FX` (end of `js/battle.js`),
+given the casting squad, the target point and helpers. Squad-level helpers are there for
+skills that move or shape whole blocks of troops: `squadUnits`, `squadCentre`, `putSquad`
+(stand a squad somewhere in formation), `teleportSquad`, `push` (knockback that stops at
+solid ground) and `buffSquad`. A ready-made **Blink** skill (short teleport of the whole
+squad, in formation) is in `DATA.skills`; give it to a hero by adding `'blink'` to their
+`skills` (or in `DATA.skillsOf`); computer heroes use it to jump onto enemy shooters, or
+to escape melee if they are backline.
 
 ## Formation screen
 Before every battle you fight yourself, the formation screen shows your squads in a
@@ -141,12 +160,29 @@ computer factions hire them as well. Tune it in `DATA.hiring` / `DATA.wanderers`
 
 ## Battlefield terrain
 Each town has a battlefield type (`terrain`: plains, forest, river, swamp, snow, dunes,
-lava, crystal) and optionally `walls` in `js/map.js`. Battlefields take their region's
-colours and trees. Snowdrifts and dunes slow units, frozen ponds are fast but slippery,
-lava pools and crystal pillars block the way. Forests slow units and give cover from arrows
-and spells. Rivers are slow to wade (and units fight badly in the water) except at
-the fords. Mud slows everyone. Walls are solid with one gate; defenders stay behind
-them, get cover from arrows and +1.5 defence inside. Tune it in `DATA.ground`.
+lava, crystal) and optionally `walls` in `js/map.js`. The field is generated from the
+town's id (the same town always gives the same field) from that type's recipe in
+`FIELD_RECIPES` (`js/terrain.js`), with regional flavour (`REGION_FIELD`: Darkwood has more
+woods, the desert fewer...): hills (long dune ridges in the desert), forests, a winding
+river with fords and a bridge (a frozen river in the snow, a lava river with stone
+causeways in the Ember Peaks), thin streams, lakes, boulders and crystal pillars, and
+patches of mud, snow or sand. Battlefields take their region's colours and trees, and
+hills are drawn with light, shade and contour lines.
+
+- **High ground** (`DATA.battle.hills`): shooters gain range shooting down at lower
+  targets (and lose some shooting uphill), everyone sees further from a hilltop, melee hits
+  harder downhill, and climbing slows units. Computer armies deploy on the best high
+  ground near their start.
+- **Forests** hide the troops in them: the enemy only spots them up close
+  (`forestSpot`), or for a moment after they attack. They also slow units and give cover
+  from arrows and spells.
+- Rivers are slow to wade (and units fight badly in the water) except at fords and
+  bridges; streams are shallow. Snowdrifts, dunes and mud slow units, frozen ground is
+  fast but slippery, lava and rocks block the way.
+- Walls are solid with three gates; defenders stay behind them, get cover from arrows
+  and +1.5 defence inside.
+
+Point at the ground in battle to see what it is (bottom left). Tune it in `DATA.ground`.
 
 ## Art
 Placeholder art and audio come from the Ninja Adventure pack (CC0) and Kenney (CC0).

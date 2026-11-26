@@ -2,7 +2,10 @@
 //  BATTLE UI: commanding your squads in battle.
 //    Click a squad to select it (Shift adds), drag a box to select several.
 //    Right-click the ground to move there in formation, right-click an enemy
-//    to attack it. On touch screens, tap the ground to move.
+//    to attack it. Right-drag draws a front line: the selection spreads along it
+//    (the drag's length sets how wide each squad stands) and faces across it, to
+//    the left of the drag direction. Click a squad's banner to select it.
+//    On touch screens, tap the ground to move. Middle-drag scrolls.
 //    Space pauses; Z / X / C cast the selected hero's skills; 1-9 pick squads.
 //    Arrow keys / WASD scroll, the wheel zooms, the minimap jumps.
 // =============================================================================
@@ -26,13 +29,16 @@ const BattleUI = {
       try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
       pts.set(e.pointerId, dev(e));
       if (pts.size === 2) { const [a, c] = [...pts.values()]; pinch = { d: Math.hypot(a[0] - c[0], a[1] - c[1]), z: this.b.cam.z, mid: [(a[0] + c[0]) / 2, (a[1] + c[1]) / 2], cam: { ...this.b.cam } }; down = null; return; }
-      down = { p: dev(e), btn: e.button, touch: e.pointerType === 'touch', shift: e.shiftKey, cam: { ...this.b.cam }, moved: false };
+      const touch = e.pointerType === 'touch';
+      down = { p: dev(e), btn: e.button, touch, shift: e.shiftKey, cam: { ...this.b.cam }, moved: false,
+        form: e.button === 2 && !touch && this.b.sel.size > 0 && !this.aiming };    // right-drag with a selection: draw a formation
     });
     canvas.addEventListener('pointermove', e => {
       if (!on()) return;
       const p = dev(e);
       if (pts.has(e.pointerId)) pts.set(e.pointerId, p);
       const b = this.b;
+      if (e.pointerType !== 'touch') b.hover = b.toWorld(...p);
       if (pinch && pts.size === 2) {               // two fingers: pan and zoom
         const [a, c] = [...pts.values()], d = Math.hypot(a[0] - c[0], a[1] - c[1]), mid = [(a[0] + c[0]) / 2, (a[1] + c[1]) / 2];
         b.cam.z = clamp(pinch.z * d / pinch.d, 0.4, 4);
@@ -45,6 +51,8 @@ const BattleUI = {
       if (down.btn === 0 && !down.touch) {            // left drag: selection box
         const [x0, y0] = b.toWorld(...down.p), [x1, y1] = b.toWorld(...p);
         b.box = { x0: Math.min(x0, x1), y0: Math.min(y0, y1), x1: Math.max(x0, x1), y1: Math.max(y0, y1) };
+      } else if (down.form) {                          // right drag: lay out a front line
+        this.formLine(b.toWorld(...down.p), b.toWorld(...p));
       } else {                                         // right/middle drag, or a finger: scroll
         b.cam.x = down.cam.x - (p[0] - down.p[0]) / b.scale; b.cam.y = down.cam.y - (p[1] - down.p[1]) / b.scale;
       }
@@ -53,17 +61,24 @@ const BattleUI = {
       pts.delete(e.pointerId); if (pts.size < 2) pinch = null;
       if (!on() || !down) { down = null; return; }
       const b = this.b, [wx, wy] = b.toWorld(...dev(e));
-      if (b.box) {
+      if (down.form && b.ghost) {                      // a front line was drawn: march to it
+        const g = b.ghost[0].face, line = b.ghostLine;
+        b.orderMove([...b.sel], (line[0][0] + line[1][0]) / 2, (line[0][1] + line[1][1]) / 2, b.formation, g, Math.hypot(line[1][0] - line[0][0], line[1][1] - line[0][1]));
+        b.ghost = null; b.ghostLine = null;
+        Assets.sfx('menu-1', 0.3);
+      } else if (b.box) {
         const inBox = u => u.x >= b.box.x0 && u.x <= b.box.x1 && u.y >= b.box.y0 && u.y <= b.box.y1;
         if (!down.shift) b.sel.clear();
         for (const q of this.mine()) if ([q.leader, ...q.members].some(u => u.alive && inBox(u))) b.sel.add(q);
         b.box = null;
-      } else if (!down.moved && e.type === 'pointerup') this.click(wx, wy, down);
+      } else if ((!down.moved || down.form) && e.type === 'pointerup') this.click(wx, wy, down, dev(e));   // (a too-short line is a click)
+      b.ghost = null; b.ghostLine = null;
       down = null;
       this.refresh();
     };
     canvas.addEventListener('pointerup', up);
     canvas.addEventListener('pointercancel', up);
+    canvas.addEventListener('pointerleave', () => { if (this.b) this.b.hover = null; });
     canvas.addEventListener('wheel', e => {
       if (!on()) return;
       e.preventDefault();
@@ -87,7 +102,7 @@ const BattleUI = {
   scrollKeys(dt) {
     const b = this.b, keys = MapView.keys;
     if (!b || !keys) return;
-    const sp = 420 * dt / b.cam.z;
+    const sp = 620 * dt / b.cam.z;
     if (keys.has('arrowleft') || keys.has('a')) b.cam.x -= sp;
     if (keys.has('arrowright') || keys.has('d')) b.cam.x += sp;
     if (keys.has('arrowup') || keys.has('w')) b.cam.y -= sp;
@@ -99,7 +114,7 @@ const BattleUI = {
   centre(q) { this.b.cam.x = q.leader.x; this.b.cam.y = q.leader.y; },
 
   squadAt(wx, wy, side) {
-    let best = null, bd = 14;
+    let best = null, bd = 16;
     for (const u of this.b.units) {
       if (!u.alive || u.escaped || u.routing || (side != null && u.side !== side) || !this.b.seenByPlayer(u)) continue;
       const d = Math.hypot(u.x - wx, u.y - 9 - wy);
@@ -108,9 +123,32 @@ const BattleUI = {
     return best;
   },
 
+  // Preview of a front line dragged from a to b (world points). Facing is across the
+  // line, to the left of the drag direction; a very short drag is just a click.
+  formLine(a, c) {
+    const b = this.b, dx = c[0] - a[0], dy = c[1] - a[1], len = Math.hypot(dx, dy);
+    if (len < 24) { b.ghost = null; b.ghostLine = null; return; }
+    const face = [dy / len, -dx / len];
+    b.ghostLine = [a, c];
+    b.ghost = b.planFormation([...b.sel], (a[0] + c[0]) / 2, (a[1] + c[1]) / 2, b.formation, face, len);
+  },
+
   // A click (or tap) on the battlefield.
-  click(wx, wy, down) {
+  click(wx, wy, down, px) {
     const b = this.b, me = b.playerSide;
+    const flag = px && !this.aiming && b.bannerAt(...px);           // squad banners are easy targets from far away
+    if (flag && !(down.btn === 2 && flag.side === me)) {
+      if (down.btn === 2 || (down.touch && flag.side !== me && b.sel.size)) {
+        if (flag.side !== me) { b.orderAttack([...b.sel], flag.leader); Assets.sfx('menu-2', 0.3); }
+        return;
+      }
+      if (flag.side === me) {
+        if (down.shift) { if (b.sel.has(flag)) b.sel.delete(flag); else b.sel.add(flag); }
+        else { b.sel.clear(); b.sel.add(flag); }
+        Assets.sfx('menu-1', 0.25);
+      }
+      return;
+    }
     if (this.aiming) {                                  // placing a ground skill
       const { q, id } = this.aiming; this.aiming = null;
       if (down.btn === 0) b.cast(q, id, wx, wy);
@@ -161,7 +199,7 @@ const BattleUI = {
         <button data-f="column">Column</button><button data-f="wedge">Wedge</button>
         <span class="sep"></span><span id="bc-skills"></span>
       </div>
-      <div class="bc-hint muted">Click / drag to select squads - right-click (or tap) the ground to move, an enemy to attack - Space pause - Z X C V B skills</div>`;
+      <div class="bc-hint muted">Drag to select - right-click: move / attack - right-drag: draw a front line - Space pause - Z X C V B skills</div>`;
     const ctr = $('#battle-ctrl');
     ctr.querySelector('[data-act="pause"]').onclick = () => this.togglePause();
     ctr.querySelectorAll('[data-s]').forEach(bt => bt.onclick = () => { Game.battleSpeed = +bt.dataset.s; this.refresh(); });

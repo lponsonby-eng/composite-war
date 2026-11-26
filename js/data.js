@@ -13,15 +13,34 @@ window.DATA = {
   title: 'Composite War',
 
   startGold: 150,
-  battleTimeLimit: 180,          // seconds; when time runs out the defender holds
+  battleTimeLimit: 300,          // seconds; when time runs out the defender holds
 
   // --- Battles ---------------------------------------------------------------
   // The battlefield (world pixels), how far units see through the fog of war,
   // and heroes' magic points (MP) for skills.
+  // The field is big and seen from high above: armies march further, shooters reach
+  // further (rangeMul, also ground skills' reach) and spells cover more (areaMul).
   battle: {
-    width: 1120, height: 720,
-    vision: { soldier: 90, hero: 140, cavalry: 30, shooter: 25 },   // cavalry and shooters see further
+    width: 2000, height: 1280,
+    vision: { soldier: 130, hero: 190, cavalry: 45, shooter: 45 },  // cavalry and shooters see further
     mp: { base: 60, perLevel: 5, regen: 3, start: 0.6 },
+    rangeMul: 1.45,              // ranged units' range and ground skills' reach
+    areaMul: 1.3,                // skill radii (troops stand further apart)
+    speedMul: 1.3,               // marching pace on the big field
+    spacing: 23,                 // pixels between soldiers side by side in a squad's ranks
+    rankDepth: 20,               // pixels between ranks
+    squadGap: 36,                // gap between neighbouring squads in a group formation
+    personal: 14,                // soldiers push apart closer than this
+    // Engagement charge: while advancing or attacking, frontline troops within `dist`
+    // of their target break into a run (speed x`speed`) and their first blow lands
+    // `impact` times harder (cavalry use their own, bigger charge bonus).
+    charge: { dist: 160, speed: 1.45, impact: 1.25 },
+    // High ground (height 0 = low, ~1 = hilltop): shooters gain `range` x the height
+    // difference to their target as extra range (shooting uphill loses it), everyone
+    // sees `view` x their height further, melee hits `melee` x the difference harder
+    // downhill, and climbing slows units by `climb` per unit of rise per 100 px.
+    hills: { range: 0.4, view: 0.5, melee: 0.25, climb: 0.9 },
+    forestSpot: 60,              // units in a forest are only seen this close (or for a moment after they shoot)
   },
 
   // --- Hero skills -----------------------------------------------------------
@@ -35,6 +54,8 @@ window.DATA = {
     eagleeye:   { name: 'Eagle Eye',   mp: 30, cd: 20, target: 'self', dur: 12, range: 40, view: 120, desc: 'The squad shoots further and sees much further.' },
     meteor:     { name: 'Meteor',      mp: 60, cd: 25, target: 'ground', range: 210, radius: 45, dmg: 50, delay: 1, desc: 'A meteor strikes an area after a moment.' },
     frostfield: { name: 'Frost Field', mp: 40, cd: 20, target: 'ground', range: 210, radius: 55, dur: 6, slow: 0.4, dps: 4, desc: 'Enemies in the area are slowed and chilled.' },
+    // Squad-moving skill, ready for heroes to learn (add 'blink' to a hero's `skills` or to DATA.skillsOf):
+    blink:      { name: 'Blink',       mp: 45, cd: 30, target: 'ground', range: 160, radius: 0, desc: 'The whole squad vanishes and reappears at a spot nearby, in formation.' },
     massheal:   { name: 'Mass Heal',   mp: 50, cd: 20, target: 'self', radius: 100, heal: 40, desc: 'Heals every ally nearby.' },
     bless:      { name: 'Blessing',    mp: 40, cd: 22, target: 'self', radius: 100, dur: 10, atk: 1.3, desc: 'Allies nearby hit 30% harder.' },
   },
@@ -111,7 +132,7 @@ window.DATA = {
   //   Arrows and spells ignore `pierce` of the target's defence, and hit `power` times harder.
   //   An army with backline but no frontline counts as weaker (noFrontPower).
   roles: {
-    front: { name: 'Frontline', pinRadius: 16, pinSlow: 0.4, guardRadius: 60 },
+    front: { name: 'Frontline', pinRadius: 18, pinSlow: 0.4, guardRadius: 80 },
     back:  { name: 'Backline', behindFront: 18, kiteRange: 30, exposedRange: 20, meleePenalty: 0.45, noFrontPower: 0.75, pierce: 0.5, power: 1.4, kiteSpeed: 0.7 },
   },
 
@@ -391,6 +412,8 @@ window.DATA = {
     sand:   { speed: 0.6,  cover: 0 },                    // dunes
     lava:   { speed: 0,    cover: 0 },                    // solid: walk around it
     rock:   { speed: 0,    cover: 0 },                    // crystal pillars and boulders: solid
+    stream: { speed: 0.7,  cover: 0, footing: 0.85 },     // thin shallow streams
+    bridge: { speed: 1,    cover: 0 },                    // bridges and causeways over rivers
   },
 };
 
