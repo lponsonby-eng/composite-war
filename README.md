@@ -41,7 +41,7 @@ each region keeps its own colours and biome (`LOOK`), an elevation field raises 
 and roads (lit from the north-west, stepped into terraces with cliff faces, snow on the frozen peaks), forests are
 clusters of round canopies, rivers run downhill to the sea, the coast is a bright rim over a sea that deepens
 from the shore, and towns are joined by thin pale routes. Region names are italic serif lettering, town names
-plain outlined lettering, and towns are little clusters of houses (cities with walls and towers).
+plain outlined lettering, and towns are the generated buildings below, each on its own block of ground.
 
 To make a different map: `python3 tools/genmap.py 42` (any number gives a new layout).
 
@@ -85,6 +85,13 @@ whole army's surcoats, shields, banners and tents match:
   sun cannon, seed mortar and coral catapult. Each sheet ends with the creature's remains (blood, ichor, bones,
   ash, a wreck...). `--hero yes` makes a monster general: larger, crowned and aura-lit; **creatureface** is its portrait
 - cavalry `--mount` also takes bear, stag, boar, camel and kelpie (a finned water horse)
+- **building** (`tools/pixelgen/buildings.js`): 96 x 80 town buildings in three-quarter view on a floating block
+  of ground, with lit windows, tiled roofs and props, one architecture per region with its fantasy element built
+  in: blue-roofed castles (Aster), timber-framed towns with a windmill and clock tower (Heartlands), igloos and ice
+  fortresses with crystal-ice spires (Frozen North), tree houses (Darkwood), lava forges and a black fortress
+  (Ember Peaks), gothic spires with violet light (Mistlands), stilt huts and a mushroom-cap longhouse (Bogmire),
+  white palaces with crystals growing through them (Crystal Lakes), adobe houses and a golden-domed palace
+  (Sunscar). Sizes: village, town, capital and shrine. The game uses these for every town on the map and in sieges
 - **field**: 64 x 64 seamless ground (leafy meadow, stony camp, mud, rutted road)
 - **decal**: blood pools, scorch marks and trampled grass
 - **prop**: camp pieces (striped pavilion, palisade, gatehouse, banner, hay bale, campfire, barrel, crates,

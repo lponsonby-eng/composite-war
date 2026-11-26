@@ -739,34 +739,11 @@ const MapView = {
     const size = { village: 0, town: 1, capital: 2, city: 2, shrine: style === 'village' ? 3 : 0 }[s.kind] || 0;
     // drawn bigger, scaled by the building's own width so every region's houses match
     const im = Art.building(style, size), bw = im.box.x1 - im.box.x0 + 1;
-    const want = { village: 38, town: 46, shrine: 40, capital: 58, city: 58 }[s.kind] || 40;
-    const sc = Math.max(1, Math.min(2.4, want / bw));
+    // generated buildings stand on their own block of ground, so they are drawn larger
+    const want = (im.gen ? { village: 56, town: 66, shrine: 54, capital: 88, city: 88 } : { village: 38, town: 46, shrine: 40, capital: 58, city: 58 })[s.kind] || 40;
+    const sc = Math.max(1, Math.min(im.gen ? 3.2 : 2.4, want / bw));
     const bx = s.x - 24 * sc, by = s.y - 3 - 38 * sc;              // the building stands at (24, 38) in its picture
-    // a town is a little cluster, as on an atlas: smaller houses beside the main building
-    // (on the owner's coloured ground), and cities get a stone wall with towers in front
-    {
-      const small = Art.building(style, 0), sbw = small.box.x1 - small.box.x0 + 1, ssc = Math.max(0.7, Math.min(1.6, (tier === 3 ? 30 : tier === 2 ? 26 : 20) / sbw));
-      const spots2 = tier === 3 ? [[-28, -6], [28, -5], [-17, -14], [18, -13]] : tier === 2 ? [[-24, -3], [23, -2]] : [[(id.charCodeAt(0) % 2 ? -1 : 1) * 20, -4]];
-      for (const [dx, dy] of spots2) HD.draw(ctx, small, s.x + dx - 24 * ssc, s.y + dy - 3 - 38 * ssc, 48 * ssc, 40 * ssc);
-    }
     HD.draw(ctx, im, bx, by, 48 * sc, 40 * sc);
-    if (tier === 3) {                                             // the city wall: crenellated, with corner towers and a gate
-      const x0 = s.x - 30, x1 = s.x + 30, wy = s.y + 1, STONE = s.region === 'ember' ? ['#2a2224', '#4a3e3c', '#6a5c58'] : s.region === 'sun' ? ['#6a4a2a', '#b08a5a', '#d8b47c'] : ['#2a2430', '#8a8a96', '#bcbcc8'];
-      ctx.fillStyle = STONE[0]; ctx.fillRect(x0 - 1, wy - 6, x1 - x0 + 2, 8);
-      ctx.fillStyle = STONE[1]; ctx.fillRect(x0, wy - 5, x1 - x0, 6);
-      ctx.fillStyle = STONE[2]; ctx.fillRect(x0, wy - 5, x1 - x0, 1);
-      ctx.fillStyle = STONE[0];
-      for (let x = x0; x < x1; x += 4) ctx.fillRect(x + 2, wy - 7, 2, 2);
-      ctx.fillRect(s.x - 5, wy - 4, 10, 6);                                         // gate
-      ctx.fillStyle = '#5a3a20'; ctx.fillRect(s.x - 4, wy - 3, 8, 5);
-      for (const tx of [x0 - 3, x1 - 4]) {                                          // towers
-        ctx.fillStyle = STONE[0]; ctx.fillRect(tx - 1, wy - 13, 9, 16);
-        ctx.fillStyle = STONE[1]; ctx.fillRect(tx, wy - 12, 7, 14);
-        ctx.fillStyle = STONE[2]; ctx.fillRect(tx, wy - 12, 2, 14);
-        ctx.fillStyle = color; ctx.fillRect(tx + 1, wy - 18, 5, 5);                  // a faction pennant
-        ctx.fillStyle = STONE[0]; ctx.fillRect(tx + 3, wy - 18, 1, 6);
-      }
-    }
     // flag pole planted on the roof's highest point
     const poleX = Math.round(bx + (im.box.tx + 0.5) * sc), poleBase = Math.round(by + im.box.ty * sc + 2);
     let lift = 1;
