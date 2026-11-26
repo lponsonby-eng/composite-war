@@ -9,6 +9,7 @@ const GROUND = { grass: 0, forest: 1, water: 2, ford: 3, mud: 4, wall: 5, snow: 
 
 class Terrain {
   constructor(spotId, W, H) {
+    this.spotId = spotId;
     const s = DATA.spots[spotId] || {};
     this.W = W; this.H = H; this.C = 8;
     this.cols = Math.ceil(W / this.C); this.rows = Math.ceil(H / this.C);
@@ -300,9 +301,10 @@ class Terrain {
     }
     spots.push([wx + 205, mid + 16, 2, 82]);
     spots.sort((a, b) => a[1] - b[1]);
+    let n = 0;
     for (const [x, y, size, want] of spots) {               // want: drawn width of the building itself
       if (y > H - 4) continue;
-      const im = Art.building(style, size), bw = im.box.x1 - im.box.x0 + 1;
+      const im = Art.building(style, size, size === 2 ? this.spotId || 1 : `${this.spotId}:${n++ % 6}`), bw = im.box.x1 - im.box.x0 + 1;
       const sc = Math.min(3.2, want / bw), half = bw * sc / 2;
       ctx.fillStyle = 'rgba(20,16,30,0.32)';
       ctx.beginPath(); ctx.ellipse(x + 3, y + 1, half * 0.95, half * 0.28, 0, 0, Math.PI * 2); ctx.fill();

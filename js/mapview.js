@@ -738,7 +738,7 @@ const MapView = {
     const style = DATA.regions[s.region].building;
     const size = { village: 0, town: 1, capital: 2, city: 2, shrine: style === 'village' ? 3 : 0 }[s.kind] || 0;
     // drawn bigger, scaled by the building's own width so every region's houses match
-    const im = Art.building(style, size), bw = im.box.x1 - im.box.x0 + 1;
+    const im = Art.building(style, size, id), bw = im.box.x1 - im.box.x0 + 1;   // each town its own variant
     // generated buildings stand on their own block of ground, so they are drawn larger
     const want = (im.gen ? { village: 56, town: 66, shrine: 54, capital: 88, city: 88 } : { village: 38, town: 46, shrine: 40, capital: 58, city: 58 })[s.kind] || 40;
     const sc = Math.max(1, Math.min(im.gen ? 3.2 : 2.4, want / bw));

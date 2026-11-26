@@ -109,7 +109,7 @@
   // ---------------------------------------------------------------- the nine architectures
   const STYLES = {
     castle(P, s, r) {
-      if (s === 0) { box(P, 38, 70, 16, 12, 8, C.plaster); timber(P, 38, 70, 16, 12); gable(P, 38, 58, 16, 8, 10, C.blue, C.plaster); win(P, 41, 61); door(P, 47, 70); bush(P, 33, 70); bush(P, 60, 69, 2.5); }
+      if (s === 0) { const wide = r.chance(0.4) ? 4 : 0; box(P, 38, 70, 16 + wide, 12, 8, C.plaster); timber(P, 38, 70, 16 + wide, 12); gable(P, 38, 58, 16 + wide, 8, 10, C.blue, C.plaster); win(P, 41, 61); if (wide) win(P, 50, 61); door(P, 47, 70); if (r.chance(0.5)) { box(P, 50, 50, 3, 6, 2, C.stone); smoke(P, 52, 42); } bush(P, 33, 70); }
       else if (s === 1) {
         box(P, 30, 70, 24, 16, 10, C.stone, { tex: bricks }); hip(P, 30, 54, 24, 10, 9, C.blue, C.stone);
         tower(P, 62, 70, 5, 26, C.stone); cone(P, 62, 44, 5, 13, C.blue, { flag: C.blue });
@@ -122,7 +122,13 @@
       } else { box(P, 40, 70, 14, 12, 7, C.stone, { tex: bricks }); gable(P, 40, 58, 14, 7, 8, C.blue, C.stone); tower(P, 47, 50, 2, 6, C.stone, { tex: () => 0 }); cone(P, 47, 44, 2.5, 7, C.blue); door(P, 45, 70, 4, 6); bush(P, 36, 70); }
     },
     village(P, s, r) {
-      if (s === 0) { box(P, 38, 70, 16, 12, 8, C.plaster); timber(P, 38, 70, 16, 12); gable(P, 38, 58, 16, 8, 10, C.orange, C.plaster); box(P, 50, 50, 3, 6, 2, C.stone); smoke(P, 52, 42); win(P, 41, 61); door(P, 47, 70); bush(P, 34, 70); }
+      if (s === 0) {
+        const tall = r.chance(0.35) ? 6 : 0;
+        box(P, 38, 70, 16, 12 + tall, 8, C.plaster); timber(P, 38, 70, 16, 12 + tall);
+        if (r.chance(0.5)) gable(P, 38, 58 - tall, 16, 8, 10, C.orange, C.plaster); else hip(P, 38, 58 - tall, 16, 8, 8, C.orange, C.plaster);
+        if (r.chance(0.7)) { box(P, 50, 50 - tall, 3, 6, 2, C.stone); smoke(P, 52, 42 - tall); }
+        win(P, 41, 61); if (tall) win(P, 41, 55); door(P, 47, 70); bush(P, 34, 70);
+      }
       else if (s === 1) {
         box(P, 34, 70, 22, 20, 10, C.plaster); timber(P, 34, 70, 22, 20); hip(P, 34, 50, 22, 10, 9, C.orange, C.plaster);
         win(P, 37, 55); win(P, 49, 55); win(P, 37, 62); door(P, 46, 70, 5, 7);
@@ -186,7 +192,8 @@
       if (s === 0) { box(P, 36, 70, 18, 12, 8, C.dark, { tex: bricks }); gable(P, 36, 58, 18, 8, 9, C.red, C.dark); box(P, 50, 52, 4, 10, 2, C.dark); smoke(P, 52, 40); door(P, 42, 70, 6, 7, C.lava); win(P, 38, 61, 3, 3, C.lava); lavaLine(28, 34, 72); }
       else if (s === 1) {
         box(P, 28, 70, 30, 16, 10, C.dark, { tex: bricks }); hip(P, 28, 54, 30, 10, 8, C.red, C.dark);
-        for (const x of [34, 50]) { box(P, x, 50, 4, 12, 2, C.dark); P.g.hline(x, x + 3, 38, C.lava[3]); smoke(P, x + 2, 34); }
+        const chim = [[34, 50], [42], [30, 42, 52]][r.int(0, 2)];
+        for (const x of chim) { box(P, x, 50, 4, 12, 2, C.dark); P.g.hline(x, x + 3, 38, C.lava[3]); smoke(P, x + 2, 34); }
         door(P, 40, 70, 7, 9, C.lava); win(P, 31, 60, 3, 4, C.lava); win(P, 52, 60, 3, 4, C.lava); lavaLine(20, 72, 73);
       } else if (s === 2) {
         P.part(P.mask().rect(14, 72, 82, 74), C.lava, { flat: true, base: 2, tex: (x) => (x % 4 === 0 ? 1 : 0) });   // lava moat
@@ -201,7 +208,7 @@
     tower(P, s, r) {
       const V = R5('#c070ff', 0.4);
       const grave = (x) => { P.part(P.mask().rect(x, 66, x + 3, 71).ellipse(x + 1.5, 66, 2, 1.5), C.stone, { sep: true }); P.g.hline(x + 1, x + 2, 67, C.stone[1]); };
-      if (s === 0) { tower(P, 48, 70, 7, 24, C.dark); cone(P, 49, 46, 7, 18, C.purple); win(P, 47, 54, 3, 5, V); door(P, 46, 70); grave(32); grave(62); }
+      if (s === 0) { const th = 24 + r.int(-4, 6); tower(P, 48, 70, 7, th, C.dark); cone(P, 49, 70 - th, 7, 18, C.purple); win(P, 47, 54, 3, 5, V); door(P, 46, 70); grave(32); grave(62); }
       else if (s === 1) {
         box(P, 32, 70, 24, 18, 10, C.dark, { tex: bricks }); hip(P, 32, 52, 24, 10, 10, C.black, C.dark);
         tower(P, 62, 70, 4, 30, C.dark); cone(P, 62, 40, 4.5, 20, C.black);
@@ -225,7 +232,7 @@
         else gable(P, x - 1, yb - h, w + 2, 5, 9, C.thatch, WOODR);
         win(P, x + 2, yb - h + 3, 2, 3); P.g.line(x + w + 3, yb + 1, x + w + 5, 72, WOODR[2]);
       };
-      if (s === 0) hut(40, 58, 14, 9);
+      if (s === 0) hut(40 - r.int(0, 2), 58, 12 + r.int(0, 4), 9, r.chance(0.25) ? 'mush' : null);
       else if (s === 1) { hut(28, 58, 12, 8); hut(56, 56, 12, 9); P.part(P.mask().rect(42, 57, 54, 57), WOODR, { flat: true }); P.part(P.mask().capsule(76, 71, 76, 60, 2).ellipse(76, 58, 6, 4).rect(70, 58, 82, 59), C.mush, { sep: true }); }
       else if (s === 2) hut(30, 56, 30, 14, 'mush');
       else { P.part(P.mask().capsule(48, 71, 48, 56, 3.4), C.white, { sep: true }); P.part(P.mask().ellipse(48, 52, 12, 8).rect(36, 52, 60, 54), C.mush, { sep: true });
@@ -249,7 +256,7 @@
     adobe(P, s, r) {
       const awning = (x, y, w) => { const m = P.mask().poly([[x, y], [x + w, y], [x + w + 2, y + 4], [x - 2, y + 4]]); P.part(m, (xx) => (Math.floor(xx / 3) % 2 ? C.red : C.white), { flat: true, base: 2, sep: true }); };
       const palm = (x, yb) => { P.part(P.mask().capsule(x, yb, x + 2, yb - 18, 1.6), C.trunk, { tex: (xx, y) => (y % 2 ? -1 : 0) }); for (const a of [-2.6, -2, -1.2, -0.6, 0]) P.part(P.mask().capsule(x + 2, yb - 18, x + 2 + Math.cos(a) * 9, yb - 18 + Math.sin(a) * 4 + 4, 1.6), C.leaf, { sep: true }); };
-      if (s === 0) { box(P, 38, 70, 18, 12, 8, C.adobe, { top: true }); awning(40, 60, 8); door(P, 50, 70); win(P, 41, 64, 3, 3); palm(30, 70); P.part(P.mask().ellipse(62, 69, 2.4, 2.4), R5('#b06a3a'), { sep: true }); }
+      if (s === 0) { box(P, 38, 70, 18, 12, 8, C.adobe, { top: true }); if (r.chance(0.45)) dome(P, 50, 56, 4, C.green); awning(40, 60, 8); door(P, 50, 70); win(P, 41, 64, 3, 3); palm(30, 70); P.part(P.mask().ellipse(62, 69, 2.4, 2.4), R5('#b06a3a'), { sep: true }); }
       else if (s === 1) { box(P, 30, 70, 28, 14, 10, C.adobe, { top: true }); dome(P, 49, 52, 8, C.green); awning(32, 60, 10); door(P, 46, 70, 5, 7); win(P, 34, 64, 3, 3); palm(66, 70); P.part(P.mask().rect(24, 66, 28, 70), C.brown, { sep: true }); }
       else if (s === 2) {
         box(P, 22, 72, 50, 12, 0, C.adobe); box(P, 34, 62, 26, 18, 10, C.sand, { top: true });
@@ -261,19 +268,77 @@
   };
   const WIDTH = [42, 58, 80, 40];
 
+  // ---------------------------------------------------------------- variants
+  // Each seed gives a building its own colours (chosen from options that suit the
+  // region), may mirror it, and scatters its own props on the ground block.
+  const VARIANTS = {
+    castle:   { blue: ['#3a86d8', '#2a9a9a', '#5a6a8a', '#c04a3a', '#3a5ab8'], plaster: ['#e8dcc0', '#f0ece0', '#d8c8a8'], stone: ['#9a9aa6', '#a8a090', '#8a92a0'] },
+    village:  { orange: ['#e07a34', '#c84a2a', '#8a5a34', '#c8a048', '#a8603a'], plaster: ['#e8dcc0', '#f4eee0', '#e0c8a0', '#d8d0b8'] },
+    igloo:    { wood: null },
+    treehut:  { thatch: ['#c8a048', '#8a6a3a', '#5a8a3a'], darkleaf: ['#2a6a2e', '#2a5a3a', '#3a6a28'] },
+    forge:    { red: ['#d0583a', '#e07a2a', '#8a3a2a', '#5a4a4a'] },
+    tower:    { purple: ['#6a3a9a', '#2a6a6a', '#8a2a4a', '#3a3a7a'] },
+    stilthut: { thatch: ['#c8a048', '#a88a48', '#8a7a4a'], mush: ['#d83a3a', '#a03ad0', '#e07a2a', '#3a8ad0'] },
+    spire:    { teal: ['#2aa8a0', '#3a7ad8', '#8a5ad0', '#2a9a6a'], pink: ['#f08ad0', '#ffd060', '#a080ff'] },
+    adobe:    { green: ['#3a9a5a', '#3a7ad8', '#e0b440', '#2aa8a0', '#c84a3a'], adobe: ['#d89a68', '#e0b080', '#c8885a'] },
+  };
+  const PROPS = {
+    castle: ['bush', 'tree', 'barrel', 'flowers', 'fence', 'rock'], village: ['bush', 'tree', 'hay', 'barrel', 'flowers', 'fence', 'crate'],
+    igloo: ['snowman', 'barrel', 'rock', 'pine'], treehut: ['mushroom', 'bush', 'lantern', 'rock'], forge: ['anvil', 'crate', 'rock', 'barrel'],
+    tower: ['grave', 'deadtree', 'lantern', 'rock'], stilthut: ['reeds', 'mushroom', 'barrel'], spire: ['crystal', 'bush', 'flowers'],
+    adobe: ['palm', 'pot', 'crate', 'cactus'],
+  };
+  function prop(P, kind, x, yb) {
+    switch (kind) {
+      case 'bush': return bush(P, x, yb - 2, 2.6);
+      case 'tree': return tree(P, x, yb, 14);
+      case 'pine': return P.part(P.mask().poly([[x - 4, yb - 1], [x + 4, yb - 1], [x, yb - 14]]), C.darkleaf, { sep: true });
+      case 'barrel': return P.part(P.mask().rect(x - 2, yb - 5, x + 2, yb - 1), WOODR, { sep: true, tex: (xx, y) => (y === yb - 3 ? -1 : 0) });
+      case 'crate': return box(P, x - 2, yb, 4, 4, 2, WOODR);
+      case 'hay': return P.part(P.mask().ellipse(x, yb - 3, 3.4, 2.6), C.thatch, { sep: true, tex: (xx, y) => ((xx + y) % 3 === 0 ? 1 : 0) });
+      case 'flowers': for (let i = 0; i < 3; i++) P.g.set(x + i * 2 - 2, yb - 1 - (i % 2), ['#f05a8a', '#f0e060', '#ffffff'][i]); return;
+      case 'fence': for (let i = 0; i < 4; i++) P.g.vline(x - 4 + i * 3, yb - 4, yb - 1, WOODR[2]); P.g.hline(x - 4, x + 5, yb - 3, WOODR[3]); return;
+      case 'rock': return P.part(P.mask().ellipse(x, yb - 2, 2.6, 2), C.stone, { sep: true });
+      case 'snowman': P.part(P.mask().ellipse(x, yb - 2, 2.4, 2.2).ellipse(x, yb - 5.5, 1.7, 1.6), C.snow, { sep: true }); P.g.set(x + 1, yb - 6, '#e07a2a'); return;
+      case 'mushroom': P.part(P.mask().rect(x, yb - 3, x, yb - 1), C.white, {}); return P.part(P.mask().ellipse(x, yb - 4, 2.4, 1.4), C.mush, { sep: true });
+      case 'lantern': P.part(P.mask().rect(x, yb - 8, x, yb - 1), WOODR, {}); return P.part(P.mask().rect(x - 1, yb - 10, x + 1, yb - 8), GLOW, { flat: true, base: 3 });
+      case 'anvil': return P.part(P.mask().rect(x - 3, yb - 4, x + 3, yb - 3).rect(x - 1, yb - 3, x + 1, yb - 1), C.dark, { sep: true });
+      case 'grave': P.part(P.mask().rect(x - 1, yb - 5, x + 2, yb - 1).ellipse(x + 0.5, yb - 5, 2, 1.4), C.stone, { sep: true }); return;
+      case 'deadtree': return P.part(P.mask().capsule(x, yb, x, yb - 10, 1.4).capsule(x, yb - 6, x + 4, yb - 9, 1).capsule(x, yb - 8, x - 3, yb - 11, 1), C.dark, {});
+      case 'reeds': for (let i = 0; i < 3; i++) P.g.vline(x + i * 2 - 2, yb - 5 - (i % 2) * 2, yb - 1, R5('#6a8a3a')[2 + (i % 2)]); return;
+      case 'crystal': return crystal(P, x, yb - 1, 8, 2, C.pink, 1);
+      case 'palm': P.part(P.mask().capsule(x, yb, x + 1, yb - 12, 1.4), C.trunk, {}); for (const a of [-2.6, -1.8, -1, -0.3]) P.part(P.mask().capsule(x + 1, yb - 12, x + 1 + Math.cos(a) * 6, yb - 12 + Math.sin(a) * 3 + 3, 1.3), C.leaf, { sep: true }); return;
+      case 'pot': return P.part(P.mask().ellipse(x, yb - 2.5, 2.2, 2.4), R5('#b06a3a'), { sep: true });
+      case 'cactus': return P.part(P.mask().capsule(x, yb, x, yb - 8, 1.6).capsule(x, yb - 4, x + 3, yb - 6, 1.2), C.leaf, { sep: true });
+    }
+  }
+
   function genBuilding(o) {
     const r = R.make(o.seed, 'building');
     const style = STYLES[o.style] ? o.style : r.pick(Object.keys(STYLES));
     const size = Math.max(0, Math.min(3, +o.size || 0));
     const P = new Painter(96, 80);
-    ground(P, style, WIDTH[size], r);
-    STYLES[style](P, size, r);
-    const img = P.done();
+    const V = VARIANTS[style] || {}, saved = {};
+    const variant = o.variant !== 'no';
+    if (variant) for (const [k, opts] of Object.entries(V)) if (opts) { saved[k] = C[k]; C[k] = R5(r.pick(opts), k === 'plaster' ? 0.35 : 0.55); }
+    try {
+      ground(P, style, WIDTH[size], r);
+      // props behind the building first, then the building, then props in front
+      const w = WIDTH[size], list = PROPS[style] || [], n = variant ? r.int(1, size === 2 ? 2 : 3) : 0, front = [];
+      for (let i = 0; i < n; i++) {
+        const side = r.chance(0.5) ? -1 : 1, x = 48 + side * (w / 2 - 4 - r.int(0, 3)), k = r.pick(list);
+        if (r.chance(0.5)) prop(P, k, x, 68); else front.push([k, x]);
+      }
+      STYLES[style](P, size, r);
+      for (const [k, x] of front) prop(P, k, x, 73);
+    } finally { for (const k of Object.keys(saved)) C[k] = saved[k]; }
+    let img = P.done();
+    if (variant && size !== 3 && r.chance(0.5)) img = img.flipX();          // some face the other way
     return { img, anim: { fw: 96, fh: 80, fps: 1, tracks: [[{ x: 0, y: 0 }]] }, name: `building-${style}-${['village', 'town', 'capital', 'shrine'][size]}` };
   }
 
   Object.assign(PG.GENERATORS, {
-    building: { group: 'Medieval 32px', fn: genBuilding, label: 'Town building', size: '96 x 80', options: { style: ['random', ...Object.keys(STYLES)], size: ['0', '1', '2', '3'] } },
+    building: { group: 'Medieval 32px', fn: genBuilding, label: 'Town building', size: '96 x 80', options: { style: ['random', ...Object.keys(STYLES)], size: ['0', '1', '2', '3'], variant: ['yes', 'no'] } },
   });
   PG.buildings = { STYLES: Object.keys(STYLES) };
 })(typeof window !== 'undefined' ? window : globalThis);

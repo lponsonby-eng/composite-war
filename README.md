@@ -91,7 +91,9 @@ whole army's surcoats, shields, banners and tents match:
   fortresses with crystal-ice spires (Frozen North), tree houses (Darkwood), lava forges and a black fortress
   (Ember Peaks), gothic spires with violet light (Mistlands), stilt huts and a mushroom-cap longhouse (Bogmire),
   white palaces with crystals growing through them (Crystal Lakes), adobe houses and a golden-domed palace
-  (Sunscar). Sizes: village, town, capital and shrine. The game uses these for every town on the map and in sieges
+  (Sunscar). Sizes: village, town, capital and shrine. Each seed is a variant (roof and wall colours from the region's options,
+  chimneys, towers, domes, props on the ground, sometimes mirrored); the game seeds each town by its id, so every
+  town on the map and every house in a siege has its own look
 - **field**: 64 x 64 seamless ground (leafy meadow, stony camp, mud, rutted road)
 - **decal**: blood pools, scorch marks and trampled grass
 - **prop**: camp pieces (striped pavilion, palisade, gatehouse, banner, hay bale, campfire, barrel, crates,
