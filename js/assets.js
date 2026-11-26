@@ -58,11 +58,15 @@ const Assets = {
     return k;
   },
 
-  // Sprite sheet key for a unit type or a general (with any recolour applied).
-  unitSprite(t) { return this.tint(t.sprite, t.hue); },
+  // Sprite sheet key for a unit type or a general: the generated medieval sheet where
+  // there is one (see js/gensprites.js), otherwise the old sprite with any recolour applied.
+  unitSprite(t) {
+    const id = t.id || (t.id = Object.keys(DATA.units).find(k => DATA.units[k] === t));
+    return (typeof Gen !== 'undefined' && Gen.unit(id)) || this.tint(t.sprite, t.hue);
+  },
   genSprite(gid) {
     const d = DATA.generals[gid];
-    return this.tint(d.mface ? 'm' + d.mface : 'c' + d.face, d.hue);
+    return (typeof Gen !== 'undefined' && Gen.hero(gid)) || this.tint(d.mface ? 'm' + d.mface : 'c' + d.face, d.hue);
   },
 
   // Small picture (data URL) of a unit type, for the recruit window.
@@ -74,13 +78,23 @@ const Assets = {
     const c = cv.getContext('2d');
     c.imageSmoothingEnabled = false;
     const im = this.img[this.unitSprite(DATA.units[id])];
+    if (im && im.fw) {                                      // generated sheet: the first frame, fitted to the icon
+      const fw = im.fw, fh = im.fh, k = Math.min(32 / fw, 32 / (fh - (im.pad || 0)));
+      c.drawImage(im, 0, 0, fw, fh, 16 - fw * k / 2, 32 - fh * k + (im.pad || 0) * k, fw * k, fh * k);
+      return (this._icons[id] = cv.toDataURL());
+    }
     if (im && im.width) c.drawImage(im, 0, 0, 16, 16, 0, 0, 32, 32);
     return (this._icons[id] = HD.url(cv));
   },
 
   // Portrait picture (data URL) for a general: their face, or a monster close-up.
+  // mood: 'neutral', 'fierce' or 'smile' (generated hero portraits have all three).
   _portraits: {},
-  portrait(gid) {
+  portrait(gid, mood = 'neutral') {
+    const pk = gid + ':' + mood;
+    if (this._portraits[pk]) return this._portraits[pk];
+    const gp = typeof Gen !== 'undefined' && Gen.portrait(gid, mood);
+    if (gp) return (this._portraits[pk] = gp.toDataURL());
     if (this._portraits[gid]) return this._portraits[gid];
     const d = DATA.generals[gid];
     const cv = document.createElement('canvas');
@@ -100,18 +114,48 @@ const Assets = {
     return (this._portraits[gid] = HD.url(cv));
   },
 
-  // Draws one frame of a 16x16 unit sheet. dir: 0 down, 1 up, 2 left, 3 right.
+  // Draws one frame of a unit sheet. dir: 0 down, 1 up, 2 left, 3 right.
   // Character sheets have rows 0-3 = walk, row 4 = attack. Monster sheets have 4 rows.
   // size: drawn size in world pixels (battles draw units larger than the map does).
+  // Old sheets have 16 x 16 frames filling the size x size box. Generated sheets
+  // (im.fw x im.fh frames, 32 px figures) are drawn at size/32 per pixel, centred on
+  // the box and standing on its bottom edge, so both kinds of figure match in height.
   drawUnit(ctx, sprite, dir, frame, attacking, x, y, alpha = 1, size = 16) {
     const im = this.img[sprite];
     if (!im || !im.width) return;
-    const rows = Math.floor(im.height / 16);
+    const fw = im.fw || 16, fh = im.fh || 16;
+    const rows = im.rows || Math.floor(im.height / fh);
     let row = frame % Math.min(rows, 4);
     if (attacking && rows >= 5) row = 4;
     if (alpha !== 1) ctx.globalAlpha = alpha;
-    HD.draw(ctx, im, dir * 16, row * 16, 16, 16, Math.round(x), Math.round(y), size, size);
+    if (fw === 16 && fh === 16) HD.draw(ctx, im, dir * 16, row * 16, 16, 16, Math.round(x), Math.round(y), size, size);
+    else {
+      const k = size / 32 * (im.scale || 1), w = fw * k, h = fh * k;
+      this.crisp(ctx, im, dir * fw, row * fh, fw, fh, x + size / 2 - w / 2, y + size - h + (im.pad || 0) * k, w, h);
+    }
     if (alpha !== 1) ctx.globalAlpha = 1;
+  },
+  // Generated art is drawn with hard pixel edges (no smoothing).
+  crisp(ctx, im, sx, sy, sw, sh, dx, dy, dw, dh) {
+    const prev = ctx.imageSmoothingEnabled;
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(im, sx, sy, sw, sh, dx, dy, dw, dh);
+    ctx.imageSmoothingEnabled = prev;
+  },
+  // A fallen soldier's body (generated sheets only), lying where they fell. size as in drawUnit.
+  drawCorpse(ctx, sprite, x, y, size, flip, alpha = 1) {
+    const im = this.img[sprite], c = im && im.corpse;
+    if (!c) return false;
+    const k = size / 32 * (im.scale || 1);
+    if (alpha !== 1) ctx.globalAlpha = alpha;
+    const part = (q, ox) => {
+      const sx = flip && q.alt ? q.alt.x : q.x, sy = flip && q.alt ? q.alt.y : q.y;
+      this.crisp(ctx, im, sx, sy, q.w, q.h, x - q.w * k / 2 + ox * k, y - q.h * k * 0.7, q.w * k, q.h * k);
+    };
+    part(c, 0);
+    if (c.rider) part(c.rider, flip ? -24 : 24);
+    if (alpha !== 1) ctx.globalAlpha = 1;
+    return true;
   },
 
   // A copy of a unit sheet with a 1-pixel outline in `col` around each figure (once),
@@ -124,11 +168,13 @@ const Assets = {
     const cv = document.createElement('canvas'); cv.width = src.width; cv.height = src.height;
     const c = cv.getContext('2d'); c.drawImage(src, 0, 0);
     const W = cv.width, H = cv.height, d = c.getImageData(0, 0, W, H), p = d.data, a = new Uint8Array(W * H);
+    const fw = src.fw || 16, fh = src.fh || 16;
+    Object.assign(cv, { fw: src.fw, fh: src.fh, pad: src.pad, rows: src.rows, corpse: src.corpse, scale: src.scale });
     for (let i = 0; i < W * H; i++) a[i] = p[i * 4 + 3] > 128 ? 1 : 0;
     const r = parseInt(col.slice(1, 3), 16), g = parseInt(col.slice(3, 5), 16), b = parseInt(col.slice(5, 7), 16);
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
       if (a[y * W + x]) continue;
-      const same = (nx, ny) => nx >= 0 && ny >= 0 && nx < W && ny < H && (nx >> 4) === (x >> 4) && (ny >> 4) === (y >> 4) && a[ny * W + nx];
+      const same = (nx, ny) => nx >= 0 && ny >= 0 && nx < W && ny < H && Math.floor(nx / fw) === Math.floor(x / fw) && Math.floor(ny / fh) === Math.floor(y / fh) && a[ny * W + nx];
       if (same(x - 1, y) || same(x + 1, y) || same(x, y - 1) || same(x, y + 1)) {
         const i = (y * W + x) * 4; p[i] = r; p[i + 1] = g; p[i + 2] = b; p[i + 3] = 255;
       }

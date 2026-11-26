@@ -22,7 +22,22 @@ const Art = {
 
   // ------------------------------------------------------------------ buildings
   // Canvas is 48 x 40; the building stands on (24, 38).
-  building(style, size) {
+  // With the Pixelgen building generator loaded (tools/pixelgen/buildings.js), buildings are its
+  // 96 x 80 pictures: twice this size, so drawing them at 48 x 40 gives double detail.
+  // variant: any string or number (a town's id): each gives that town its own version.
+  building(style, size, variant = 1) {
+    if (typeof PixelGen !== 'undefined' && PixelGen.GENERATORS.building) {
+      const key = `gb:${style}:${size}:${variant}`;
+      if (this.cache[key]) return this.cache[key];
+      const seed = typeof variant === 'number' ? variant : 1 + PixelGen.hashSeed('town:' + variant) % 99991;
+      const g = PixelGen.generate('building', { seed, style, size: String(size) }).img;
+      const cv = document.createElement('canvas'); cv.width = g.w; cv.height = g.h;
+      const c = cv.getContext('2d'); c.putImageData(new ImageData(g.toRGBA(), g.w, g.h), 0, 0);
+      const b = bbox(c, g.w, g.h);                                     // measured in the old 48 x 40 picture's units
+      cv.box = { x0: b.x0 / 2, y0: b.y0 / 2, x1: b.x1 / 2, y1: b.y1 / 2, tx: b.tx / 2, ty: b.ty / 2 };
+      cv.gen = true;
+      return (this.cache[key] = cv);
+    }
     return this.make(`b:${style}:${size}`, 48, 40, c => {
       const fn = BUILDINGS[style] || BUILDINGS.village;
       fn(c, size, 24, 38);

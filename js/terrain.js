@@ -1,28 +1,53 @@
 // =============================================================================
-//  BATTLEFIELD TERRAIN: forests, rivers, swamps, snow, dunes, lava, crystals, walls.
-//  The field is a grid of 8x8 cells. Every cell has a ground kind, which sets
-//  how fast units move through it and how much cover it gives from arrows and
-//  spells. The layout comes from the town's `terrain` and `walls` in data.js,
-//  seeded by the town's name so the same town always looks the same.
+//  BATTLEFIELD TERRAIN: hills, forests, rivers, streams, lakes, swamps, snow,
+//  dunes, lava, crystals and town walls.
+//  The field is a grid of 8x8 cells. Every cell has a ground kind (how fast units
+//  move through it, how much cover it gives) and a height (0 = low ground, about
+//  1 = a hilltop). High ground lets shooters reach further (and see further with fog), gives
+//  melee the edge downhill and slows anyone climbing; forests hide the units in them.
+//  The layout comes from the town's `terrain` (see FIELD_RECIPES) and region, and
+//  `walls`, seeded by the town's id so the same town always gives the same field.
 // =============================================================================
-const GROUND = { grass: 0, forest: 1, water: 2, ford: 3, mud: 4, wall: 5, snow: 6, ice: 7, sand: 8, lava: 9, rock: 10 };
+const GROUND = { grass: 0, forest: 1, water: 2, ford: 3, mud: 4, wall: 5, snow: 6, ice: 7, sand: 8, lava: 9, rock: 10, stream: 11, bridge: 12 };
+
+// What each battlefield type is made of. Counts are for the whole field.
+//   hills: number of hills (ridge: long thin dune ridges), forests: forest blobs,
+//   river: chance of a big river across the middle (riverKind: water, ice or lava),
+//   streams: thin shallow streams, lakes: ponds, rocks: boulder / pillar clusters,
+//   clumps: [kind, count, min radius, max radius] patches of slow ground.
+const FIELD_RECIPES = {
+  plains:  { hills: 4, forests: 7, forestR: [45, 95], river: 0.35, streams: 1, lakes: 0, rocks: 4 },
+  forest:  { hills: 3, forests: 15, forestR: [60, 130], river: 0.3, streams: 1, lakes: 0, rocks: 2 },
+  river:   { hills: 3, forests: 7, forestR: [45, 95], river: 1, streams: 1, lakes: 0, rocks: 3 },
+  swamp:   { hills: 2, forests: 6, forestR: [40, 80], river: 0, streams: 3, lakes: 4, rocks: 1, clumps: [['mud', 11, 45, 90]] },
+  snow:    { hills: 6, forests: 5, forestR: [40, 85], river: 0.6, riverKind: 'ice', streams: 0, lakes: 0, rocks: 4, clumps: [['snow', 9, 45, 95], ['ice', 2, 30, 55]] },
+  dunes:   { hills: 7, ridge: true, forests: 1, forestR: [25, 45], river: 0, streams: 0, lakes: 1, rocks: 7, clumps: [['sand', 10, 55, 110]] },
+  lava:    { hills: 5, forests: 2, forestR: [35, 60], river: 0.8, riverKind: 'lava', streams: 0, lakes: 0, rocks: 8, clumps: [['lava', 8, 25, 50]] },
+  crystal: { hills: 2, forests: 4, forestR: [35, 70], river: 0.25, streams: 1, lakes: 4, rocks: 10 },
+};
+// Regional flavour on top of the recipe: extra (or fewer) forests and streams.
+const REGION_FIELD = { darkwood: { forests: 5 }, bog: { streams: 1, lakes: 1 }, sun: { forests: -3 }, ember: { forests: -2 }, frost: { hills: 1 }, shadow: { rocks: 3 } };
 
 class Terrain {
   constructor(spotId, W, H) {
+    this.spotId = spotId;
     const s = DATA.spots[spotId] || {};
     this.W = W; this.H = H; this.C = 8;
     this.cols = Math.ceil(W / this.C); this.rows = Math.ceil(H / this.C);
     this.kind = new Uint8Array(this.cols * this.rows);
     this.cover = new Float32Array(this.cols * this.rows);
+    this.height = new Float32Array(this.cols * this.rows);
     this.type = s.terrain || 'plains';
     this.walls = !!s.walls;
     this.region = s.region || 'free';
+    this.features = [];                     // what the field has, for the HUD (hills, river with fords...)
     // trees used for forests and the tree lines at the edges of the field
     this.trees = { frost: ['snowpine'], darkwood: ['darktree', 'darktree', 'tree_pine'], ember: ['deadpine', 'ashrock'],
       shadow: ['deadpine', 'tree_pine'], bog: ['tree_round', 'mushroom'], azure: ['palm', 'crystal'], sun: ['palm', 'cactus'] }[this.region]
       || ['tree_round', 'tree_pine'];
     let seed = 7; for (const ch of spotId || 'x') seed = seed * 31 + ch.charCodeAt(0);
     this.rng = makeRng(seed);
+    this.noise = makeNoise((seed >>> 0) & 0xffff);
     this.generate();
   }
 
@@ -33,11 +58,37 @@ class Terrain {
     return cy * this.cols + cx;
   }
   kindAt(x, y) { const i = this.idx(x, y); return i < 0 ? 0 : this.kind[i]; }
-  footingAt(x, y) { const f = DATA.ground[GROUND_NAMES[this.kindAt(x, y)]].footing; return f == null ? 1 : f; }
-  speedAt(x, y) { return DATA.ground[GROUND_NAMES[this.kindAt(x, y)]].speed; }
+  groundAt(x, y) { return DATA.ground[GROUND_NAMES[this.kindAt(x, y)]]; }
+  footingAt(x, y) { const f = this.groundAt(x, y).footing; return f == null ? 1 : f; }
+  speedAt(x, y) { return this.groundAt(x, y).speed; }
+  passable(x, y) { return x >= 0 && y >= 0 && x < this.W && y < this.H && this.speedAt(x, y) > 0; }
   coverAt(x, y) {
     const i = this.idx(x, y); if (i < 0) return 0;
     return Math.max(this.cover[i], DATA.ground[GROUND_NAMES[this.kind[i]]].cover || 0);
+  }
+  // Units standing in a forest can only be spotted from close by.
+  hidesAt(x, y) { return this.kindAt(x, y) === GROUND.forest; }
+  // Ground height at a point (smoothly between cell centres): 0 low ground, ~1 a hilltop.
+  heightAt(x, y) {
+    const C = this.C, u = clamp(x / C - 0.5, 0, this.cols - 1.001), v = clamp(y / C - 0.5, 0, this.rows - 1.001);
+    const ix = Math.floor(u), iy = Math.floor(v), tx = u - ix, ty = v - iy, h = this.height, c = this.cols, i = iy * c + ix;
+    const ix1 = Math.min(this.cols - 1, ix + 1) - ix, iy1 = (Math.min(this.rows - 1, iy + 1) - iy) * c;
+    return (h[i] * (1 - tx) + h[i + ix1] * tx) * (1 - ty) + (h[i + iy1] * (1 - tx) + h[i + iy1 + ix1] * tx) * ty;
+  }
+  // Speed factor for walking from (x, y) in direction (dx, dy): slower uphill, a little faster downhill.
+  slopeFactor(x, y, dx, dy) {
+    const d = Math.hypot(dx, dy); if (!d) return 1;
+    const look = 10, rise = (this.heightAt(x + dx / d * look, y + dy / d * look) - this.heightAt(x, y)) / look * 100;   // height per 100 px
+    return clamp(1 - rise * DATA.battle.hills.climb, 0.65, 1.12);
+  }
+  // The nearest spot units can stand on (for teleports and deployment), searching outward.
+  nearestOpen(x, y) {
+    if (this.passable(x, y)) return [x, y];
+    for (let r = 8; r < 240; r += 8) for (let a = 0; a < 16; a++) {
+      const px = x + Math.cos(a / 16 * Math.PI * 2) * r, py = y + Math.sin(a / 16 * Math.PI * 2) * r;
+      if (this.passable(px, py)) return [px, py];
+    }
+    return [clamp(x, 8, this.W - 8), clamp(y, 16, this.H - 8)];
   }
   // Where a unit at (x, y) should head to get past the wall towards (tx, ty), or null.
   gateWaypoint(x, y, tx, ty) {
@@ -53,87 +104,175 @@ class Terrain {
   describe() {
     const name = { plains: 'Open plains', forest: 'Forest', river: 'River', swamp: 'Swamp', snow: 'Snowfield',
       dunes: 'Dunes', lava: 'Lava field', crystal: 'Crystal shore' }[this.type] || this.type;
-    return this.walls ? `${name}, walled town` : name;
+    const extra = this.features.filter(f => !name.toLowerCase().includes(f.split(' ')[0])).slice(0, 2);
+    return [name, ...extra].join(', ') + (this.walls ? ', walled town' : '');
+  }
+  // What is under a point, for the battle's ground readout.
+  infoAt(x, y) {
+    const k = GROUND_NAMES[this.kindAt(x, y)], G = DATA.ground[k], h = this.heightAt(x, y), HB = DATA.battle.hills;
+    const parts = [{ grass: 'Open ground', forest: 'Forest - hides troops, cover', water: 'Deep water - slow, poor footing', ford: 'Ford - shallow crossing',
+      mud: 'Mud - slow', wall: 'Wall', snow: 'Snowdrift - slow', ice: 'Ice - fast, slippery', sand: 'Sand - slow', lava: 'Lava - impassable',
+      rock: 'Rocks - impassable', stream: 'Stream - shallow', bridge: 'Bridge' }[k] || k];
+    if (h > 0.2) parts.push(`${h > 0.7 ? 'Hilltop' : 'Slope'}: shooters +${Math.round(h * HB.range * 100)}% range`);
+    if (G.cover && k !== 'forest') parts.push(`${Math.round(G.cover * 100)}% cover`);
+    return parts.join(' | ');
   }
 
   // ---------------------------------------------------------------- generation
-  setCircle(cx, cy, r, k, only = [GROUND.grass]) {
-    const rng = this.rng;
-    for (let y = 0; y < this.rows; y++) for (let x = 0; x < this.cols; x++) {
-      const px = x * this.C + 4, py = y * this.C + 4;
-      const d = Math.hypot(px - cx, (py - cy) * 1.15);
-      if (d < r * (0.8 + rng() * 0.35) && only.includes(this.kind[y * this.cols + x])) this.kind[y * this.cols + x] = k;
+  // A blob of ground kind k with a ragged, noisy edge, laid only over the `only` kinds.
+  blob(cx, cy, r, k, only = [GROUND.grass], stretch = 1.15) {
+    const C = this.C, n = this.noise, off = this.rng() * 100;
+    const x0 = Math.max(0, Math.floor((cx - r * 1.4) / C)), x1 = Math.min(this.cols - 1, Math.ceil((cx + r * 1.4) / C));
+    const y0 = Math.max(0, Math.floor((cy - r * 1.4) / C)), y1 = Math.min(this.rows - 1, Math.ceil((cy + r * 1.4) / C));
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+      const px = x * C + 4, py = y * C + 4, i = y * this.cols + x;
+      const d = Math.hypot(px - cx, (py - cy) * stretch) / r + (n(px / 38 + off, py / 38) - 0.5) * 0.7;
+      if (d < 1 && only.includes(this.kind[i])) this.kind[i] = k;
     }
   }
-
-  // n clumps of ground kind k, scattered over the middle of the field. n is given for
-  // the old 480x270 field and scaled up with the field's area.
-  clumps(n, k, rMin, rMax) {
-    const rng = this.rng, A = this.W * this.H / (480 * 270);
-    const count = Math.round(n * A * 0.55);
-    for (let i = 0; i < count; i++)
-      this.setCircle(this.W * (0.18 + rng() * 0.64), this.H * (0.08 + rng() * 0.84), (rMin + rng() * (rMax - rMin)) * 1.4, k);
+  // Cells near a point have their ground height pressed down (river valleys, lake beds).
+  flatten(px, py, i, inner, outer, dist) {
+    const t = clamp((dist - inner) / (outer - inner), 0, 1);
+    this.height[i] *= t * t * (3 - 2 * t);
   }
 
-  generate() {
+  // Hills: smooth mounds with flattish tops, spread so each third of the field gets some.
+  genHills(n, ridge) {
     const rng = this.rng, C = this.C, W = this.W, H = this.H;
-    if (this.type === 'river') {
-      // A winding river across the middle, with shallow fords.
-      const x0 = W * (0.44 + rng() * 0.12), phase = rng() * 6, amp = 20 + rng() * 30;
-      const fords = [0.2, 0.5, 0.8].map(f => H * (f + (rng() - 0.5) * 0.1));
-      for (let y = 0; y < this.rows; y++) {
-        const py = y * C + 4, cx = x0 + Math.sin(py / 70 + phase) * amp;
-        const ford = fords.some(f => Math.abs(py - f) < 16);
-        for (let x = 0; x < this.cols; x++) {
-          const px = x * C + 4;
-          if (Math.abs(px - cx) < 18) this.kind[y * this.cols + x] = ford ? GROUND.ford : GROUND.water;
-        }
+    for (let k = 0; k < n; k++) {
+      const zone = [1, 0, 2][k % 3];                                  // the middle first, then each side
+      const cx = W * (0.06 + zone * 0.3 + rng() * 0.28), cy = H * (0.1 + rng() * 0.8);
+      const rx = ridge ? 160 + rng() * 160 : 110 + rng() * 140, ry = ridge ? rx * (0.18 + rng() * 0.12) : rx * (0.45 + rng() * 0.5);
+      const ang = ridge ? (rng() - 0.5) * 0.8 + Math.PI / 2 * (rng() < 0.5 ? 0 : 1) : rng() * Math.PI, ca = Math.cos(ang), sa = Math.sin(ang);
+      const peak = 0.65 + rng() * 0.45, R = Math.max(rx, ry);
+      const x0 = Math.max(0, Math.floor((cx - R) / C)), x1 = Math.min(this.cols - 1, Math.ceil((cx + R) / C));
+      const y0 = Math.max(0, Math.floor((cy - R) / C)), y1 = Math.min(this.rows - 1, Math.ceil((cy + R) / C));
+      for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+        const dx = x * C + 4 - cx, dy = y * C + 4 - cy, lx = dx * ca + dy * sa, ly = -dx * sa + dy * ca;
+        const d = Math.hypot(lx / rx, ly / ry) + (this.noise(x / 6 + k * 13, y / 6) - 0.5) * 0.25;
+        if (d >= 1) continue;
+        const f = clamp((1 - d) / 0.6, 0, 1), h = peak * f * f * (3 - 2 * f);   // plateau in the middle
+        const i = y * this.cols + x; this.height[i] = Math.max(this.height[i], h);
       }
-      this.clumps(2, GROUND.forest, 14, 22);
-    } else if (this.type === 'snow') {
-      this.clumps(7, GROUND.snow, 16, 30);                                  // deep drifts
-      this.clumps(2, GROUND.ice, 14, 22);                                   // slippery frozen ponds
-      this.clumps(2, GROUND.forest, 12, 18);
-    } else if (this.type === 'dunes') {
-      this.clumps(8, GROUND.sand, 16, 30);
-      this.clumps(2, GROUND.rock, 5, 8);
-    } else if (this.type === 'lava') {
-      this.clumps(4, GROUND.lava, 9, 15);                                   // molten pools: walk around
-      this.clumps(4, GROUND.rock, 5, 8);
-    } else if (this.type === 'crystal') {
-      this.clumps(7, GROUND.rock, 5, 9);                                    // crystal pillars
-      this.clumps(2, GROUND.water, 14, 22);
-    } else if (this.type === 'forest') {
-      this.clumps(6, GROUND.forest, 18, 32);
-    } else if (this.type === 'swamp') {
-      this.clumps(7, GROUND.mud, 16, 30);
-      this.clumps(2, GROUND.forest, 12, 20);
-    } else {
-      this.clumps(3, GROUND.forest, 12, 20);
+    }
+    // gentle swells everywhere so the ground never looks perfectly flat
+    for (let y = 0; y < this.rows; y++) for (let x = 0; x < this.cols; x++) {
+      const i = y * this.cols + x;
+      this.height[i] = Math.max(0, this.height[i] + (this.noise(x / 14 + 50, y / 14) - 0.5) * 0.12);
+    }
+    if (n) this.features.push(ridge ? 'dune ridges' : n >= 5 ? 'rolling hills' : 'hills');
+  }
+
+  // A river winding from the top of the field to the bottom through the middle, with
+  // crossings (fords and a bridge; stone causeways over lava; none needed on ice).
+  genRiver(kindName) {
+    const rng = this.rng, C = this.C, W = this.W, H = this.H, G = GROUND, k = G[kindName];
+    const x0 = W * (0.43 + rng() * 0.14), a1 = 40 + rng() * 60, a2 = 12 + rng() * 22, p1 = rng() * 6, p2 = rng() * 6;
+    const half = kindName === 'lava' ? 15 + rng() * 5 : 19 + rng() * 7;
+    const cx = y => x0 + Math.sin(y / 190 + p1) * a1 + Math.sin(y / 70 + p2) * a2;
+    const n = kindName === 'ice' ? 0 : kindName === 'lava' ? 3 : 2 + (rng() < 0.6 ? 1 : 0);
+    const crossings = [];
+    for (let i = 0; i < n; i++) {
+      const y = H * (0.12 + 0.76 * (i + 0.5) / n) + (rng() - 0.5) * 70;
+      crossings.push({ y, bridge: kindName === 'lava' || (i === 1 && n === 3) || (n === 2 && i === 0 && rng() < 0.5) });
+    }
+    for (let y = 0; y < this.rows; y++) {
+      const py = y * C + 4, c = cx(py);
+      for (let x = 0; x < this.cols; x++) {
+        const px = x * C + 4, i = y * this.cols + x, d = Math.abs(px - c);
+        const w = half + (this.noise(px / 30, py / 30) - 0.5) * 8;
+        this.flatten(px, py, i, w, w + 70, d);
+        if (d >= w) continue;
+        const cr = crossings.find(q => Math.abs(py - q.y) < (q.bridge ? 10 : 22));
+        this.kind[i] = cr ? (cr.bridge ? G.bridge : G.ford) : k;
+      }
+    }
+    this.river = { cx, crossings, kind: kindName };
+    const nb = crossings.filter(q => q.bridge).length, nf = crossings.length - nb;
+    this.features.push(kindName === 'ice' ? 'frozen river' : kindName === 'lava' ? `lava river (${nb} causeways)`
+      : `river (${[nf ? `${nf} ford${nf > 1 ? 's' : ''}` : '', nb ? `${nb} bridge` : ''].filter(Boolean).join(', ')})`);
+  }
+
+  // A thin, shallow stream that wanders across the field.
+  genStream() {
+    const rng = this.rng, C = this.C, W = this.W, H = this.H;
+    const vertical = rng() < 0.6, base = (vertical ? W : H) * (0.25 + rng() * 0.5), amp = 30 + rng() * 60, ph = rng() * 6, half = 5 + rng() * 3;
+    const tilt = (rng() - 0.5) * 0.5;
+    for (let y = 0; y < this.rows; y++) for (let x = 0; x < this.cols; x++) {
+      const px = x * C + 4, py = y * C + 4, i = y * this.cols + x;
+      const along = vertical ? py : px, across = vertical ? px : py;
+      const d = Math.abs(across - (base + Math.sin(along / 120 + ph) * amp + (along - (vertical ? H : W) / 2) * tilt));
+      this.flatten(px, py, i, half, half + 40, d);
+      if (d < half && [GROUND.grass, GROUND.mud, GROUND.snow, GROUND.sand].includes(this.kind[i])) this.kind[i] = GROUND.stream;
+    }
+    if (!this.features.includes('streams')) this.features.push('streams');
+  }
+
+  genLake() {
+    const rng = this.rng, C = this.C, cx = this.W * (0.25 + rng() * 0.5), cy = this.H * (0.12 + rng() * 0.76), r = 40 + rng() * 55;
+    for (let y = 0; y < this.rows; y++) for (let x = 0; x < this.cols; x++) {
+      const px = x * C + 4, py = y * C + 4, d = Math.hypot(px - cx, (py - cy) * 1.3);
+      if (d < r + 90) this.flatten(px, py, y * this.cols + x, r, r + 90, d);
+    }
+    this.blob(cx, cy, r, GROUND.water, [GROUND.grass, GROUND.mud, GROUND.sand, GROUND.snow, GROUND.forest], 1.3);
+    if (!this.features.includes('lakes')) this.features.push('lakes');
+  }
+
+  // The middle of the field, where blobs and features go (not the deployment edges).
+  midPoint(edge = 0.08) { return [this.W * (edge + this.rng() * (1 - edge * 2)), this.H * (0.05 + this.rng() * 0.9)]; }
+
+  generate() {
+    const rng = this.rng, C = this.C, W = this.W, H = this.H, G = GROUND;
+    const R = { ...FIELD_RECIPES[this.type] || FIELD_RECIPES.plains };
+    for (const [k, v] of Object.entries(REGION_FIELD[this.region] || {})) R[k] = Math.max(0, (R[k] || 0) + v);
+
+    this.genHills(R.hills, R.ridge);
+    for (const [kind, n, r0, r1] of R.clumps || [])                  // patches of slow ground (mud, snow, sand...)
+      for (let i = 0; i < n; i++) { const [x, y] = this.midPoint(0.04); this.blob(x, y, r0 + rng() * (r1 - r0), G[kind]); }
+    for (let i = 0; i < R.lakes; i++) this.genLake();
+    if (rng() < R.river) this.genRiver(R.riverKind || 'water');
+    for (let i = 0; i < R.streams; i++) this.genStream();
+    const soft = [G.grass, G.snow, G.sand, G.mud];
+    for (let i = 0; i < R.forests; i++) {                             // forests: a big blob with a smaller one or two beside it
+      const [x, y] = this.midPoint(0.05), r = R.forestR[0] + rng() * (R.forestR[1] - R.forestR[0]);
+      this.blob(x, y, r, G.forest, soft);
+      if (rng() < 0.6) this.blob(x + (rng() - 0.5) * r * 2, y + (rng() - 0.5) * r * 1.6, r * 0.55, G.forest, soft);
+    }
+    if (R.forests >= 3) this.features.push(R.forests >= 10 ? 'thick woods' : 'woods');
+    for (let i = 0; i < R.rocks; i++) {                               // boulders / pillars, mostly on slopes
+      let [x, y] = this.midPoint(0.12);
+      for (let t = 0; t < 4 && this.heightAt(x, y) < 0.3; t++) [x, y] = this.midPoint(0.12);
+      for (let j = 0, m = 2 + Math.floor(rng() * 3); j < m; j++) this.blob(x + (rng() - 0.5) * 70, y + (rng() - 0.5) * 50, 10 + rng() * 12, G.rock, soft);
     }
 
     if (this.walls) {
-      // The town sits behind a stone wall with two open gates.
-      this.wallX = W - 280;
+      // The town sits behind a stone wall with open gates, on flat ground.
+      this.wallX = W - 300;
       const wx = Math.floor(this.wallX / C);
-      const gates = [H * 0.3, H * 0.7].map(g => Math.round((g + (rng() - 0.5) * 60) / 8) * 8);
+      const gates = [H * 0.22, H * 0.5, H * 0.78].map(g => Math.round((g + (rng() - 0.5) * 60) / 8) * 8);
       this.gates = gates;
       for (let y = 0; y < this.rows; y++) {
         const py = y * C + 4;
+        for (let x = wx - 6; x < this.cols; x++) {                     // clear ground in front of the wall and inside
+          const i = y * this.cols + x;
+          this.kind[i] = G.grass;
+          if (x > wx) this.height[i] = 0; else this.height[i] *= (wx - x) / 6;
+        }
         const i = y * this.cols + wx;
         if (py < 12 || py > H - 12) continue;
-        if (gates.some(g => Math.abs(py - g) < 12)) { this.kind[i] = GROUND.grass; continue; }
-        this.kind[i] = GROUND.wall;
+        if (gates.some(g => Math.abs(py - g) < 12)) continue;
+        this.kind[i] = G.wall;
         for (let k = 1; k <= 6; k++) this.cover[i + k] = DATA.ground.wall.behindCover;  // shelter behind the wall
       }
-      // inside the walls: clear ground for the town
-      for (let y = 0; y < this.rows; y++) for (let x = wx + 1; x < this.cols; x++) this.kind[y * this.cols + x] = GROUND.grass;
     }
-    // never block the starting areas
+    // scattered trees along the top and bottom edges
+    for (let x = 40; x < (this.walls ? this.wallX - 60 : W - 40); x += 70) for (const edge of [0, 1]) if (rng() < 0.55)   // (not inside a town)
+      this.blob(x + (rng() - 0.5) * 40, edge ? H - 20 - rng() * 30 : 20 + rng() * 30, 10 + rng() * 14, G.forest, [G.grass, G.snow, G.sand, G.mud]);
+    // never block the starting areas: no water, lava or rocks where armies deploy
+    const blocks = [G.water, G.lava, G.rock, G.ice];
     for (let y = 0; y < this.rows; y++) for (let x = 0; x < this.cols; x++) {
       const i = y * this.cols + x;
-      const k = this.kind[i];
-      if ((x * C < 200 || x * C > W - 200) && k !== GROUND.wall && k !== GROUND.forest && k !== GROUND.snow && k !== GROUND.sand) this.kind[i] = GROUND.grass;
+      if ((x * C < 300 || x * C > W - 300) && blocks.includes(this.kind[i])) this.kind[i] = G.grass;
     }
   }
 
@@ -145,9 +284,10 @@ class Terrain {
     for (let y = 0; y < this.rows; y++) for (let x = 0; x < this.cols; x++) {
       const k = this.kind[y * this.cols + x], px = x * C, py = y * C;
       if (k === GROUND.forest && (x + y * 3) % 2 === 0 && rng() < 0.7) trees.push([px - 4 + rng() * 4, py - 10 + rng() * 4]);
-      else if (k === GROUND.rock) rocks.push([px + 4, py + 8]);
+      else if (k === GROUND.rock && (x + y) % 2 === 0) rocks.push([px + 4, py + 8]);
     }
     this.drawGround(ctx);
+    this.drawHills(ctx);
     trees.sort((a, b) => a[1] - b[1]);
     for (const [x, y] of trees) {
       const im = Art.deco(this.trees[Math.floor(rng() * this.trees.length)]);
@@ -163,6 +303,35 @@ class Terrain {
       this.drawTown(ctx);
       this.drawWall(ctx);
     }
+  }
+
+  // Hills: soft light from the top left, shade on the far slopes, a touch of brightness
+  // on high ground, and thin contour lines every fifth of a hill's height, so the
+  // lie of the land reads at a glance from far above.
+  drawHills(ctx) {
+    const W = this.W, H = this.H, hs = new Float32Array(W * H);
+    let any = false;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const h = this.heightAt(x, y); hs[y * W + x] = h; if (h > 0.15) any = true; }
+    if (!any) return;
+    const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+    const c = cv.getContext('2d'), img = c.createImageData(W, H), d = img.data, STEP = 0.2;
+    const solid = new Uint8Array(W * H);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const k = this.kindAt(x, y); solid[y * W + x] = k === GROUND.water || k === GROUND.lava || k === GROUND.ice || k === GROUND.bridge ? 1 : 0; }
+    for (let y = 2; y < H - 2; y++) for (let x = 2; x < W - 2; x++) {
+      const i = y * W + x, h = hs[i];
+      if (solid[i]) continue;
+      const gx = (hs[i + 2] - hs[i - 2]) / 4 * 100, gy = (hs[i + 2 * W] - hs[i - 2 * W]) / 4 * 100;   // rise per 100 px
+      const lit = clamp((-gx * 0.7 - gy * 0.9) * 0.55, -1, 1);
+      let r = 0, g = 0, b = 0, a = 0;
+      if (lit > 0) { r = 255; g = 250; b = 225; a = lit * 60 + h * 24; }   // high ground slightly paler
+      else { r = 30; g = 36; b = 70; a = -lit * (this.region === 'frost' || this.type === 'snow' ? 55 : 75); }
+      const band = Math.floor(h / STEP);
+      if (h > 0.12 && (band !== Math.floor(hs[i + 1] / STEP) || band !== Math.floor(hs[i + W] / STEP))) { r = 40; g = 34; b = 24; a = 95; }
+      d[i * 4] = r; d[i * 4 + 1] = g; d[i * 4 + 2] = b; d[i * 4 + 3] = clamp(a, 0, 120);
+    }
+    c.putImageData(img, 0, 0);
+    ctx.save(); ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(cv, 0, 0, W, H); ctx.restore();
   }
 
   // Every kind of ground is drawn as a smooth shape instead of square cells: each
@@ -196,11 +365,16 @@ class Terrain {
       if (crack) return [140, 180, 214];
       if (h(Math.floor(wx / 3), Math.floor(wy)) < 0.02) return [255, 255, 255];
       return [176 + v, 214 + v, 238 + v * 0.4]; } });
-    this.layer(ctx, [G.lava], { edge: [42, 26, 20, 255], edgeFrom: 0.3, rim: [120, 40, 20], paint: (wx, wy, w, n) => {
+    const stone = this.river && this.river.kind === 'lava';
+    this.layer(ctx, stone ? [G.lava, G.bridge] : [G.lava], { edge: [42, 26, 20, 255], edgeFrom: 0.3, rim: [120, 40, 20], paint: (wx, wy, w, n) => {
       const f = n(wx / 8, wy / 8) * 0.6 + n(wx / 3 + 7, wy / 3) * 0.4, hot = Math.min(1, (w - 0.5) / 0.3);
       if (f > 0.68 && hot > 0.5) return [255, 220, 90];                  // bright veins
       return [cl(220 + 30 * f), cl(70 + 80 * f * hot), cl(24 + 20 * f)]; } });
-    this.layer(ctx, [G.water, G.ford], { edge: [46, 62, 30, 150], rim: [150, 200, 236], sub: G.ford, paint: (wx, wy, w, n, h, f) => {
+    this.layer(ctx, [G.stream], { edge: [46, 62, 30, 110], rim: [170, 210, 236], paint: (wx, wy, w, n, h) => {
+      const v = (n(wx / 8 + 3, wy / 8) - 0.5) * 14;
+      if (h(Math.floor(wx / 4 + Math.sin(wy / 4) * 2), Math.floor(wy / 1.5)) < 0.05) return [190, 225, 248];
+      return [106 + v, 168 + v, 222 + v]; } });
+    this.layer(ctx, stone ? [G.water, G.ford] : [G.water, G.ford, G.bridge], { edge: [46, 62, 30, 150], rim: [150, 200, 236], sub: G.ford, paint: (wx, wy, w, n, h, f) => {
       if (f > 0.5) {                                                      // ford: wet sand with ripples
         const v = n(wx / 5, wy / 5) * 18 - 9;
         if (h(Math.floor(wx / 4 + Math.sin(wy / 4) * 2), Math.floor(wy / 1.5)) < 0.05) return [120, 160, 196];
@@ -209,6 +383,11 @@ class Terrain {
       const depth = Math.min(1, (w - 0.5) / 0.3), v = (n(wx / 14 + 30, wy / 14) - 0.5) * 14;
       if (depth > 0.3 && h(Math.floor(wx / 5 + Math.sin(wy / 3)), Math.floor(wy)) < 0.035) return [150, 200, 242];   // glints
       return [92 - depth * 44 + v, 156 - depth * 50 + v, 222 - depth * 34 + v]; } });
+    // bridges: wooden planks over water, dark stone causeways over lava
+    this.layer(ctx, [G.bridge], { edge: [30, 22, 16, 255], edgeFrom: 0.42, rim: stone ? [70, 60, 60] : [96, 62, 34], paint: (wx, wy, w, n) => {
+      const v = (n(wx / 6, wy / 6) - 0.5) * 16;
+      if (stone) return (Math.floor(wx / 5) + Math.floor(wy / 4)) % 3 === 0 ? [70, 62, 62] : [110 + v, 100 + v, 98 + v];
+      return Math.floor(wx) % 4 === 0 ? [92, 60, 34] : [168 + v, 120 + v, 72 + v]; } });
   }
 
   // One smooth layer for the cells of `kinds`. opts.paint(wx, wy, w, noise, hash, subField)
@@ -251,18 +430,25 @@ class Terrain {
     const cv = document.createElement('canvas'); cv.width = pw * S; cv.height = ph * S;
     const c = cv.getContext('2d'), img = c.createImageData(cv.width, cv.height), d = img.data;
     const e0 = opts.edgeFrom != null ? opts.edgeFrom : 0.4;
-    for (let Y = 0; Y < cv.height; Y++) for (let X = 0; X < cv.width; X++) {
-      const wx = px0 + X / S, wy = py0 + Y / S;
-      const wob = (noise(wx / 9, wy / 9) - 0.5) * 0.22;
-      const w = field(main, wx, wy) + wob, i = (Y * cv.width + X) * 4;
-      if (w < e0) continue;
-      let col, a = 255;
-      if (w < 0.5) {
-        if (!opts.edge) continue;
-        col = opts.edge; a = opts.edge[3] === 255 ? 255 : Math.round(opts.edge[3] * (w - e0) / (0.5 - e0));
-      } else if (opts.rim && w < 0.56 && !(opts.sub != null && field(sub, wx, wy) + wob * 0.5 > 0.5)) col = opts.rim;
-      else col = opts.paint(wx, wy, w, noise, hash, opts.sub != null ? field(sub, wx, wy) + wob * 0.5 : 0);
-      d[i] = Math.max(0, Math.min(255, col[0])); d[i + 1] = Math.max(0, Math.min(255, col[1])); d[i + 2] = Math.max(0, Math.min(255, col[2])); d[i + 3] = a;
+    // only visit cells the shape can reach (big fields are mostly empty for any one kind)
+    for (let cy = Math.floor(py0 / C); cy * C < py0 + ph; cy++) for (let cx = Math.floor(px0 / C); cx * C < px0 + pw; cx++) {
+      let m = 0;
+      for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) m = Math.max(m, at(main, cx + ox, cy + oy));
+      if (m < e0 - 0.12) continue;
+      const X0 = (cx * C - px0) * S, Y0 = (cy * C - py0) * S;
+      for (let Y = Math.max(0, Y0); Y < Math.min(cv.height, Y0 + C * S); Y++) for (let X = Math.max(0, X0); X < Math.min(cv.width, X0 + C * S); X++) {
+        const wx = px0 + X / S, wy = py0 + Y / S;
+        const wob = (noise(wx / 9, wy / 9) - 0.5) * 0.22;
+        const w = field(main, wx, wy) + wob, i = (Y * cv.width + X) * 4;
+        if (w < e0) continue;
+        let col, a = 255;
+        if (w < 0.5) {
+          if (!opts.edge) continue;
+          col = opts.edge; a = opts.edge[3] === 255 ? 255 : Math.round(opts.edge[3] * (w - e0) / (0.5 - e0));
+        } else if (opts.rim && w < 0.56 && !(opts.sub != null && field(sub, wx, wy) + wob * 0.5 > 0.5)) col = opts.rim;
+        else col = opts.paint(wx, wy, w, noise, hash, opts.sub != null ? field(sub, wx, wy) + wob * 0.5 : 0);
+        d[i] = Math.max(0, Math.min(255, col[0])); d[i + 1] = Math.max(0, Math.min(255, col[1])); d[i + 2] = Math.max(0, Math.min(255, col[2])); d[i + 3] = a;
+      }
     }
     c.putImageData(img, 0, 0);
     ctx.drawImage(cv, px0, py0, pw, ph);
@@ -300,9 +486,10 @@ class Terrain {
     }
     spots.push([wx + 205, mid + 16, 2, 82]);
     spots.sort((a, b) => a[1] - b[1]);
+    let n = 0;
     for (const [x, y, size, want] of spots) {               // want: drawn width of the building itself
       if (y > H - 4) continue;
-      const im = Art.building(style, size), bw = im.box.x1 - im.box.x0 + 1;
+      const im = Art.building(style, size, size === 2 ? this.spotId || 1 : `${this.spotId}:${n++ % 6}`), bw = im.box.x1 - im.box.x0 + 1;
       const sc = Math.min(3.2, want / bw), half = bw * sc / 2;
       ctx.fillStyle = 'rgba(20,16,30,0.32)';
       ctx.beginPath(); ctx.ellipse(x + 3, y + 1, half * 0.95, half * 0.28, 0, 0, Math.PI * 2); ctx.fill();

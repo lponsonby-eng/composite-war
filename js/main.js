@@ -10,6 +10,7 @@
   try { await document.fonts.load('8px PixelFont'); } catch (e) {}
   await Assets.load();
   MapView.init();
+  if (typeof Gen !== 'undefined') Gen.warm();          // make the generated sprites in the background
 
   // Keep the canvas sized to its box, in real device pixels (crisp on high-DPI screens).
   function resize() {
@@ -66,7 +67,7 @@
   // ---- frame loop ----
   let last = performance.now(), hudT = 0, miniT = 0;
   function frame(now) {
-    const dt = Math.min(0.05, (now - last) / 1000);
+    const dt = Math.max(0, Math.min(0.05, (now - last) / 1000));   // never negative: the first frame can be stamped before the loop began
     last = now;
     if (Game.mode === 'battle' && Game.battle) {
       const b = Game.battle;

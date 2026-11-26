@@ -70,14 +70,22 @@
   <p>Each general can move or attack once per turn. <b>Recruiting</b> refills a general's squad for gold and is free to do any time.</p>
   <p><b>Formation:</b> before a battle you fight yourself, choose which squads stand in the <b>front row</b> (nearest the enemy)
     and which in the <b>back row</b>, and their order along the line. Heroes remember their row.</p>
-  <p><b>Battles</b> are fought on a large field under <b>fog of war</b>: you only see what your squads can see. A battle starts paused.
-    Click a squad to select it (Shift-click or drag a box for several, or click its portrait at the top). <b>Right-click</b> the ground
-    to move there (on touch: tap the ground), or an enemy to attack it. Several squads move in the chosen <b>formation</b>
+  <p><b>Battles</b> are fought by <b>blocks of hundreds of men</b> (each soldier takes the field as 5 men) on a large field seen
+    from high above, with the whole battlefield in view. Every block has <b>morale</b>, shown under its portrait: Steady, Wavering or Routing.
+    Losses, blows into its <b>flank or rear</b> (which also hit harder), charges and a fallen general shake it; a routing block flees and
+    may rally once safe. Win by breaking the enemy's blocks, so try to hit them from the side.</p>
+  <p>A battle starts paused. Click a block or its <b>marker</b> to select it (Shift-click or drag a box for several, or click its portrait
+    at the top). <b>Right-click</b> the ground to move there (on touch: tap the ground), or an enemy to attack it. <b>Right-drag</b> to draw
+    a front line: the selected blocks spread along it, as wide as you drew it, facing across it (to the left of the way you dragged).
+    Several blocks move in the chosen <b>formation</b>
     (Auto: frontline in front, backline behind; Line; Column; Wedge). <b>Advance</b>, <b>Hold</b> and <b>Retreat</b> apply to the
-    selected squads (or all). Each hero has <b>skills</b> that cost MP (Z / X / C, or the buttons); area skills land where you click,
-    and <b>Auto</b> lets the hero cast by themself. Space pauses; arrow keys or WASD scroll; the wheel zooms.
-    If a general falls, their squad scatters. <b>Terrain</b> matters: forests slow units and shelter them from arrows,
-    rivers can be crossed quickly only at the fords, mud slows everyone, and walled towns must be entered through the gates. When time runs out the defenders keep the town.</p>
+    selected squads (or all). Advancing frontline troops <b>charge</b> the last stretch and hit harder on impact.
+    Each hero has <b>skills</b> that cost MP (Z / X / C, or the buttons); area skills land where you click,
+    and <b>Auto</b> lets the hero cast by themself. Space pauses; arrow keys or WASD scroll; the wheel zooms; middle-drag scrolls.
+    If a general falls, their block is badly shaken. <b>Terrain</b> matters (point at the ground to see what it is): <b>hills</b> let shooters
+    reach further, give melee the edge downhill and slow anyone climbing; <b>forests</b> hide the troops in them
+    until the enemy is close (or they attack), slow units and shelter them from arrows; rivers can be crossed quickly only at the fords and bridges,
+    mud, snow and sand slow everyone, rocks and lava block the way, and walled towns must be entered through the gates. When time runs out the defenders keep the town.</p>
   <p><b>Wandering generals</b> (marked with a gold coin on the map) drift between towns. Hire one while they are in a town you own.
     Defeated generals who are captured become wanderers too.</p>
   <p>Generals of the Free Towns join you when you take their town and they have nowhere to flee.
@@ -93,6 +101,11 @@
 <script src="js/map.js"></script>
 <script src="js/data.js"></script>
 <script src="js/events.js"></script>
+<script src="tools/pixelgen/pixelgen.js"></script>
+<script src="tools/pixelgen/medieval.js"></script>
+<script src="tools/pixelgen/creatures.js"></script>
+<script src="tools/pixelgen/buildings.js"></script>
+<script src="js/gensprites.js"></script>
 <script src="js/assets.js"></script>
 <script src="js/art.js"></script>
 <script src="js/heraldry.js"></script>

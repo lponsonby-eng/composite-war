@@ -224,7 +224,7 @@ const Heraldry = {
   draw(ctx, f, x, y, tier, t, o = {}) {
     const S = this.SIZE[tier], st = this.style(f), im = this.sprite(f, tier, o.mine);
     const pole = this.poleLen(tier);
-    const seed = (x * 0.37 + y * 0.11) % 6.28;
+    const seed = ((x * 0.37 + y * 0.11) % 6.28 + 6.28) % 6.28;     // never negative (banners just off the top/left edge), or the effects break
     const lift = o.lift == null ? 1 : o.lift;
     const IW = im.lw, IH = im.lh, R4 = im.res;
     const bx = Math.round(x - IW / 2), by = Math.round(y + 3 + (1 - lift) * (pole - S.h - 4));

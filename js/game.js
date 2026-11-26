@@ -325,7 +325,8 @@ const Game = {
       river: 'River: wade slowly or cross at the fords', swamp: 'Swamp: mud slows units',
       snow: 'Snowfield: deep drifts slow units, frozen ponds are fast but slippery', dunes: 'Dunes: sand slows units',
       lava: 'Lava field: walk around the molten pools', crystal: 'Crystal shore: crystal pillars block the way' }[s.terrain || 'plains'];
-    return t + (s.walls ? '. Walls: defenders shelter behind them, attackers must use the gates' : '');
+    return t + (s.walls ? '. Walls: defenders shelter behind them, attackers must use the gates' : '')
+      + '. Hills give shooters extra range; forests hide troops';
   },
 
   log(text, cls = '') {
@@ -780,7 +781,8 @@ const Game = {
       const scene = () => {
         const sc = e.scenes[i], gid = this.speaker(sc.who, c);
         const name = gid ? DATA.generals[gid].name : '';
-        const html = `<div class="scene ${gid ? '' : 'narr'}">${gid ? `<img src="${Assets.portrait(gid)}">` : ''}
+        const mood = sc.mood || (typeof Gen !== 'undefined' ? Gen.moodOf(this.storyText(sc.text, c)) : 'neutral');
+        const html = `<div class="scene ${gid ? '' : 'narr'}">${gid ? `<img class="pt" src="${Assets.portrait(gid, mood)}">` : ''}
           <div>${name ? `<div class="who">${name}</div>` : ''}<p>${this.storyText(sc.text, c)}</p></div></div>`;
         const last = i === e.scenes.length - 1;
         if (!last) return show(html, [['Next', () => { i++; scene(); }]]);
