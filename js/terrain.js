@@ -130,6 +130,9 @@ class Terrain {
       // inside the walls: clear ground for the town
       for (let y = 0; y < this.rows; y++) for (let x = wx + 1; x < this.cols; x++) this.kind[y * this.cols + x] = GROUND.grass;
     }
+    // scattered trees along the top and bottom edges
+    for (let x = 40; x < W - 40; x += 70) for (const edge of [0, 1]) if (rng() < 0.55)
+      this.setCircle(x + (rng() - 0.5) * 40, edge ? H - 20 - rng() * 30 : 20 + rng() * 30, 10 + rng() * 14, GROUND.forest);
     // never block the starting areas
     for (let y = 0; y < this.rows; y++) for (let x = 0; x < this.cols; x++) {
       const i = y * this.cols + x;

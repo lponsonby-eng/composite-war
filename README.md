@@ -119,17 +119,25 @@ Choices can give or cost gold, soldiers, XP, promotions or bring a wandering gen
 Add your own events by copying an entry; the format is described at the top of the file.
 
 ## Battles
-Battles are fought on a large field (1120 x 720) with scrolling, zoom, a minimap and
-**fog of war**: you only see (and your units only target) what your squads can see.
-Battles start paused. Select squads by clicking (Shift adds), dragging a box, or clicking
-their portraits; right-click the ground to move (tap on touch screens), right-click an
-enemy to attack. Groups move in a **formation** (Auto: frontline in front and backline
-behind; Line; Column; Wedge) at the slowest squad's pace. Orders: Advance, Hold, Retreat.
-Each hero has **skills** paid with MP (Charge, Rally, Shield Wall for warriors; Volley,
-Eagle Eye for marksmen; Meteor, Frost Field or Mass Heal, Blessing for mages): use the
-buttons or Z / X / C, and area skills land where you click. **Auto** lets a hero cast by
-themself; computer heroes always do. Space pauses. Tune it in `DATA.battle` and
-`DATA.skills`. Auto-resolved battles run the same simulation without drawing.
+Live battles are fought by **blocks of hundreds of men** on a large field (2000 x 1300) with scrolling,
+zoom, a minimap and **fog of war**. Each campaign soldier takes the field as 5 men (`DATA.battle.men`), so a
+16-soldier squad is an 80-man block in ranks behind its general and banner; afterwards the survivors are
+turned back into soldiers. Auto-resolved battles run the same rules with 1 man per soldier, so they stay
+fast and give the same results.
+
+**Morale** decides most fights. Every block has morale (shown under its portrait as Steady, Wavering or
+Routing). It drops with losses, with blows into its **flank** or **rear** (which also hit 30% / 60% harder),
+with cavalry charges, and when its general falls; it recovers out of contact, and the Rally skill restores
+it. A wavering block fights worse; a routing block flees for its own edge of the field and can rally once
+it is safe. A side whose blocks have all routed or fallen loses. Blocks slowly wheel to face the enemy they
+fight, so hitting them from the side pays. Tune it in `DATA.battle.morale` and `DATA.battle.flank`.
+
+Battles start paused. Select blocks by clicking (Shift adds), dragging a box, or clicking their portraits;
+right-click the ground to move (tap on touch screens), right-click an enemy to attack. Groups move in a
+**formation** (Auto: frontline in front and backline behind; Line; Column; Wedge). Orders: Advance, Hold,
+Retreat. Each hero has **skills** paid with MP (Charge, Rally, Shield Wall for warriors; Volley, Eagle Eye for
+marksmen; Meteor, Frost Field or Mass Heal, Blessing for mages): use the buttons or Z / X / C, and area skills
+land where you click. **Auto** lets a hero cast by themself; computer heroes always do. Space pauses.
 
 ## Formation screen
 Before every battle you fight yourself, the formation screen shows your squads in a

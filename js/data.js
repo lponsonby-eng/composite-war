@@ -13,15 +13,25 @@ window.DATA = {
   title: 'Composite War',
 
   startGold: 150,
-  battleTimeLimit: 180,          // seconds; when time runs out the defender holds
+  battleTimeLimit: 240,          // seconds; when time runs out the defender holds
 
   // --- Battles ---------------------------------------------------------------
   // The battlefield (world pixels), how far units see through the fog of war,
   // and heroes' magic points (MP) for skills.
   battle: {
-    width: 1120, height: 720,
+    width: 2000, height: 1300,
+    // men: each campaign soldier takes the field as this many men in a live battle, so armies
+    // fight as blocks of hundreds (auto-resolved battles use 1 to stay fast; the balance is the same)
+    men: 5, spacing: 8, menHp: 4,             // menHp: men in big battles are this much tougher, so blocks grind instead of melting
     vision: { soldier: 90, hero: 140, cavalry: 30, shooter: 25 },   // cavalry and shooters see further
     mp: { base: 60, perLevel: 5, regen: 3, start: 0.6 },
+    // Morale (0-100 per squad). Losses, hits in the flank or rear and a fallen general lower it;
+    // it recovers out of contact. Below wavering the squad fights worse; below rout it flees
+    // the field (and can rally once it is safe and above rally again).
+    morale: { start: 100, perLevel: 1, losses: 130, flank: 30, rear: 70, charge: 45, general: 45, nearbyRout: 12,
+      recover: 4, wavering: 60, rout: 25, rally: 50, waverAtk: 0.85 },
+    flank: { side: 1.3, rear: 1.6 },                                  // damage when hitting a block's flank or rear
+    turnRate: 0.7,                                                    // radians per second a block can wheel
   },
 
   // --- Hero skills -----------------------------------------------------------
