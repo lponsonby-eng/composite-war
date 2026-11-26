@@ -23,7 +23,8 @@ window.DATA = {
     // men: each campaign soldier takes the field as this many men in a live battle, so armies
     // fight as blocks of hundreds (auto-resolved battles use 1 to stay fast; the balance is the same)
     men: 5, spacing: 8, menHp: 4,             // menHp: men in big battles are this much tougher, so blocks grind instead of melting
-    vision: { soldier: 90, hero: 140, cavalry: 30, shooter: 25 },   // cavalry and shooters see further
+    fog: false,                     // fog of war: true hides what your squads cannot see (and units only fight what their side sees)
+    vision: { soldier: 90, hero: 140, cavalry: 30, shooter: 25 },   // cavalry and shooters see further (only used with fog)
     mp: { base: 60, perLevel: 5, regen: 3, start: 0.6 },
     // Morale (0-100 per squad). Losses, hits in the flank or rear and a fallen general lower it;
     // it recovers out of contact. Below wavering the squad fights worse; below rout it flees

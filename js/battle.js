@@ -18,6 +18,7 @@ class Battle {
     this.factions = [opts.attFaction, opts.defFaction];
     this.playerSide = opts.playerSide === 'att' ? 0 : opts.playerSide === 'def' ? 1 : -1;
     this.headless = !!opts.headless;
+    this.fog = !!DATA.battle.fog;
     this.men = opts.men || (this.headless ? 1 : (B.men || 1));   // figures per campaign soldier (opts.men: for testing)
     this.stats = { loss: 0, flank: 0, rear: 0, charge: 0, general: 0, hits: 0 };
     this.units = []; this.squads = []; this.projs = []; this.fx = []; this.texts = []; this.dead = [];
@@ -671,7 +672,9 @@ class Battle {
       const k = Math.floor(u.x / C) * 4096 + Math.floor(u.y / C);
       (grid.get(k) || grid.set(k, []).get(k)).push(u);
     }
-    // sight: mark the cells each side can see
+    // sight: without fog of war everyone sees the whole field
+    if (!this.fog) for (const e of live) { e.seen[0] = e.seen[1] = true; }
+    else {
     const V = 40, vw = Math.ceil(this.W / V) + 1, vh = Math.ceil(this.H / V) + 1;
     const sight = [new Uint8Array(vw * vh), new Uint8Array(vw * vh)];
     for (const u of live) {
@@ -681,6 +684,7 @@ class Battle {
         if (!S[gy * vw + gx] && (gx + 0.5 - cx) ** 2 + (gy + 0.5 - cy) ** 2 <= (r / V) ** 2) S[gy * vw + gx] = 1;
     }
     for (const e of live) { const i = Math.floor(e.y / V) * vw + Math.floor(e.x / V); e.seen[0] = !!sight[0][i] || e.side === 0; e.seen[1] = !!sight[1][i] || e.side === 1; }
+    }
     // each man's nearest enemy (only close ones matter: pinning, stepping back, being caught in melee)
     for (const u of live) {
       u.closestD = 1e9; u.frontFoe = null; u.frontFoeD = 1e9;
@@ -841,13 +845,13 @@ class Battle {
   // ------------------------------------------------------------------ fog of war
   seenByPlayer(u) { return this.playerSide < 0 || u.side === this.playerSide || u.seen[this.playerSide]; }
   cellVisible(x, y) {
-    if (this.playerSide < 0) return true;
+    if (this.playerSide < 0 || !this.fog) return true;
     const i = Math.floor(y / this.fogC) * this.fw + Math.floor(x / this.fogC);
     return this.visible[i] === 1;
   }
 
   updateFog() {
-    if (this.playerSide < 0) return;
+    if (this.playerSide < 0 || !this.fog) return;
     const C = this.fogC, fw = this.fw, fh = this.fh, vis = this.visible;
     vis.fill(0);
     for (const u of this.units) {
@@ -1042,7 +1046,7 @@ class Battle {
     for (const t of this.texts) if (this.cellVisible(t.x, t.y)) label(ctx, t.s, t.x, t.y, t.color, 'center', 12);
 
     // fog of war over everything, soft-edged
-    if (this.playerSide >= 0) {
+    if (this.playerSide >= 0 && this.fog) {
       ctx.imageSmoothingEnabled = true;
       ctx.drawImage(this.fogCanvas, 0, 0, this.fw * this.fogC, this.fh * this.fogC);
       ctx.imageSmoothingEnabled = false;
@@ -1081,7 +1085,7 @@ class Battle {
     }
     c.drawImage(this.thumb, 0, 0);
     c.imageSmoothingEnabled = true;
-    c.drawImage(this.fogCanvas, 0, 0, mc.width, mc.height);
+    if (this.fog) c.drawImage(this.fogCanvas, 0, 0, mc.width, mc.height);
     const colors = this.factions.map(f => DATA.factions[f].color);
     for (const u of this.units) {
       if (!u.alive || u.escaped || !this.seenByPlayer(u)) continue;

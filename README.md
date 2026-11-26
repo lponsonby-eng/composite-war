@@ -120,7 +120,7 @@ Add your own events by copying an entry; the format is described at the top of t
 
 ## Battles
 Live battles are fought by **blocks of hundreds of men** on a large field (2000 x 1300) with scrolling,
-zoom, a minimap and **fog of war**. Each campaign soldier takes the field as 5 men (`DATA.battle.men`), so a
+zoom and a minimap; the whole field is in view (set `DATA.battle.fog` to bring back fog of war). Each campaign soldier takes the field as 5 men (`DATA.battle.men`), so a
 16-soldier squad is an 80-man block in ranks behind its general and banner; afterwards the survivors are
 turned back into soldiers. Auto-resolved battles run the same rules with 1 man per soldier, so they stay
 fast and give the same results.
