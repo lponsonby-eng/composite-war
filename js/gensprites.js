@@ -43,7 +43,26 @@ const Gen = {
     sunpriest:  { caster: 'hood', weapon: 'staff' },
     militia:    { troop: 'levy' },
     bandit:     { troop: 'archer', helm: 'hood' },
+    // beast riders
+    bearrider:  { cav: 'manatarms', mount: 'bear', weapon: 'axe' },
+    stagrider:  { cav: 'spearman', mount: 'stag', weapon: 'spear' },
+    boarrider:  { cav: 'levy', mount: 'boar', weapon: 'axe' },
+    camelrider: { cav: 'spearman', mount: 'camel', weapon: 'spear' },
+    waverider:  { cav: 'spearman', mount: 'kelpie', weapon: 'spear' },
+    // monsters (tools/pixelgen/creatures.js)
+    yeti: { creature: 'yeti' }, frosteye: { creature: 'frosteye' }, beetle: { creature: 'beetle' }, flame: { creature: 'flame' },
+    skeleton: { creature: 'skeleton' }, ninja: { creature: 'ninja' }, ghost: { creature: 'ghost' }, bonepriest: { creature: 'bonepriest' },
+    slime: { creature: 'slime' }, beast: { creature: 'mudbrute' }, thorn: { creature: 'thornling' }, bogshaman: { creature: 'bogshaman' },
+    fishfolk: { creature: 'fishfolk' }, bulwark: { creature: 'crab' }, crystal: { creature: 'crystaleye' }, hawk: { creature: 'firehawk' },
+    frogman: { creature: 'frogman' },
+    // artillery
+    cannon: { creature: 'cannon' }, firecannon: { creature: 'firecannon' }, suncannon: { creature: 'suncannon' },
+    mortar: { creature: 'mortar' }, catapult: { creature: 'catapult' },
   },
+  // Monster generals: the creature each one is (drawn larger, crowned, with an aura).
+  MONSTER_GENERALS: { brrn: 'yeti', grimbark: 'beetle', morrow: 'thornling', ignis: 'flame', morta: 'bonepriest', ooze: 'slime',
+    krug: 'mudbrute', gill: 'fishfolk', shellos: 'crab', lumi: 'crystaleye', amun: 'mummy', zephyr: 'firehawk' },
+  hasCreatures: typeof PixelGen !== 'undefined' && !!(PixelGen.GENERATORS && PixelGen.GENERATORS.creature),
 
   // the faction a unit is recruited by (for its colours)
   unitFaction(id) {
@@ -61,7 +80,14 @@ const Gen = {
     if (!Assets.img[key]) {
       const spec = this.UNITS[id], f = this.unitFaction(id), seed = 1 + (PixelGen.hashSeed(id) % 9973);
       let res;
-      if (spec.cav) res = PixelGen.generate('cavalry', { seed, faction: f, troop: spec.cav, weapon: spec.weapon, coat: spec.coat });
+      if (spec.creature) {
+        if (!this.hasCreatures) return null;
+        res = PixelGen.generate('creature', { seed, faction: f, creature: spec.creature });
+        Assets.img[key] = this.canvas(res.img, 48, 48, 2, 5, res.scale);
+        Assets.img[key].corpse = { x: 0, y: 240, w: 48, h: 48 };
+        return key;
+      }
+      if (spec.cav) res = PixelGen.generate('cavalry', { seed, faction: f, troop: spec.cav, weapon: spec.weapon, coat: spec.coat, mount: spec.mount });
       else if (spec.caster) res = PixelGen.generate('soldier', { seed, faction: f, troop: 'archer', helm: spec.caster, weapon: spec.weapon, robe: 'yes' });
       else res = PixelGen.generate('soldier', { seed, faction: f, troop: spec.troop, weapon: spec.weapon, helm: spec.helm });
       Assets.img[key] = this.canvas(res.img, spec.cav ? 48 : 32, spec.cav ? 52 : 40, spec.cav ? 0 : 2, spec.cav ? 5 : 5);
@@ -90,19 +116,34 @@ const Gen = {
   },
   heroOpts(gid) { return { seed: 1 + (PixelGen.hashSeed('hero:' + gid) % 99991), hero: this.heroArchetype(gid) }; },
 
-  // Key of a general's hero sheet, or null (monster generals keep their creature look).
+  // Key of a general's hero sheet (monster generals: their creature as a general), or null.
   hero(gid) {
     const d = DATA.generals[gid];
-    if (!this.on || !d || d.mface) return null;
+    if (!this.on || !d) return null;
     const key = 'gen:h:' + gid;
+    if (d.mface) {                                                  // a monster general: their creature, as a general
+      const kind = this.MONSTER_GENERALS[gid] || (this.UNITS[d.leads] || {}).creature;
+      if (!kind || !this.hasCreatures) return null;
+      if (!Assets.img[key]) {
+        const res = PixelGen.generate('creature', { seed: 1 + (PixelGen.hashSeed('hero:' + gid) % 99991), faction: d.faction, creature: kind, hero: 'yes' });
+        Assets.img[key] = this.canvas(res.img, 48, 48, 2, 5, res.scale);
+      }
+      return key;
+    }
     if (!Assets.img[key]) Assets.img[key] = this.canvas(PixelGen.generate('champion', this.heroOpts(gid)).img, 40, 48, 2, 5);
     return key;
   },
   // A portrait canvas (64 x 64) in one of three moods, or null.
   portrait(gid, mood = 'neutral') {
     const d = DATA.generals[gid];
-    if (!this.on || !d || d.mface) return null;
+    if (!this.on || !d) return null;
     const key = 'gen:p:' + gid;
+    if (d.mface) {                                                  // monster generals have one face for every mood
+      const kind = this.MONSTER_GENERALS[gid] || (this.UNITS[d.leads] || {}).creature;
+      if (!kind || !this.hasCreatures) return null;
+      if (!this.cache[key]) this.cache[key] = this.canvas(PixelGen.generate('creatureface', { seed: 1 + (PixelGen.hashSeed('hero:' + gid) % 99991), faction: d.faction, creature: kind }).img, 64, 64, 0, 1);
+      return this.cache[key];
+    }
     if (!this.cache[key]) this.cache[key] = this.canvas(PixelGen.generate('heroface', this.heroOpts(gid)).img, 64, 64, 0, 0);
     const i = Math.max(0, ['neutral', 'fierce', 'smile'].indexOf(mood));
     const ck = key + ':' + i;
@@ -122,11 +163,11 @@ const Gen = {
   },
 
   // ---------------------------------------------------------------- helpers
-  canvas(grid, fw, fh, pad, rows) {
+  canvas(grid, fw, fh, pad, rows, scale = 1) {
     const c = document.createElement('canvas'); c.width = grid.w; c.height = grid.h;
     const x = c.getContext('2d');
     x.putImageData(new ImageData(grid.toRGBA(), grid.w, grid.h), 0, 0);
-    c.fw = fw; c.fh = fh; c.pad = pad; c.rows = rows;
+    c.fw = fw; c.fh = fh; c.pad = pad; c.rows = rows; c.scale = scale;   // scale: big creatures are drawn larger
     return c;
   },
 

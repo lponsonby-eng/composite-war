@@ -130,7 +130,7 @@ const Assets = {
     if (alpha !== 1) ctx.globalAlpha = alpha;
     if (fw === 16 && fh === 16) HD.draw(ctx, im, dir * 16, row * 16, 16, 16, Math.round(x), Math.round(y), size, size);
     else {
-      const k = size / 32, w = fw * k, h = fh * k;
+      const k = size / 32 * (im.scale || 1), w = fw * k, h = fh * k;
       this.crisp(ctx, im, dir * fw, row * fh, fw, fh, x + size / 2 - w / 2, y + size - h + (im.pad || 0) * k, w, h);
     }
     if (alpha !== 1) ctx.globalAlpha = 1;
@@ -146,7 +146,7 @@ const Assets = {
   drawCorpse(ctx, sprite, x, y, size, flip, alpha = 1) {
     const im = this.img[sprite], c = im && im.corpse;
     if (!c) return false;
-    const k = size / 32;
+    const k = size / 32 * (im.scale || 1);
     if (alpha !== 1) ctx.globalAlpha = alpha;
     const part = (q, ox) => {
       const sx = flip && q.alt ? q.alt.x : q.x, sy = flip && q.alt ? q.alt.y : q.y;
@@ -169,7 +169,7 @@ const Assets = {
     const c = cv.getContext('2d'); c.drawImage(src, 0, 0);
     const W = cv.width, H = cv.height, d = c.getImageData(0, 0, W, H), p = d.data, a = new Uint8Array(W * H);
     const fw = src.fw || 16, fh = src.fh || 16;
-    Object.assign(cv, { fw: src.fw, fh: src.fh, pad: src.pad, rows: src.rows, corpse: src.corpse });
+    Object.assign(cv, { fw: src.fw, fh: src.fh, pad: src.pad, rows: src.rows, corpse: src.corpse, scale: src.scale });
     for (let i = 0; i < W * H; i++) a[i] = p[i * 4 + 3] > 128 ? 1 : 0;
     const r = parseInt(col.slice(1, 3), 16), g = parseInt(col.slice(3, 5), 16), b = parseInt(col.slice(5, 7), 16);
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {

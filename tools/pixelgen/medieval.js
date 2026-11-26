@@ -792,6 +792,15 @@
     white:    { coat: '#ddd8ce', mane: '#b8b2a8' }, dun:      { coat: '#b8945a', mane: '#3a2a1a' },
     palomino: { coat: '#d0a850', mane: '#f0e8d0' },
   };
+  // Beast mounts for riders who don't ride horses: each changes the body, head, legs and extras.
+  const MOUNTS = {
+    horse:  { coats: Object.keys(COATS) },
+    bear:   { coats: ['#6a4a30', '#3a2a22', '#e8e4dc'], mane: null, legs: [41, 45, 50, 4.4, 3.8], riderDy: 0 },
+    stag:   { coats: ['#8a5a30', '#9a6a3a'], mane: null, legs: [37, 44, 50, 2.8, 1.9], riderDy: 0 },
+    boar:   { coats: ['#4a3a30', '#6a4a36', '#3a3036'], mane: '#1a1414', legs: [41, 46, 50, 3.4, 2.8], riderDy: 3 },
+    camel:  { coats: ['#c8a064', '#b8905a'], mane: '#8a6a40', legs: [36, 44, 50, 2.8, 2.2], riderDy: -3 },
+    kelpie: { coats: ['#2a8a8a', '#3a6a9a'], mane: '#7af0e0', legs: [37, 44, 50, 3.2, 2.2], riderDy: 0 },
+  };
   function cavalryGenome(o) {
     const r = R.make(o.seed, 'cavalry');
     const troop = o.troop && o.troop !== 'random' ? o.troop : r.pick(['knight', 'knight', 'manatarms', 'captain']);
@@ -799,9 +808,15 @@
     const weapon = o.weapon && o.weapon !== 'random' ? o.weapon : r.pick(troop === 'knight' ? ['lance', 'lance', 'sword', 'mace'] : ['sword', 'lance', 'axe']);
     rider.weapon = weapon === 'lance' ? 'none' : weapon;
     rider.shield = rider.shield || weapon === 'lance';
+    const mount = MOUNTS[o.mount] ? o.mount : 'horse', MS = MOUNTS[mount];
+    if (mount !== 'horse') {
+      const coat = r.pick(MS.coats);
+      return { troop, rider, lance: weapon === 'lance', mount, coatName: mount, coat: ramp(coat, 5, 0.5), mane: ramp(MS.mane || mix(coat, '#000000', 0.4), 5, 0.45),
+        dapple: mount === 'stag', blaze: false, socks: false, caparison: false, chanfron: false, arms: rider.arms };
+    }
     const coatName = o.coat && COATS[o.coat] ? o.coat : r.pick(Object.keys(COATS));
     const C = COATS[coatName];
-    return { troop, rider, lance: weapon === 'lance', coatName, coat: ramp(C.coat, 5, 0.5), mane: ramp(C.mane, 5, 0.45), dapple: !!C.dapple,
+    return { troop, rider, lance: weapon === 'lance', mount, coatName, coat: ramp(C.coat, 5, 0.5), mane: ramp(C.mane, 5, 0.45), dapple: !!C.dapple,
       blaze: r.chance(0.4), socks: r.chance(0.4), caparison: (troop === 'knight' || troop === 'captain') && r.chance(0.7), chanfron: troop !== 'levy' && r.chance(0.6), arms: rider.arms };
   }
   const HOOF = ['#141010', '#2a2220', '#3a3230', '#4a4240'];
@@ -817,35 +832,72 @@
   function horseSide(g, f, atk) {
     const P = new Painter(48, 52), C = g.coat, M = g.mane, gallop = atk ? 1.6 : 1;
     const capFn = (x, y) => tRamp(blazon(g.arms, (x - 8) / 34, (y - 26) / 18));
+    const mt = g.mount || 'horse', LG = (MOUNTS[mt] && MOUNTS[mt].legs) || [37, 44, 50, 3.2, 2.2];
     const legs = [{ x: 17, ph: 2, far: true }, { x: 36, ph: 3, far: true }, { x: 14, ph: 0 }, { x: 33, ph: 1 }];
+    const HOOFR = mt === 'bear' ? BONER : mt === 'camel' ? ramp('#8a6a40', 4, 0.4) : HOOF;
     const leg = (L) => {
       const k = (f + L.ph) % 4, swing = [3, 1, -3, -1][k] * gallop, lift = k === 1 ? 2.5 : k === 0 ? 0.5 : 0;
-      const kx = L.x - swing * 0.5, ky = 44 - lift * 0.6, hx = L.x - swing - (lift ? 1 : 0), hy = 50 - lift;
-      const m = P.mask().capsule(L.x, 37, kx, ky, 3.2).capsule(kx, ky, hx, hy, 2.2);
+      const kx = L.x - swing * 0.5, ky = LG[1] - lift * 0.6, hx = L.x - swing - (lift ? 1 : 0), hy = LG[2] - lift;
+      const m = P.mask().capsule(L.x, LG[0], kx, ky, LG[3]).capsule(kx, ky, hx, hy, LG[4]);
       P.part(m, L.far ? C.map((c, i) => C[Math.max(0, i - 1)]) : C, { sep: !L.far });
       if (g.socks && !L.far) P.part(P.mask().rect(Math.round(hx) - 1, Math.round(hy) - 3, Math.round(hx) + 1, Math.round(hy) - 1), ramp('#e8e4dc', 5, 0.3), {});
-      P.part(P.mask().rect(Math.round(hx) - 1, Math.round(hy), Math.round(hx) + 1, Math.round(hy) + 1), HOOF, { base: 1 });
+      P.part(P.mask().rect(Math.round(hx) - 1, Math.round(hy), Math.round(hx) + 1, Math.round(hy) + 1), HOOFR, { base: 1 });
     };
     leg(legs[0]); leg(legs[1]);
-    P.part(P.mask().capsule(40, 29, 43 + (f % 2), 41, 3.4).capsule(43 + (f % 2), 41, 42, 45, 2.4), M, { tex: (x, y) => (y % 3 === 0 ? -1 : 0) });   // tail
-    const body = P.mask().ellipse(25, 33, 11.5, 6).ellipse(15, 32, 5.5, 6.5).ellipse(35, 31.5, 6.5, 6.5).poly([[10, 31], [18, 28], [14, 18], [8, 17]]);
-    P.part(body, C, { tex: g.dapple ? (x, y) => ((x * 7 + y * 5) % 9 === 0 ? 1 : 0) : null });
-    const head = P.mask().capsule(10, 17, 4, 24, 5.6).capsule(11, 13, 12, 16, 1.8);
-    P.part(head, C, { sep: true, sepSides: (dx, dy) => dx > 0 });
-    P.part(P.mask().ellipse(3.8, 24.5, 2.2, 1.8), C.map((c, i) => C[Math.max(0, i - 1)]), {});          // muzzle
-    P.g.set(7, 18, '#141010').set(6, 18, C[1]);
-    if (g.blaze) for (let t = 0; t <= 1; t += 0.2) P.g.set(Math.round(9 - t * 5), Math.round(16 + t * 7), '#ece8e0');
-    P.part(P.mask().capsule(10.5, 14.5, 17, 26, 2.2), M, { tex: (x, y) => ((x + y) % 3 === 0 ? 1 : 0) });   // mane
-    if (g.chanfron) { const ch = P.mask().capsule(9.5, 15.5, 5, 21.5, 3.2); P.part(ch, STEEL, { spec: true, sep: true }); }
-    // tack: reins, saddle
-    P.g.line(6, 22, 20, 24, LEATHER[1]);
-    P.part(P.mask().poly([[19, 26], [31, 26], [30, 30], [20, 30]]), LEATHER, { sep: true });
+    const dark = C.map((c, i) => C[Math.max(0, i - 1)]);
+    if (mt === 'horse' || mt === 'kelpie') {
+      if (mt === 'kelpie') P.part(P.mask().poly([[39, 28], [47, 34 + (f % 2)], [46, 44], [41, 38]]), M, { tex: (x, y) => (x % 2 ? -1 : 0) });   // fin tail
+      else P.part(P.mask().capsule(40, 29, 43 + (f % 2), 41, 3.4).capsule(43 + (f % 2), 41, 42, 45, 2.4), M, { tex: (x, y) => (y % 3 === 0 ? -1 : 0) });   // tail
+      const body = P.mask().ellipse(25, 33, 11.5, 6).ellipse(15, 32, 5.5, 6.5).ellipse(35, 31.5, 6.5, 6.5).poly([[10, 31], [18, 28], [14, 18], [8, 17]]);
+      P.part(body, C, { tex: g.dapple ? (x, y) => ((x * 7 + y * 5) % 9 === 0 ? 1 : 0) : mt === 'kelpie' ? (x, y) => ((x + y * 2) % 5 === 0 ? 1 : 0) : null });
+      const head = P.mask().capsule(10, 17, 4, 24, 5.6).capsule(11, 13, 12, 16, 1.8);
+      P.part(head, C, { sep: true, sepSides: (dx, dy) => dx > 0 });
+      P.part(P.mask().ellipse(3.8, 24.5, 2.2, 1.8), dark, {});                                            // muzzle
+      P.g.set(7, 18, '#141010').set(6, 18, C[1]);
+      if (g.blaze) for (let t = 0; t <= 1; t += 0.2) P.g.set(Math.round(9 - t * 5), Math.round(16 + t * 7), '#ece8e0');
+      if (mt === 'kelpie') { const fm = P.mask(); for (let i = 0; i < 5; i++) fm.poly([[11 + i * 1.4, 15 + i * 2.2], [15 + i * 1.8, 11 + i * 2.6], [13 + i * 1.6, 17 + i * 2.2]]); P.part(fm, M, { sep: true }); P.g.set(7, 18, M[4]); }
+      else P.part(P.mask().capsule(10.5, 14.5, 17, 26, 2.2), M, { tex: (x, y) => ((x + y) % 3 === 0 ? 1 : 0) });   // mane
+      if (g.chanfron) { const ch = P.mask().capsule(9.5, 15.5, 5, 21.5, 3.2); P.part(ch, STEEL, { spec: true, sep: true }); }
+      P.g.line(6, 22, 20, 24, LEATHER[1]);                                                               // reins
+    } else if (mt === 'stag') {
+      P.part(P.mask().ellipse(41, 29, 2, 2), ramp('#f0ece4', 4, 0.3), {});                                  // white tail
+      P.part(P.mask().ellipse(25, 32, 11, 5.5).ellipse(15, 31, 5, 6).ellipse(35, 31, 6, 6).poly([[10, 30], [17, 28], [13, 19], [8, 18]]), C, { tex: (x, y) => (y < 31 && (x * 7 + y * 5) % 9 === 0 ? 2 : 0) });
+      P.part(P.mask().capsule(10, 18, 4, 24, 4.6), C, { sep: true, sepSides: (dx) => dx > 0 });
+      P.part(P.mask().ellipse(3.6, 24.4, 1.8, 1.6), ['#141010', '#2a2220', '#3a3230', '#4a4240'], {});
+      P.g.set(7, 19, '#141010');
+      const ant = P.mask().capsule(10, 15, 12, 8, 1.4).capsule(12, 8, 15, 3, 1.2).capsule(12, 8, 9, 4, 1.1).capsule(13.5, 5, 17, 5, 1).capsule(11, 11, 7, 9, 1);
+      P.part(ant, BONER, { sep: true });
+    } else if (mt === 'bear') {
+      P.part(P.mask().ellipse(26, 35, 13, 7.5).ellipse(16, 32, 7.5, 7).ellipse(36, 34, 6, 6), C, { tex: (x, y) => ((x * 3 + y * 5) % 7 === 0 ? 1 : (x + y) % 5 === 0 ? -1 : 0) });
+      P.part(P.mask().ellipse(7.5, 32, 5, 4.6).ellipse(3, 34, 2.6, 2.2).ellipse(9, 27.5, 1.6, 1.6), C, { sep: true, sepSides: (dx) => dx > 0 });
+      P.part(P.mask().ellipse(2.6, 34.2, 1.8, 1.4), ['#141010', '#201818', '#2a2222', '#383030'], {});
+      P.g.set(6, 31, '#141010');
+    } else if (mt === 'boar') {
+      P.part(P.mask().capsule(38, 33, 41, 31 + (f % 2), 1.4), C, {});                                    // curly tail
+      P.part(P.mask().ellipse(25, 36, 12.5, 7).ellipse(15, 35, 6, 7), C, { tex: (x, y) => ((x * 5 + y) % 6 === 0 ? -1 : 0) });
+      const bm = P.mask(); for (let x = 12; x <= 34; x += 2) bm.poly([[x, 31], [x + 2, 31], [x + 1, 27 - (x % 4 === 0 ? 1 : 0)]]);
+      P.part(bm, M, {});                                                                               // bristles
+      P.part(P.mask().poly([[13, 30], [4, 34], [2, 39], [13, 41]]), C, { sep: true, sepSides: (dx) => dx > 0 });
+      P.part(P.mask().ellipse(2.4, 36.5, 1.6, 2.2), ramp('#c08080', 4, 0.4), {});                          // snout
+      P.part(P.mask().capsule(5, 38, 3, 34, 1.2), BONER, {});                                             // tusk
+      P.g.set(8, 33, '#ff3030');
+    } else if (mt === 'camel') {
+      P.part(P.mask().capsule(36, 28, 37, 38, 1.6), M, {});
+      P.part(P.mask().ellipse(25, 31, 11, 5.5).ellipse(26, 25, 5.5, 4.5).ellipse(15, 31, 5, 5), C, {});
+      P.part(P.mask().capsule(14, 31, 9, 22, 4).capsule(9, 22, 8, 13, 3.6).capsule(8, 13, 2, 15, 3.6), C, { sep: true, sepSides: (dx) => dx > 0 });
+      P.g.set(6, 13, '#141010'); P.part(P.mask().ellipse(1.6, 15.5, 1.4, 1.4), C.map((c, i) => C[Math.max(0, i - 1)]), {});
+      P.g.line(2, 16, 22, 22, LEATHER[1]);
+    }
+    // saddle (higher on a camel's hump, lower on a boar)
+    const sd = (MOUNTS[mt] && MOUNTS[mt].riderDy) || 0;
+    P.part(P.mask().poly([[19, 26 + sd], [31, 26 + sd], [30, 30 + sd], [20, 30 + sd]]), mt === 'horse' ? LEATHER : ramp(g.rider.liv[2], 5, 0.4), { sep: true });
     if (g.caparison) {
       const cap = P.mask().poly([[9, 27], [19, 26.5], [31, 26.5], [41, 27], [42, 43], [9, 43]]);
       cap.each((x, y) => { if (y >= 41 && (x % 4 === 0 || x % 4 === 3) && y >= 42) cap.del(x, y); });
       P.part(cap, capFn, { sep: true, shade: (x, y) => (y > 38 ? -1 : 0) });
     }
     leg(legs[2]); leg(legs[3]);
+    if (mt === 'kelpie') for (const x of [14, 33]) P.part(P.mask().poly([[x + 1, 42], [x + 5, 40], [x + 3, 45]]), M, {});   // leg fins
     return P.done();
   }
   function horseFront(g, f, back, atk) {
@@ -864,7 +916,19 @@
     // the rider's legs hang either side
     const legR = g.rider.body === 'plate' || g.rider.body === 'plateMail' ? STEEL : g.rider.hose;
     B.part(B.mask().capsule(14, 30, 13, 39, 3), legR, { sep: true }); B.part(B.mask().capsule(34, 30, 35, 39, 3), legR, { sep: true });
-    if (!back) {
+    const mt = g.mount || 'horse';
+    if (!back && mt === 'bear') {
+      F.part(F.mask().ellipse(24, 33, 6.5, 5.5).ellipse(18.5, 28, 2, 2).ellipse(29.5, 28, 2, 2), C, { sep: true });
+      F.part(F.mask().ellipse(24, 36, 3, 2.2), ramp('#b09070', 4, 0.4), {}); F.g.set(24, 35, '#141010').set(21, 32, '#141010').set(27, 32, '#141010');
+    } else if (!back && mt === 'boar') {
+      F.part(F.mask().ellipse(24, 36, 6, 5), C, { sep: true });
+      F.part(F.mask().ellipse(24, 39, 3, 2.2), ramp('#c08080', 4, 0.4), {});
+      for (const f2 of [-1, 1]) F.part(F.mask().capsule(24 + 3 * f2, 39, 24 + 5 * f2, 35, 1.2), BONER, {});
+      F.g.set(21, 34, '#ff3030').set(27, 34, '#ff3030');
+    } else if (!back && mt === 'camel') {
+      F.part(F.mask().capsule(24, 34, 24, 20, 4).ellipse(24, 18, 3.6, 3.2), C, { sep: true });
+      F.g.set(22, 17, '#141010').set(26, 17, '#141010');
+    } else if (!back) {
       F.part(F.mask().ellipse(24, 32, 4.6, 7.5).ellipse(24, 38.5, 3.6, 2.6), C, { sep: true });
       F.part(F.mask().ellipse(24, 40, 3, 1.8), C.map((c, i) => C[Math.max(0, i - 1)]), {});
       F.part(F.mask().rect(20, 23, 21, 26).rect(27, 23, 28, 26), C, {});                                     // ears
@@ -872,6 +936,8 @@
       F.g.set(19, 30, '#141010').set(29, 30, '#141010').set(19, 29, C[3]).set(29, 29, C[3]);
       if (g.blaze) F.g.vline(24, 28, 37, '#ece8e0');
       if (g.chanfron) { F.part(F.mask().poly([[21, 26], [27, 26], [26, 35], [22, 35]]), STEEL, { spec: true, sep: true }); F.g.set(24, 30, tRamp(g.arms.A)[3]); }
+      if (mt === 'stag') for (const f2 of [-1, 1]) F.part(F.mask().capsule(24 + 3 * f2, 25, 24 + 7 * f2, 17, 1.4).capsule(24 + 6 * f2, 19, 24 + 10 * f2, 18, 1.1).capsule(24 + 7 * f2, 17, 24 + 6 * f2, 13, 1.1), BONER, { sep: true });
+      if (mt === 'kelpie') for (const f2 of [-1, 1]) F.part(F.mask().poly([[24 + 3 * f2, 26], [24 + 8 * f2, 22], [24 + 5 * f2, 29]]), M, { sep: true });
     }
     return { back: B.done(), front: back ? null : F.done() };
   }
@@ -882,7 +948,8 @@
       out.blit(horseSide(g, f, atk));
       const rf = soldierFrame(g.rider, 2, riderPose, 0);
       const crop = new Grid(32, 30); for (let y = 0; y < 30; y++) for (let x = 0; x < 32; x++) crop.set(x, y, rf.get(x, y));
-      out.blit(crop, 9, -2);
+      const sdy = (MOUNTS[g.mount || 'horse'] || {}).riderDy || 0;
+      out.blit(crop, 9, -2 + sdy);
       const legR = g.rider.body === 'plate' || g.rider.body === 'plateMail' ? STEEL : g.rider.hose;
       const LP = new Painter(48, 52);
       LP.part(LP.mask().capsule(24, 27, 20, 32, 3.2).capsule(20, 32, 21, 38, 2.8), legR, { spec: legR === STEEL });
@@ -895,7 +962,7 @@
     out.blit(H.back);
     const rf = soldierFrame(g.rider, dir, riderPose, 0);
     const crop = new Grid(32, 30); for (let y = 0; y < 30; y++) for (let x = 0; x < 32; x++) crop.set(x, y, rf.get(x, y));
-    out.blit(crop, 8, -1);
+    out.blit(crop, 8, -1 + ((MOUNTS[g.mount || 'horse'] || {}).riderDy || 0));
     if (H.front) out.blit(H.front);
     if (g.lance) out.blit(atk ? lancePainter(48, 52, 31, 22, 46, 50, g) : lancePainter(48, 52, back ? 15 : 33, 34, back ? 15 : 33, 0, g));
     return out;
@@ -1504,10 +1571,13 @@
     soldier: { group: 'Medieval 32px', fn: genSoldier, label: 'Soldier sheet', size: '32 x 40 frames', options: { troop: ['random', ...Object.keys(TROOPS)], robe: ['no', 'yes'], weapon: ['random', 'sword', 'mace', 'axe', 'spear', 'halberd', 'poleaxe', 'bill', 'longbow', 'crossbow', 'staff'], helm: ['random', 'none', 'greathelm', 'bascinet', 'sallet', 'kettle', 'coif', 'hood', 'cap'] } },
     champion: { group: 'Medieval 32px', fn: genHero32, label: 'Hero sheet', size: '40 x 48 frames', options: { hero: ['random', ...Object.keys(HEROES)], weapon: ['random', ...Object.keys(HERO_WEAPONS).filter(k => k !== 'dagger'), 'tome', 'longbow', 'daggers'], palette: ['own', 'faction'], aura: ['on', 'off'] } },
     heroface: { group: 'Medieval 32px', fn: genHeroPortrait, label: 'Hero portrait', size: '64 x 64 x 3 moods', options: { hero: ['random', ...Object.keys(HEROES)], weapon: ['random', ...Object.keys(HERO_WEAPONS).filter(k => k !== 'dagger'), 'tome', 'longbow', 'daggers'], palette: ['own', 'faction'] } },
-    cavalry: { group: 'Medieval 32px', fn: genCavalry, label: 'Cavalry sheet', size: '48 x 52 frames', options: { troop: ['random', 'knight', 'manatarms', 'captain'], weapon: ['random', 'lance', 'sword', 'mace', 'axe'], coat: ['random', ...Object.keys(COATS)] } },
+    cavalry: { group: 'Medieval 32px', fn: genCavalry, label: 'Cavalry sheet', size: '48 x 52 frames', options: { mount: Object.keys(MOUNTS), troop: ['random', 'knight', 'manatarms', 'captain', 'spearman', 'archer', 'levy'], weapon: ['random', 'lance', 'sword', 'mace', 'axe', 'spear'], coat: ['random', ...Object.keys(COATS)] } },
     field:   { group: 'Medieval 32px', fn: genField,   label: 'Field ground', size: '64 x 64 seamless', options: { field: ['random', ...Object.keys(FIELD)] } },
     decal:   { group: 'Medieval 32px', fn: genDecal,   label: 'Ground decal', size: '32 x 24', options: { decal: ['random', 'blood', 'scorch', 'trampled'] } },
     prop:    { group: 'Medieval 32px', fn: genProp,    label: 'Camp prop', size: 'varies', options: { prop: ['random', ...PROPS] } },
   });
-  PG.medieval = { rollArms, blazon, TINCT };
+  PG.medieval = { rollArms, blazon, TINCT,
+    // drawing kit for add-on sets (creatures.js)
+    Painter, Mask, Grid, INK, STEEL, LEATHER, WOODR, BLOOD, BONER, GOLDR, FUR, STRAW, mailTex, quiltTex,
+    soldierGenome, soldierFrame, drawWeapon, drawHeroWeapon, HERO_WEAPONS, corpse, heaterMask, tRamp, MOUNTS };
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -71,6 +71,13 @@ whole army's surcoats, shields, banners and tents match:
   lit by the hero's glow colour, with the aura outline.
 - **cavalry**: 192 x 292 sheet of 48 x 52 frames (horse and rider; front/back/left/right; walk, charge) plus a fallen
   horse and rider; seven horse coats, heraldic caparisons, chanfrons, couched lances
+- **creature** (`tools/pixelgen/creatures.js`): 192 x 288 sheets of 48 x 48 frames for monsters and war machines,
+  inspired by Vampire Survivors' bestiary (strong one-colour silhouettes, glowing eyes, reaching, shambling and
+  flapping animation): skeleton, bone priest, ninja, fishfolk, frogman, yeti, bog shaman, thornling, mud brute,
+  mummy, slime, fire spirit, ghost, frost eye, crystal eye, fire hawk, bat, beetle, crab, and cannon, fire cannon,
+  sun cannon, seed mortar and coral catapult. Each sheet ends with the creature's remains (blood, ichor, bones,
+  ash, a wreck...). `--hero yes` makes a monster general: larger, crowned and aura-lit; **creatureface** is its portrait
+- cavalry `--mount` also takes bear, stag, boar, camel and kelpie (a finned water horse)
 - **field**: 64 x 64 seamless ground (leafy meadow, stony camp, mud, rutted road)
 - **decal**: blood pools, scorch marks and trampled grass
 - **prop**: camp pieces (striped pavilion, palisade, gatehouse, banner, hay bale, campfire, barrel, crates,
@@ -200,9 +207,9 @@ them, get cover from arrows and +1.5 defence inside. Tune it in `DATA.ground`.
 files needed), seeded so every picture is always the same:
 - human units (knights, archers, spearmen, robed mages and priests, militia...) use medieval soldier sheets
   in their faction's heraldry, and horse cavalry (lancers, ember riders, nightmare riders) cavalry sheets.
-  The look of each unit is set in `Gen.UNITS`; units not listed there (monsters, beast riders, artillery)
-  keep their old sprites for now
-- every general except monsters is a unique hero (archetype from what they lead, lords are warlords; set
+  Monsters, beast riders and artillery use the creature and mount generators. The look of each unit is set
+  in `Gen.UNITS`, and each monster general's creature in `Gen.MONSTER_GENERALS`
+- every general is a unique hero (monster generals are a crowned, larger version of their creature) (archetype from what they lead, lords are warlords; set
   `hero: 'witch'` on a general in `js/data.js` to choose) with a matching portrait. Dialogue shows the
   portrait at 128 px in a mood guessed from the line (set `mood: 'fierce'` / `'smile'` on a scene to choose)
 - fallen soldiers stay on the battlefield in their blood, and green battlefields are a generated meadow with
