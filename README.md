@@ -144,8 +144,18 @@ preview while you drag. Blocks march facing the way they go and turn to their or
 Groups move in a **formation** (Auto: frontline in front and backline behind; Line; Column; Wedge) at the
 slowest block's pace. Orders: Advance, Hold, Retreat. The ranks close up as men fall. Advancing or
 attacking frontline blocks **charge** the last stretch (`charge`: faster, a harder first blow, and a blow
-to the enemy's morale; cavalry keep their bigger charge bonus). Ranged units reach further on the big
-field (`rangeMul`), and skills cover more ground (`areaMul`). Each hero has **skills** paid with MP
+to the enemy's morale; cavalry keep their bigger charge bonus). Shooters, casters and artillery fire
+from far off (`rangeMul`, 2.4x their listed range: archers about 230 px, cannons about 360), so armies
+trade volleys long before they meet; skills reach `skillRangeMul` and cover `areaMul` more ground.
+
+**Weight of battle** (`hpMul`, `atkMul`, `rangedAtkMul`, `cdMul`, `defMul`, `shockExp`): everyone is
+3x as tough, melee hits 1.3x and ranged 1.8x as hard but 1.3x less often, and armour counts 1.5x. A
+clash of two blocks now holds for a while instead of being decided in seconds, and ranged fire wears
+blocks down on the way in. Healing and skill damage grow with the extra toughness. Morale shocks per
+hit (flank, rear, charge) shrink partly with the extra hits a kill takes, so blocks still break before
+they are wiped out. Live battles' fighting lasts about twice as long as before; battles have 8 minutes.
+
+Each hero has **skills** paid with MP
 (Charge, Rally, Shield Wall for warriors; Volley, Eagle Eye for marksmen; Meteor, Frost Field or Mass
 Heal, Blessing for mages): use the buttons or Z / X / C, and area skills land where you click. **Auto**
 lets a hero cast by themself; computer heroes always do. Space pauses. Tune it in `DATA.battle` and
@@ -259,8 +269,16 @@ hills are drawn with light, shade and contour lines.
 - Rivers are slow to wade (and units fight badly in the water) except at fords and
   bridges; streams are shallow. Snowdrifts, dunes and mud slow units, frozen ground is
   fast but slippery, lava and rocks block the way.
-- Walls are solid with three gates; defenders stay behind them, get cover from arrows
-  and +1.5 defence inside.
+- **Walled towns** stand about 60% of the way across the field behind a thick wall with
+  towers, a raised rampart behind it (the defenders' archers shoot from high ground) and an
+  open courtyard before the houses, so defenders have room to move. Defenders get cover from
+  arrows behind the wall and +1.5 defence inside.
+- The wall has three **gates**, shut, that attackers must batter down (`DATA.battle.gate`):
+  melee hits them, artillery smashes them (4x), mages crack them, arrows barely scratch them.
+  A damaged gate cracks and shows a bar of what is left; a broken one is open for good and
+  shakes the defenders. While every gate stands, computer artillery bombards the nearest gate
+  and frontline troops with no one to fight outside the wall batter it; right-click a gate to
+  send your selected squads at it. Defenders can pass through their own gates to sally out.
 
 Point at the ground in battle to see what it is (bottom left). Tune it in `DATA.ground`.
 

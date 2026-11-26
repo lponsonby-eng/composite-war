@@ -34,6 +34,8 @@ class Battle {
     this.done = false; this.banner = null;
     this.xp = {};                            // gid -> XP earned from kills this battle
     this.terrain = new Terrain(opts.spotId, this.W, this.H);
+    if (this.terrain.walls) for (const g of this.terrain.gates)          // gates are tougher in big battles (more men batter them)
+      g.hp = g.maxHp = B.gate.hp * (this.men > 1 ? B.gate.menMul : 1);
     this.boosts = opts.boosts || [null, null];   // landmark powers for each side: { unit, k, L } or null
     this.placeSquads(opts.attackers, 0);
     this.placeSquads(opts.defenders, 1);
@@ -72,7 +74,7 @@ class Battle {
     const made = gens.map(g => this.makeSquad(g, side, rowOf(g), face));
     const front = made.filter(q => q.row === 'front'), back = made.filter(q => q.row === 'back');
     const walled = side === 1 && T.walls;
-    const rows = (walled ? [[back, T.wallX + 50], [front, T.wallX + 135]] : [[front, 360], [back, 265]]).filter(r => r[0].length);
+    const rows = (walled ? [[back, T.wallX + T.wallW + 22], [front, T.wallX + T.wallW + 150]] : [[front, 360], [back, 265]]).filter(r => r[0].length);
     // where every squad would stand for a given sideways shift / forward step
     const layout = (shift, step) => {
       const out = [];
@@ -205,18 +207,19 @@ class Battle {
     const boost = 1 + lv * (isLeader ? L.leaderBonus : L.squadBonus);
     const sb = isLeader ? { hp: 1, atk: 1, def: 0 } : DATA.soldierBoost(slv);       // soldier level and tier
     const big = this.men > 1 ? DATA.battle.menHp : 1;                                // big battles: tougher men, slower grind
-    const hp = Math.round((isLeader ? t.hp * 5 * (this.men > 1 ? 3 : 1) : t.hp) * big * boost * sb.hp * (1 + (P.hp || 0) * k));
+    const hp = Math.round((isLeader ? t.hp * 5 * (this.men > 1 ? 3 : 1) : t.hp) * big * boost * sb.hp * (1 + (P.hp || 0) * k) * DATA.battle.hpMul);
+    const B = DATA.battle, hits = t.type === 'healer' ? B.hpMul : t.proj ? B.rangedAtkMul : B.atkMul;   // heals keep pace with the extra hp
     const V = DATA.battle.vision;
     return {
       side, gid: g.id, sq, isLeader, t, back: isLeader ? DATA.roleOf(g.id) === 'back' : t.role === 'back',
       heal: t.type === 'healer', cav: t.type === 'cavalry', run: 0,
       sprite: isLeader ? Assets.genSprite(g.id) : Assets.unitSprite(t),
       x, y, hp, maxHp: hp,
-      atk: (isLeader ? t.atk * 1.6 : t.atk) * boost * sb.atk * (1 + (P.atk || 0) * k),
+      atk: (isLeader ? t.atk * 1.6 : t.atk) * boost * sb.atk * (1 + (P.atk || 0) * k) * hits,
       def: (isLeader ? t.def + 2 : t.def + sb.def) + (P.def || 0) * k,
       empowered: k, splash: (t.splash || 0) * (1 + (P.splash || 0) * k),
       lv: slv, tier: isLeader ? 0 : DATA.tierOf(slv), kills: 0,
-      spd: t.spd * DATA.battle.speedMul, range: t.range * (1 + (P.range || 0) * k) * (t.range > 30 ? DATA.battle.rangeMul : 1), cd: t.cd,
+      spd: t.spd * B.speedMul, range: t.range * (1 + (P.range || 0) * k) * (t.range > 30 ? B.rangeMul : 1), cd: t.cd * B.cdMul,
       view: (isLeader ? V.hero : V.soldier) + (t.type === 'cavalry' ? V.cavalry : 0) + (t.type === 'shooter' ? V.shooter : 0),
       buffs: [], b: { atk: 1, def: 0, spd: 1, range: 0, view: 0 },
       cdLeft: Math.random() * t.cd, retarget: Math.random() * 0.3,
@@ -314,7 +317,7 @@ class Battle {
   }
 
   // How far a skill reaches and how big an area it covers, on this big field.
-  reach(S) { return (S.range || 0) * DATA.battle.rangeMul; }
+  reach(S) { return (S.range || 0) * DATA.battle.skillRangeMul; }
   rad(S) { return (S.radius || 0) * DATA.battle.areaMul; }
 
   // Cast now if in range, otherwise walk the hero there first. What a skill does is
@@ -332,7 +335,7 @@ class Battle {
     if (S.target === 'self') { x = L.x; y = L.y; }
     if (S.sig) { this.castSig(q, S, x, y, pw, near); say(S.name + '!', '#ffd84a'); if (!this.headless && q.side === this.playerSide) Assets.sfx('power-up', 0.35); return true; }
     const fx = SKILL_FX[id];
-    if (fx) fx(this, { q, S, x, y, pw, L, team, near, rad: this.rad(S) });
+    if (fx) fx(this, { q, S, x, y, pw, dk: pw * DATA.battle.hpMul, L, team, near, rad: this.rad(S) });
     say(S.name + '!', '#9fd8ff');
     if (!this.headless && q.side === this.playerSide) Assets.sfx('power-up', 0.3);
     return true;
@@ -340,6 +343,7 @@ class Battle {
 
   // A hero's own signature ability (see DATA.rollSignature).
   castSig(q, S, x, y, pw, near) {
+    const dk = pw * DATA.battle.hpMul;                 // damage and healing keep pace with battle hp
     const L = q.leader, foe = 1 - q.side;
     const pick = () => {                               // the enemy closest to where it was aimed
       let best = null, bd = 55;
@@ -352,14 +356,14 @@ class Battle {
     switch (S.kind) {
       case 'strike': {
         const e = pick(); if (!e) return;
-        if (S.range > 60) this.projs.push({ x: L.x, y: L.y - 6, tx: e.x, ty: e.y - 6, tg: e, side: q.side, gid: q.id, src: L, dmg: S.dmg * pw, splash: 0, img: S.proj, speed: 340, angle: 0, pierce: true });
-        else { this.damage(e, S.dmg * pw, q.id, false, L); this.addFx('slash', e.x, e.y - 6, 0.4); this.addFx('hit', e.x, e.y - 8, 0.4); }
+        if (S.range > 60) this.projs.push({ x: L.x, y: L.y - 6, tx: e.x, ty: e.y - 6, tg: e, side: q.side, gid: q.id, src: L, dmg: S.dmg * dk, splash: 0, img: S.proj, speed: 340, angle: 0, pierce: true });
+        else { this.damage(e, S.dmg * dk, q.id, false, L); this.addFx('slash', e.x, e.y - 6, 0.4); this.addFx('hit', e.x, e.y - 8, 0.4); }
         big(e, '!!', '#ff8a5a');
         break;
       }
       case 'drain': {
         const e = pick(); if (!e) return;
-        const before = e.hp; this.damage(e, S.dmg * pw, q.id, true, L);
+        const before = e.hp; this.damage(e, S.dmg * dk, q.id, true, L);
         const got = Math.max(0, before - Math.max(0, e.hp)) * S.steal;
         const team = this.units.filter(u => u.sq === q && u.alive);
         for (const u of team) u.hp = Math.min(u.maxHp, u.hp + got / Math.max(1, team.length) * 2);
@@ -367,10 +371,10 @@ class Battle {
         break;
       }
       case 'blast':
-        this.projs.push({ x: L.x, y: L.y - 6, tx: x, ty: y, tg: null, side: q.side, gid: q.id, src: L, dmg: S.dmg * pw, splash: this.rad(S), img: S.proj, speed: 210, angle: 0, big: true });
+        this.projs.push({ x: L.x, y: L.y - 6, tx: x, ty: y, tg: null, side: q.side, gid: q.id, src: L, dmg: S.dmg * dk, splash: this.rad(S), img: S.proj, speed: 210, angle: 0, big: true });
         break;
       case 'nova':
-        for (const v of near(this.rad(S), foe)) this.damage(v, S.dmg * pw, q.id, true, L);
+        for (const v of near(this.rad(S), foe)) this.damage(v, S.dmg * dk, q.id, true, L);
         for (let i = 0; i < 8; i++) { const a = i / 8 * Math.PI * 2; this.addFx(S.element === 'ice' ? 'sparkle' : 'fire', L.x + Math.cos(a) * this.rad(S) * 0.7, L.y + Math.sin(a) * this.rad(S) * 0.45, 0.5); }
         this.zones.push({ x: L.x, y: L.y, r: this.rad(S), until: this.time + 0.4, side: q.side, ring: true });
         break;
@@ -379,7 +383,7 @@ class Battle {
         this.zones.push({ x: L.x, y: L.y, r: this.rad(S), until: this.time + 0.6, side: q.side, ring: true, good: true });
         break;
       case 'mend':
-        for (const u of near(this.rad(S), q.side)) { u.hp = Math.min(u.maxHp, u.hp + S.heal * pw); this.addFx('sparkle', u.x, u.y - 8, 0.5); }
+        for (const u of near(this.rad(S), q.side)) { u.hp = Math.min(u.maxHp, u.hp + S.heal * dk); this.addFx('sparkle', u.x, u.y - 8, 0.5); }
         this.zones.push({ x: L.x, y: L.y, r: this.rad(S), until: this.time + 0.6, side: q.side, ring: true, good: true });
         break;
     }
@@ -485,7 +489,7 @@ class Battle {
       let vx = vx0, vy = vy0;
       if ((vx || vy) && !u.routing) [vx, vy] = this.steer(u, vx, vy);
       if (vx || vy) {
-        let sp = this.terrain.speedAt(u.x, u.y) * u.b.spd * this.terrain.slopeFactor(u.x, u.y, vx, vy);   // uphill is slow going
+        let sp = this.speedFor(u, u.x, u.y) * u.b.spd * this.terrain.slopeFactor(u.x, u.y, vx, vy);   // uphill is slow going
         if (u.frontFoe && u.frontFoeD < DATA.roles.front.pinRadius && !u.routing) sp *= DATA.roles.front.pinSlow;   // held up by a frontline enemy
         for (const z of this.zones) if (z.slow && z.side !== u.side && Math.hypot(u.x - z.x, u.y - z.y) <= z.r) sp *= z.slow;
         vx *= sp; vy *= sp;
@@ -494,9 +498,9 @@ class Battle {
       if (vx || vy) {
         const T = this.terrain, nx = u.x + vx * dt, ny = u.y + vy * dt;   // solid ground (walls) blocks; slide along it
         if (u.cav) u.run += Math.hypot(vx, vy) * dt;                     // cavalry builds up a charge
-        if (T.speedAt(nx, ny) > 0) { u.x = nx; u.y = ny; }
-        else if (T.speedAt(nx, u.y) > 0) u.x = nx;
-        else if (T.speedAt(u.x, ny) > 0) u.y = ny;
+        if (this.speedFor(u, nx, ny) > 0) { u.x = nx; u.y = ny; }
+        else if (this.speedFor(u, nx, u.y) > 0) u.x = nx;
+        else if (this.speedFor(u, u.x, ny) > 0) u.y = ny;
         u.walkT += dt;
         if (u.atkT <= 0) u.dir = faceDir(vx, vy);
       }
@@ -508,6 +512,7 @@ class Battle {
     this.separate();
     this.updateProjectiles(dt);
 
+    if (this.terrain.walls) for (const g of this.terrain.gates) g.hitT -= dt;
     for (const f of this.fx) f.t += dt / f.dur;
     this.fx = this.fx.filter(f => f.t < 1);
     for (const t of this.texts) { t.y -= 14 * dt; t.life -= dt; }
@@ -533,7 +538,10 @@ class Battle {
   // A melee blow shakes the block that takes it: more from the flank or rear, more from a charge.
   shock(q, side, charged) {
     const M = DATA.battle.morale;
-    let k = (side === 'rear' ? M.rear : side === 'side' ? M.flank : 0) + (charged ? M.charge : 0);
+    // per hit, scaled so it takes as much real damage as before to break a block: with
+    // more hp (and heavier blows) a man takes hpMul / atkMul times as many hits to fall
+    const B = DATA.battle, per = Math.pow(B.atkMul / B.hpMul, B.shockExp);
+    let k = ((side === 'rear' ? M.rear : side === 'side' ? M.flank : 0) + (charged ? M.charge : 0)) * per;
     if (k) q.morale -= k / q.startN;
     this.stats.hits++; if (side !== 'front') this.stats[side === 'rear' ? 'rear' : 'flank'] += (side === 'rear' ? M.rear : M.flank) / q.startN; if (charged) this.stats.charge += M.charge / q.startN;
   }
@@ -583,7 +591,7 @@ class Battle {
   think(u, dt) {
     const q = u.sq, L = q.leader, R = DATA.roles.back, T = this.terrain;
     const go = (x, y, speed = u.spd) => {
-      const wp = T.gateWaypoint(u.x, u.y, x, y);
+      const wp = T.gateWaypoint(u.x, u.y, x, y, u.side);
       const gx = wp ? wp[0] : x, gy = wp ? wp[1] : y, d = Math.hypot(gx - u.x, gy - u.y);
       if (d < 2) return [0, 0];
       const s = Math.min(speed, d * 4);
@@ -639,6 +647,8 @@ class Battle {
       const f = u.frontFoe, fd = u.frontFoeD || 1;
       return [(u.x - f.x) / fd * u.spd * R.kiteSpeed, (u.y - f.y) / fd * u.spd * R.kiteSpeed];
     }
+    const gate = this.gateDuty(u, tg);                  // a siege: batter down a gate first
+    if (gate) return this.bashGate(u, gate, go);
     if (tg) {
       if (d <= range + 4) {
         u.charging = false;
@@ -682,6 +692,76 @@ class Battle {
     return go(ax, ay);
   }
 
+  // ------------------------------------------------------------------ sieges
+  // How fast unit u can cross (x, y): like the terrain, but defenders pass their own gates.
+  speedFor(u, x, y) {
+    const T = this.terrain;
+    if (T.walls && u.side === 1 && T.kindAt(x, y) === GROUND.gate) return 1;
+    return T.speedAt(x, y);
+  }
+  // The gate an attacking unit should be battering, or null. Squads ordered onto a gate
+  // all work on it; otherwise, while every gate is shut, artillery bombards the nearest
+  // and frontline troops with no enemy this side of the wall batter it.
+  gateDuty(u, tg) {
+    const T = this.terrain, q = u.sq;
+    if (!T.walls || u.side !== 0 || u.heal || u.x > T.wallX || q.order === 'move' || q.order === 'retreat') return null;
+    if (q.gateT) { if (!q.gateT.open) return q.gateT; q.gateT = null; }
+    if (T.gates.some(g => g.open)) return null;                       // there is a way in: use it
+    const art = u.t.type === 'artillery', stuck = !u.back && (!tg || tg.x > T.wallX);
+    if (!art && !stuck) return null;
+    if (!q.gateAim || q.gateAim.open) {
+      const y = q.leader.alive ? q.leader.y : u.y;
+      q.gateAim = T.gates.reduce((a, b) => Math.abs(b.y - y) < Math.abs(a.y - y) ? b : a);
+    }
+    return q.gateAim;
+  }
+  // Work on gate g: shooters and artillery fire at it from range, the rest close in
+  // along its width and hit it.
+  bashGate(u, g, go) {
+    const T = this.terrain, G = DATA.battle.gate, fx = T.wallX - 6;
+    const lane = g.y - (g.half - 6) + ((u.slotK || 0) * 7) % (2 * g.half - 12);
+    const mul = u.t.type === 'artillery' ? G.artillery : u.t.type === 'mage' ? G.mage : u.t.proj ? G.shooter : G.melee;
+    const ready = u.cdLeft <= 0;
+    if (u.t.proj) {
+      const r = (u.range + u.b.range) * 0.95, d = Math.hypot(fx - u.x, g.y - u.y);
+      if (d > r) return go(fx, g.y);
+      u.dir = faceDir(fx - u.x, g.y - u.y);
+      if (ready) {
+        this.projs.push({ x: u.x, y: u.y - 6, tx: fx + 4, ty: lane - 4, tg: null, gate: g, side: u.side, gid: u.gid, src: u, dmg: u.atk * u.b.atk * mul,
+          splash: 0, img: u.t.proj, speed: u.t.splash ? 260 : 400, angle: 0 });
+        u.cdLeft = u.cd; u.atkT = 0.25;
+      }
+      return [0, 0];
+    }
+    if (Math.hypot(fx - u.x, lane - u.y) > u.range + 8) return go(fx, lane, u.spd);
+    u.dir = faceDir(1, 0);
+    if (ready) {
+      this.hitGate(g, u.atk * u.b.atk * mul * (u.run >= DATA.unitTypes.cavalry.chargeRun ? 1.5 : 1));
+      u.run = 0; u.cdLeft = u.cd; u.atkT = 0.25;
+      if (!this.headless && Math.random() < 0.3) { this.addFx('hit', fx + 6, lane - 6, 0.25); if (this.seenByPlayer(u)) Assets.sfx('sword', 0.2); }
+    }
+    return [0, 0];
+  }
+  hitGate(g, dmg) {
+    if (g.open) return;
+    g.hp -= dmg; g.hitT = 0.15;
+    if (g.hp > 0) return;
+    this.terrain.breakGate(g);                                         // the gate falls: a way in, and a blow to the defenders
+    for (const q of this.squads) {
+      if (q.side === 1) q.morale -= 10;
+      if (q.gateT === g) { q.gateT = null; if (q.order === 'attack' && !q.target) q.order = 'advance'; }
+    }
+    if (!this.headless) {
+      for (let i = 0; i < 6; i++) this.addFx(i % 2 ? 'smoke' : 'hit', this.terrain.wallX + Math.random() * this.terrain.wallW, g.y + (Math.random() - 0.5) * g.half * 2, 0.7);
+      Assets.sfx('kill', 0.6);
+    }
+    this.banner = { text: 'A gate has fallen!', t: 2.5, side: 1 };
+  }
+  // Player order: all these squads batter gate g.
+  orderGate(squads, g) {
+    for (const q of squads) if (q.leader.alive) { q.order = 'attack'; q.target = null; q.cast = null; q.gateT = g; }
+  }
+
   // How far unit u can hit target tg from where they stand: shooters gain range
   // shooting down from high ground, and lose some shooting uphill.
   unitReach(u, tg) {
@@ -714,7 +794,7 @@ class Battle {
       if (walled && !inside(e) && d2 > r2) return;
       if (d2 < bd) { bd = d2; best = e; }
     };
-    for (const e of this.nearby(u, Math.max(48, (u.range + u.b.range) * 1.5 + 8))) consider(e);
+    for (const e of this.nearby(u, Math.max(48, (u.range + u.b.range) * 1.3 + 8))) consider(e);
     const tq = q.order === 'attack' && q.target ? q.target.sq : q.tsq;
     if (tq) { consider(tq.leader); for (const e of tq.members) consider(e); }
     return best;
@@ -750,7 +830,7 @@ class Battle {
       }
     }
     if (this.terrain.walls) for (const u of live)                 // nobody gets shoved into a wall
-      if (this.terrain.speedAt(u.x, u.y) === 0) u.x = u.x < this.terrain.wallX + 4 ? this.terrain.wallX - 1 : this.terrain.wallX + 9;
+      if (this.speedFor(u, u.x, u.y) === 0) u.x = u.x < this.terrain.wallX + this.terrain.wallW / 2 ? this.terrain.wallX - 1 : this.terrain.wallX + this.terrain.wallW + 1;
   }
 
   updateProjectiles(dt) {
@@ -761,7 +841,8 @@ class Battle {
       p.angle = Math.atan2(dy, dx);
       if (d <= step + 2) {
         p.dead = true;
-        if (p.splash) {
+        if (p.gate) { this.hitGate(p.gate, p.dmg); this.addFx(p.big || p.splash ? 'fire' : 'hit', p.tx, p.ty, 0.3); }
+        else if (p.splash) {
           if (p.big) for (let i = 0; i < 5; i++) this.addFx(i % 2 ? 'smoke' : 'fire', p.tx + (Math.random() - 0.5) * p.splash, p.ty + (Math.random() - 0.5) * p.splash * 0.6, 0.6);
           else if (!p.quiet) this.addFx('fire', p.tx, p.ty, 0.4); else this.addFx('hit', p.tx, p.ty, 0.2);
           for (const v of this.units) if (v.alive && !v.escaped && v.side !== p.side && Math.hypot(v.x - p.tx, v.y - 6 - p.ty) <= p.splash) this.damage(v, p.dmg, p.gid, true, p.src);
@@ -893,7 +974,7 @@ class Battle {
     for (const da of [0, 0.5, -0.5, 1, -1, 1.4, -1.4]) {
       const a = base + da;
       let s = 1;
-      for (const look of [6, 14, 26, 40]) s = Math.min(s, T.speedAt(u.x + Math.cos(a) * look, u.y + Math.sin(a) * look));
+      for (const look of [6, 14, 26, 40]) s = Math.min(s, this.speedFor(u, u.x + Math.cos(a) * look, u.y + Math.sin(a) * look));
       const score = s * Math.cos(da) - Math.abs(da) * 0.02;
       if (score > bestScore + 0.05) { bestScore = score; best = a; }
     }
@@ -920,7 +1001,7 @@ class Battle {
     if (u.back && u.closestD < R.exposedRange) dmg *= R.meleePenalty;   // ...but caught in melee, much less
     if (u.t.proj) {
       this.projs.push({ x: u.x, y: u.y - 6, tx: tg.x, ty: tg.y - 6, tg, side: u.side, gid: u.gid, src: u, dmg,
-        splash: u.splash || 0, img: u.t.proj, speed: u.t.splash ? 170 : 250, angle: 0 });
+        splash: u.splash || 0, img: u.t.proj, speed: u.t.splash ? 260 : 400, angle: 0 });
       if (!this.headless && u.t.splash && this.seenByPlayer(u)) Assets.sfx('magic-1', 0.25);
     } else {
       if (!this.headless && (this.men === 1 || Math.random() < 0.3)) this.fx.push({ name: 'arc', x: tg.x, y: tg.y - 7, t: 0, dur: 0.22, a: Math.atan2(tg.y - u.y, tg.x - u.x), flip: Math.random() < 0.5 });
@@ -933,7 +1014,7 @@ class Battle {
     if (!v.alive) return;
     if (ranged) amount *= 1 - this.terrain.coverAt(v.x, v.y);
     const fort = v.side === 1 && this.terrain.walls && v.x > this.terrain.wallX ? DATA.ground.wall.fortify : 0;
-    const def = (v.def + v.b.def + fort) * (ranged ? 1 - DATA.roles.back.pierce : 1);       // arrows and spells pierce armour
+    const def = (v.def + v.b.def + fort) * DATA.battle.defMul * (ranged ? 1 - DATA.roles.back.pierce : 1);       // arrows and spells pierce armour
     const dmg = Math.max(1, Math.round(amount * (0.85 + Math.random() * 0.3) - def));
     v.hp -= dmg; v.hitT = 0.12;
     if (!this.headless && (this.men === 1 || v.isLeader)) this.texts.push({ x: v.x, y: v.y - 16, s: String(dmg), life: 0.6, color: v.isLeader ? '#ffd84a' : '#ffffff' });
@@ -1120,6 +1201,9 @@ class Battle {
     const [vx0, vy0] = this.toWorld(0, 0), [vx1, vy1] = this.toWorld(canvas.width, canvas.height);
     const onScreen = (x, y) => x > vx0 - 30 && x < vx1 + 30 && y > vy0 - 40 && y < vy1 + 30;
 
+    // town gates: shut, battered or broken
+    if (this.terrain.walls) for (const g of this.terrain.gates) this.drawGate(ctx, g);
+
     // spell areas
     for (const z of this.zones) {
       if (!this.cellVisible(z.x, z.y)) continue;
@@ -1252,6 +1336,36 @@ class Battle {
     if (this.paused && !this.done) plate('PAUSED - give orders, then press Space or Play', this.banner ? top + 22 : top, 11, '#ffe680');
   }
 
+  // A gate seen from above: heavy timber doors banded with iron between the wall's
+  // ends, splitting and darkening as it takes damage, with a bar showing what is left;
+  // once broken, splintered timbers on the cobbles.
+  drawGate(ctx, g) {
+    const T = this.terrain, x0 = T.wallX, w = T.wallW, y0 = g.y - g.half, h = g.half * 2;
+    if (g.open) {
+      const r = makeRng(g.y);
+      for (let i = 0; i < 9; i++) {
+        ctx.save(); ctx.translate(x0 + r() * w, y0 + r() * h); ctx.rotate(r() * Math.PI);
+        ctx.fillStyle = '#2a1a10'; ctx.fillRect(-6, -1.8, 12, 3.6); ctx.fillStyle = '#7a5430'; ctx.fillRect(-5.5, -1.2, 11, 2.4);
+        ctx.restore();
+      }
+      return;
+    }
+    const k = Math.max(0, g.hp / g.maxHp);
+    ctx.fillStyle = '#1e1418'; ctx.fillRect(x0 - 2, y0 - 2, w + 4, h + 4);
+    ctx.fillStyle = k > 0.5 ? '#7a5430' : k > 0.2 ? '#634328' : '#4e3420'; ctx.fillRect(x0, y0, w, h);
+    ctx.fillStyle = 'rgba(30,18,10,0.55)';                              // planks
+    for (let y = y0 + 3; y < y0 + h; y += 4) ctx.fillRect(x0, y, w, 1);
+    ctx.fillStyle = '#3a3a46';                                          // iron bands and the seam between the doors
+    ctx.fillRect(x0 + 3, y0, 2.5, h); ctx.fillRect(x0 + w - 5.5, y0, 2.5, h); ctx.fillRect(x0, g.y - 1, w, 2);
+    ctx.fillStyle = '#9a9aaa'; for (const yy of [y0 + 5, g.y - 6, g.y + 5, y0 + h - 6]) { ctx.fillRect(x0 + 3.5, yy, 1.5, 1.5); ctx.fillRect(x0 + w - 5, yy, 1.5, 1.5); }
+    if (k < 0.7) {                                                      // cracks as it weakens
+      ctx.strokeStyle = 'rgba(15,8,6,0.85)'; ctx.lineWidth = 1.2; const r = makeRng(g.y + 3);
+      for (let i = 0; i < (k < 0.35 ? 6 : 3); i++) { const yy = y0 + r() * h; ctx.beginPath(); ctx.moveTo(x0, yy); ctx.lineTo(x0 + w * (0.4 + r() * 0.6), yy + (r() - 0.5) * 10); ctx.stroke(); }
+    }
+    if (g.hitT > 0) { ctx.fillStyle = 'rgba(255,240,200,0.35)'; ctx.fillRect(x0, y0, w, h); }
+    if (k < 1) { const bw = Math.max(w + 16, 40); hpBar(ctx, x0 + w / 2 - bw / 2, y0 - 8, bw, k, '#ffb040'); }
+  }
+
   // One squad's formation as a ghost at (p.x, p.y) facing p.face: a dot per soldier,
   // the general's banner spot, and an arrow showing which way they will face.
   drawGhost(ctx, p, alpha) {
@@ -1353,7 +1467,7 @@ class Battle {
 // =============================================================================
 //  SKILL HANDLERS: what each hero skill does when cast. SKILL_FX[id](battle, c), where
 //  c = { q: casting squad, S: skill data, x, y: target point (the hero for 'self'),
-//  pw: power from hero level, L: the hero, team: the hero's living squad,
+//  pw: power from hero level (for buffs), dk: pw x battle hp scale (for damage and healing), L: the hero, team: the hero's living squad,
 //  near(radius, side): units of a side around (x, y), rad: the skill's area radius }.
 //  To add a skill: put its numbers in DATA.skills, a handler here, and (optionally)
 //  a rule in Battle.autoCast so computer heroes use it.
@@ -1362,26 +1476,26 @@ const SKILL_FX = {
   charge: (b, c) => { for (const u of c.team) { u.buffs.push({ spd: 1.7, until: b.time + c.S.dur }); u.run = 999; } },
   rally: (b, c) => { c.q.morale = Math.min(100, c.q.morale + 35); for (const u of c.team) { u.hp = Math.min(u.maxHp, u.hp + u.maxHp * c.S.heal * c.pw); u.buffs.push({ def: c.S.def, until: b.time + c.S.dur }); } },
   shieldwall: (b, c) => { for (const u of c.team) u.buffs.push({ def: c.S.def * c.pw, spd: c.S.spd, until: b.time + c.S.dur }); },
-  eagleeye: (b, c) => { for (const u of c.team) u.buffs.push({ range: c.S.range * DATA.battle.rangeMul, view: c.S.view, until: b.time + c.S.dur }); },
+  eagleeye: (b, c) => { for (const u of c.team) u.buffs.push({ range: c.S.range * DATA.battle.skillRangeMul, view: c.S.view, until: b.time + c.S.dur }); },
   volley: (b, c) => {
     const { S, L, q, x, y } = c;
     for (let i = 0; i < S.arrows; i++) {
       const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * c.rad;
       b.pending.push({ at: b.time + i * 0.08, fn: () => b.projs.push({ x: L.x, y: L.y - 6, tx: x + Math.cos(a) * r, ty: y + Math.sin(a) * r,
-        tg: null, side: q.side, gid: q.id, src: L, dmg: S.dmg * c.pw, splash: 10, img: 'arrow', speed: 300, angle: 0, quiet: true }) });
+        tg: null, side: q.side, gid: q.id, src: L, dmg: S.dmg * c.dk, splash: 10, img: 'arrow', speed: 300, angle: 0, quiet: true }) });
     }
   },
   meteor: (b, c) => {
     const { S, L, q, x, y } = c;
     b.zones.push({ x, y, r: c.rad, until: b.time + S.delay, side: q.side, warn: true });
     b.pending.push({ at: b.time + S.delay, fn: () => {
-      for (const v of c.near(c.rad, 1 - q.side)) b.damage(v, S.dmg * c.pw, q.id, true, L);
+      for (const v of c.near(c.rad, 1 - q.side)) b.damage(v, S.dmg * c.dk, q.id, true, L);
       for (let i = 0; i < 6; i++) b.addFx(i % 2 ? 'fire' : 'smoke', x + (Math.random() - 0.5) * c.rad, y + (Math.random() - 0.5) * c.rad * 0.6, 0.6);
       if (!b.headless) Assets.sfx('magic-1', 0.5);
     } });
   },
-  frostfield: (b, c) => b.zones.push({ x: c.x, y: c.y, r: c.rad, until: b.time + c.S.dur, side: c.q.side, slow: c.S.slow, dps: c.S.dps * c.pw, src: c.L, gid: c.q.id, frost: true }),
-  massheal: (b, c) => { for (const u of c.near(c.rad, c.q.side)) { u.hp = Math.min(u.maxHp, u.hp + c.S.heal * c.pw); b.addFx('sparkle', u.x, u.y - 8, 0.5); } },
+  frostfield: (b, c) => b.zones.push({ x: c.x, y: c.y, r: c.rad, until: b.time + c.S.dur, side: c.q.side, slow: c.S.slow, dps: c.S.dps * c.dk, src: c.L, gid: c.q.id, frost: true }),
+  massheal: (b, c) => { for (const u of c.near(c.rad, c.q.side)) { u.hp = Math.min(u.maxHp, u.hp + c.S.heal * c.dk); b.addFx('sparkle', u.x, u.y - 8, 0.5); } },
   bless: (b, c) => { for (const u of c.near(c.rad, c.q.side)) u.buffs.push({ atk: c.S.atk, until: b.time + c.S.dur }); },
   // the whole squad vanishes and reappears around the target point, facing the same way
   blink: (b, c) => b.teleportSquad(c.q, c.x, c.y),

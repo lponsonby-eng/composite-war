@@ -8,7 +8,7 @@
 //  The layout comes from the town's `terrain` (see FIELD_RECIPES) and region, and
 //  `walls`, seeded by the town's id so the same town always gives the same field.
 // =============================================================================
-const GROUND = { grass: 0, forest: 1, water: 2, ford: 3, mud: 4, wall: 5, snow: 6, ice: 7, sand: 8, lava: 9, rock: 10, stream: 11, bridge: 12 };
+const GROUND = { grass: 0, forest: 1, water: 2, ford: 3, mud: 4, wall: 5, snow: 6, ice: 7, sand: 8, lava: 9, rock: 10, stream: 11, bridge: 12, gate: 13 };
 
 // What each battlefield type is made of. Counts are for the whole field.
 //   hills: number of hills (ridge: long thin dune ridges), forests: forest blobs,
@@ -91,13 +91,24 @@ class Terrain {
     return [clamp(x, 8, this.W - 8), clamp(y, 16, this.H - 8)];
   }
   // Where a unit at (x, y) should head to get past the wall towards (tx, ty), or null.
-  gateWaypoint(x, y, tx, ty) {
+  // Attackers (side 0) use broken gates if there are any, else the nearest gate (to
+  // batter it down); defenders can use any of their gates.
+  gateWaypoint(x, y, tx, ty, side = 0) {
     if (!this.walls) return null;
-    const wx = this.wallX + 4;
-    if ((x < wx) === (tx < wx)) return null;                  // same side: no need
-    const g = this.gates.reduce((a, b) => Math.abs(b - y) + Math.abs(b - ty) < Math.abs(a - y) + Math.abs(a - ty) ? b : a);
-    if (Math.abs(y - g) > 4 || Math.abs(x - wx) > 14) return [wx + (x < wx ? -10 : 10), g];   // line up with the gate
-    return [wx + (x < wx ? 16 : -16), g];                                                     // walk through it
+    const x0 = this.wallX, x1 = this.wallX + this.wallW, mid = (x0 + x1) / 2;
+    if ((x < mid) === (tx < mid)) return null;                 // same side: no need
+    const open = this.gates.filter(g => g.open), list = side === 0 && open.length ? open : this.gates;
+    const g = list.reduce((a, b) => Math.abs(b.y - y) + Math.abs(b.y - ty) < Math.abs(a.y - y) + Math.abs(a.y - ty) ? b : a);
+    const lane = g.y + clamp(y - g.y, -(g.half - 8), g.half - 8);     // spread across the gateway
+    const lined = Math.abs(y - g.y) < g.half - 6 && Math.abs(x - mid) < this.wallW / 2 + 18;
+    return lined ? [x < mid ? x1 + 18 : x0 - 18, lane]                 // walk through it
+      : [x < mid ? x0 - 14 : x1 + 14, lane];                           // line up with it first
+  }
+  gateAt(x, y) { return this.walls ? this.gates.find(g => !g.open && x >= this.wallX - 2 && x <= this.wallX + this.wallW + 2 && Math.abs(y - g.y) < g.half + 2) : null; }
+  // A gate has been battered down: its cells become open ground.
+  breakGate(g) {
+    g.open = true;
+    for (const i of g.cells) this.kind[i] = GROUND.grass;
   }
 
   // Short description for the HUD and the attack dialog.
@@ -112,7 +123,7 @@ class Terrain {
     const k = GROUND_NAMES[this.kindAt(x, y)], G = DATA.ground[k], h = this.heightAt(x, y), HB = DATA.battle.hills;
     const parts = [{ grass: 'Open ground', forest: 'Forest - hides troops, cover', water: 'Deep water - slow, poor footing', ford: 'Ford - shallow crossing',
       mud: 'Mud - slow', wall: 'Wall', snow: 'Snowdrift - slow', ice: 'Ice - fast, slippery', sand: 'Sand - slow', lava: 'Lava - impassable',
-      rock: 'Rocks - impassable', stream: 'Stream - shallow', bridge: 'Bridge' }[k] || k];
+      rock: 'Rocks - impassable', stream: 'Stream - shallow', bridge: 'Bridge', gate: 'Gate - break it down to get in' }[k] || k];
     if (h > 0.2) parts.push(`${h > 0.7 ? 'Hilltop' : 'Slope'}: shooters +${Math.round(h * HB.range * 100)}% range`);
     if (G.cover && k !== 'forest') parts.push(`${Math.round(G.cover * 100)}% cover`);
     return parts.join(' | ');
@@ -167,7 +178,7 @@ class Terrain {
   // crossings (fords and a bridge; stone causeways over lava; none needed on ice).
   genRiver(kindName) {
     const rng = this.rng, C = this.C, W = this.W, H = this.H, G = GROUND, k = G[kindName];
-    const x0 = W * (0.43 + rng() * 0.14), a1 = 40 + rng() * 60, a2 = 12 + rng() * 22, p1 = rng() * 6, p2 = rng() * 6;
+    const x0 = W * (this.walls ? 0.3 + rng() * 0.06 : 0.43 + rng() * 0.14), a1 = 40 + rng() * 60, a2 = 12 + rng() * 22, p1 = rng() * 6, p2 = rng() * 6;
     const half = kindName === 'lava' ? 15 + rng() * 5 : 19 + rng() * 7;
     const cx = y => x0 + Math.sin(y / 190 + p1) * a1 + Math.sin(y / 70 + p2) * a2;
     const n = kindName === 'ice' ? 0 : kindName === 'lava' ? 3 : 2 + (rng() < 0.6 ? 1 : 0);
@@ -246,24 +257,32 @@ class Terrain {
     }
 
     if (this.walls) {
-      // The town sits behind a stone wall with open gates, on flat ground.
-      this.wallX = W - 300;
-      const wx = Math.floor(this.wallX / C);
-      const gates = [H * 0.22, H * 0.5, H * 0.78].map(g => Math.round((g + (rng() - 0.5) * 60) / 8) * 8);
-      this.gates = gates;
+      // The town sits behind a thick stone wall about 60% of the way across the field,
+      // with three closed gates (battered down in battle) and a raised rampart behind
+      // it, so the defenders' archers shoot from high ground and the courtyard beyond
+      // leaves room to move. Inside is flat open ground.
+      const WC = 3;                                                 // wall thickness in cells
+      this.wallX = Math.round(W * 0.6 / C) * C; this.wallW = WC * C;
+      const wx = this.wallX / C;
+      this.gates = [0.24, 0.5, 0.76].map(f => ({ y: Math.round((H * f + (rng() - 0.5) * 60) / 8) * 8, half: 22, open: false, hp: 1, maxHp: 1, cells: [], hitT: 0 }));
       for (let y = 0; y < this.rows; y++) {
         const py = y * C + 4;
-        for (let x = wx - 6; x < this.cols; x++) {                     // clear ground in front of the wall and inside
-          const i = y * this.cols + x;
+        for (let x = wx - 8; x < this.cols; x++) {                     // clear ground in front of the wall and inside
+          const i = y * this.cols + x, k = x - wx;
           this.kind[i] = G.grass;
-          if (x > wx) this.height[i] = 0; else this.height[i] *= (wx - x) / 6;
+          this.height[i] = k < 0 ? this.height[i] * (-k - 1) / 8                 // level ground at the foot of the wall
+            : k < WC + 5 ? 0.85 : k < WC + 9 ? 0.85 * (WC + 9 - k) / 4 : 0;      // the wall and its rampart, sloping down to the courtyard
         }
-        const i = y * this.cols + wx;
         if (py < 12 || py > H - 12) continue;
-        if (gates.some(g => Math.abs(py - g) < 12)) continue;
-        this.kind[i] = G.wall;
-        for (let k = 1; k <= 6; k++) this.cover[i + k] = DATA.ground.wall.behindCover;  // shelter behind the wall
+        const gate = this.gates.find(g => Math.abs(py - g.y) < g.half);
+        for (let k = 0; k < WC; k++) {
+          const i = y * this.cols + wx + k;
+          this.kind[i] = gate ? G.gate : G.wall;
+          if (gate) gate.cells.push(i);
+        }
+        if (!gate) for (let k = WC; k < WC + 7; k++) this.cover[y * this.cols + wx + k] = DATA.ground.wall.behindCover;  // shelter behind the wall
       }
+      this.features.push('three gates');
     }
     // scattered trees along the top and bottom edges
     for (let x = 40; x < (this.walls ? this.wallX - 60 : W - 40); x += 70) for (const edge of [0, 1]) if (rng() < 0.55)   // (not inside a town)
@@ -316,7 +335,8 @@ class Terrain {
     const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
     const c = cv.getContext('2d'), img = c.createImageData(W, H), d = img.data, STEP = 0.2;
     const solid = new Uint8Array(W * H);
-    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const k = this.kindAt(x, y); solid[y * W + x] = k === GROUND.water || k === GROUND.lava || k === GROUND.ice || k === GROUND.bridge ? 1 : 0; }
+    const town = this.walls ? this.wallX - 6 : W;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const k = this.kindAt(x, y); solid[y * W + x] = x >= town || k === GROUND.water || k === GROUND.lava || k === GROUND.ice || k === GROUND.bridge ? 1 : 0; }
     for (let y = 2; y < H - 2; y++) for (let x = 2; x < W - 2; x++) {
       const i = y * W + x, h = hs[i];
       if (solid[i]) continue;
@@ -459,7 +479,7 @@ class Terrain {
   // with ground shadows. Kept back from the wall so the defenders' ground stays clear.
   drawTown(ctx) {
     const style = (DATA.regions[this.region] || DATA.regions.free).building;
-    const wx = this.wallX, H = this.H, W = this.W, street = wx + 132, mid = H / 2;
+    const wx = this.wallX + this.wallW, H = this.H, W = this.W, street = wx + 210, mid = H / 2, px = street + 120;
     const rr = (x, y, w, h, r) => { ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x, y, w, h, r) : ctx.rect(x, y, w, h); };
     const ROAD = { frost: ['#8ea2b8', '#c4d2e0'], ember: ['#4a3e3a', '#6e605a'], sun: ['#c8a468', '#e6cc96'], darkwood: ['#6a5236', '#8a6c48'],
       azure: ['#c8b890', '#efe4c4'], shadow: ['#6a6a7a', '#8e8ea0'], bog: ['#6a5a3a', '#8a7650'] }[this.region] || ['#9a8a6a', '#bcae8c'];
@@ -469,22 +489,21 @@ class Terrain {
       ctx.fillStyle = ROAD[1];
       for (let yy = y + 1; yy < y + h - 1.5; yy += 3) for (let xx = x + 1 + ((yy - y) % 6 ? 1.5 : 0); xx < x + w - 2; xx += 3) ctx.fillRect(xx, yy, 2, 1.8);
     };
-    // streets: in from each gate, then the main street, then the plaza
-    for (const g of this.gates || []) cobble(wx + 4, g - 6, street - wx + 2, 12);
-    cobble(street - 6, 20, 12, H - 40);
-    ctx.save(); ctx.beginPath(); ctx.ellipse(wx + 205, mid + 6, 56, 34, 0, 0, Math.PI * 2); ctx.clip();
-    cobble(wx + 145, mid - 30, 120, 74); ctx.restore();
-    ctx.strokeStyle = 'rgba(30,24,18,0.35)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.ellipse(wx + 205, mid + 6, 56, 34, 0, 0, Math.PI * 2); ctx.stroke();
-    cobble(street, mid - 5, 40, 10);
+    // streets: in from each gate across the courtyard, the main street, the plaza
+    for (const g of this.gates || []) cobble(wx, g.y - 10, street - wx + 2, 20);
+    cobble(street - 7, 20, 14, H - 40);
+    ctx.save(); ctx.beginPath(); ctx.ellipse(px, mid + 6, 70, 44, 0, 0, Math.PI * 2); ctx.clip();
+    cobble(px - 75, mid - 40, 150, 94); ctx.restore();
+    ctx.strokeStyle = 'rgba(30,24,18,0.35)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.ellipse(px, mid + 6, 70, 44, 0, 0, Math.PI * 2); ctx.stroke();
+    cobble(street, mid - 6, 50, 12);
 
-    // houses: two staggered columns above and below the plaza, the keep in the middle
+    // houses: staggered columns behind the main street to the far edge, the keep on the plaza
     const r2 = makeRng(7), spots = [];
-    for (let y = 70; y < H - 30; y += 78) {
-      if (Math.abs(y - mid) < 70) continue;
-      spots.push([wx + 172 + (r2() - 0.5) * 8, y + (r2() - 0.5) * 10, r2() < 0.3 ? 1 : 0, 56]);
-      spots.push([wx + 240 + (r2() - 0.5) * 6, y + 34 + (r2() - 0.5) * 10, r2() < 0.3 ? 1 : 0, 56]);
+    for (let x = street + 60, c = 0; x < W - 40; x += 120, c++) for (let y = 80 + (c % 2) * 55; y < H - 30; y += 110) {
+      if (Math.abs(y - mid) < 80 && Math.abs(x - px) < 110) continue;
+      spots.push([x + (r2() - 0.5) * 10, y + (r2() - 0.5) * 10, r2() < 0.3 ? 1 : 0, 56]);
     }
-    spots.push([wx + 205, mid + 16, 2, 82]);
+    spots.push([px, mid + 18, 2, 88]);
     spots.sort((a, b) => a[1] - b[1]);
     let n = 0;
     for (const [x, y, size, want] of spots) {               // want: drawn width of the building itself
@@ -502,7 +521,7 @@ class Terrain {
   // the wall, a cobbled gateway with open doors, and a soft shadow on the town side.
   // Gameplay still uses the wall cells; this only draws them.
   drawWall(ctx) {
-    const C = this.C, col = Math.floor(this.wallX / C), x = col * C, w = C, LIFT = 5;
+    const C = this.C, col = Math.floor(this.wallX / C), x = col * C, w = this.wallW, LIFT = 9;
     const segs = [];
     let start = null;
     for (let y = 0; y <= this.rows; y++) {
@@ -551,7 +570,10 @@ class Terrain {
     }
 
     // round towers: at both ends of every run (so each gate is flanked) and along long runs
-    const tower = (cx, cy) => {
+    const tower = (cx, cy) => {                                   // drawn at 1.9x around (cx, cy) to suit the thick wall
+      ctx.save(); ctx.translate(cx, cy); ctx.scale(1.9, 1.9); towerAt(0, 0); ctx.restore();
+    };
+    const towerAt = (cx, cy) => {
       ctx.fillStyle = 'rgba(20,16,30,0.35)'; ctx.beginPath(); ctx.ellipse(cx + 4, cy + 3, 9, 4.5, 0, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = OUT; rr(cx - 7.5, cy - 9, 15, 13, 4); ctx.fill();                       // drum
       const g = ctx.createLinearGradient(cx - 7, 0, cx + 7, 0);
@@ -568,19 +590,12 @@ class Terrain {
         ctx.fillStyle = Math.sin(t) < 0 || Math.cos(t) < 0 ? '#dcd8e6' : '#a8a4b4'; ctx.fillRect(mx - 0.8, my - 1.1, 1.6, 1.4);
       }
     };
-    const doors = (cx, cy, dir) => {                                     // a wooden door swung open toward the town
-      ctx.fillStyle = OUT; rr(cx + 4, cy + dir * 1 - 1.5, 9, 3, 0.8); ctx.fill();
-      ctx.fillStyle = '#7a5430'; ctx.fillRect(cx + 4.5, cy + dir * 1 - 1, 8, 2);
-      ctx.fillStyle = '#a07040'; ctx.fillRect(cx + 4.5, cy + dir * 1 - 1, 8, 0.6);
-      ctx.fillStyle = '#3a2a1a'; ctx.fillRect(cx + 7, cy + dir * 1 - 1, 0.5, 2); ctx.fillRect(cx + 10, cy + dir * 1 - 1, 0.5, 2);
-    };
     const cx = x + w / 2, spots = [];
     for (let k = 0; k < segs.length; k++) {
       const [y0, y1] = segs[k];
       spots.push(y0 + 3, y1 - 1);
-      const n = Math.floor((y1 - y0) / 110);
+      const n = Math.floor((y1 - y0) / 150);
       for (let i = 1; i <= n; i++) spots.push(Math.round(y0 + (y1 - y0) * i / (n + 1)));
-      if (k + 1 < segs.length) { doors(cx, y1 + 1, 1); doors(cx, segs[k + 1][0] - 2, -1); }
     }
     for (const y of spots.sort((a, b) => a - b)) tower(cx, y);
   }

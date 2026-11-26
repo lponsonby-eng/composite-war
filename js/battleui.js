@@ -157,6 +157,8 @@ const BattleUI = {
     const own = this.squadAt(wx, wy, me), foe = this.squadAt(wx, wy, 1 - me);
     const command = down.btn === 2 || (down.touch && !own && b.sel.size);
     if (command) {
+      const gate = me === 0 && !foe && b.terrain.gateAt(wx, wy);
+      if (gate && b.sel.size) { b.orderGate([...b.sel], gate); Assets.sfx('menu-2', 0.3); return; }   // batter this gate down
       if (foe) { b.orderAttack([...b.sel], foe.leader); Assets.sfx('menu-2', 0.3); }
       else if (b.sel.size) { b.orderMove([...b.sel], wx, wy); Assets.sfx('menu-1', 0.3); }
       return;
@@ -199,7 +201,7 @@ const BattleUI = {
         <button data-f="column">Column</button><button data-f="wedge">Wedge</button>
         <span class="sep"></span><span id="bc-skills"></span>
       </div>
-      <div class="bc-hint muted">Drag to select - right-click: move / attack - right-drag: draw a front line - Space pause - Z X C V B skills</div>`;
+      <div class="bc-hint muted">Drag to select - right-click: move / attack (a gate: batter it) - right-drag: draw a front line - Space pause - Z X C V B skills</div>`;
     const ctr = $('#battle-ctrl');
     ctr.querySelector('[data-act="pause"]').onclick = () => this.togglePause();
     ctr.querySelectorAll('[data-s]').forEach(bt => bt.onclick = () => { Game.battleSpeed = +bt.dataset.s; this.refresh(); });
