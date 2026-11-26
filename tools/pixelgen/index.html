@@ -128,7 +128,7 @@ function animCanvas(img, anim, track, scale) {
 function thumb(res) {
   const a = res.anim;
   if (res.kind === 'hero' || res.kind === 'monster' || res.kind === 'fx') return animCanvas(res.img, a, a.tracks[0], res.kind === 'fx' ? 3 : 5);
-  if (res.kind === 'soldier') return animCanvas(res.img, a, a.tracks[0], 3);
+  if (res.kind === 'soldier' || res.kind === 'champion' || res.kind === 'cavalry') return animCanvas(res.img, a, a.tracks[0], res.kind === 'soldier' ? 3 : 2);
   if (res.kind === 'tile' || res.kind === 'field') { const c = toCanvas(tiled(res.img, 2), 2); return c; }
   const s = Math.max(1, Math.floor(120 / Math.max(res.img.w, res.img.h)));
   const c = toCanvas(res.img, s); c.className = 'checker'; return c;

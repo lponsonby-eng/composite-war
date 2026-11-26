@@ -7,6 +7,8 @@
 //    arms      32 x 36 coat of arms on a heater shield (a faction's arms)
 //    soldier   128 x 232 sheet: 32 x 40 frames, cols down/up/left/right,
 //              rows 0-3 walk, row 4 attack, then a 32px row of two fallen bodies
+//    champion  160 x 288 hero sheet: 40 x 48 frames, cols down/up/left/right, rows walk x4,
+//              attack, special. Twelve archetypes, each with its own silhouette and aura.
 //    cavalry   192 x 292 sheet: 48 x 52 frames (horse + rider), dirs x walk/attack, then a fallen horse and rider
 //    field     64 x 64 seamless ground: meadow, camp, mud, road
 //    decal     blood pools, scorch marks and trampled grass to scatter on ground
@@ -116,10 +118,11 @@
 
   // ---------------------------------------------------------------- masks and the part painter
   class Mask {
-    constructor(w, h) { this.w = w; this.h = h; this.a = new Uint8Array(w * h); }
-    has(x, y) { return x >= 0 && y >= 0 && x < this.w && y < this.h && this.a[y * this.w + x] === 1; }
-    add(x, y) { x = Math.round(x); y = Math.round(y); if (x >= 0 && y >= 0 && x < this.w && y < this.h) this.a[y * this.w + x] = 1; return this; }
-    del(x, y) { if (x >= 0 && y >= 0 && x < this.w && y < this.h) this.a[y * this.w + x] = 0; return this; }
+    // ox, oy: where this mask's (0, 0) sits on the canvas (heroes draw on a bigger canvas)
+    constructor(w, h, ox = 0, oy = 0) { this.w = w; this.h = h; this.ox = ox; this.oy = oy; this.a = new Uint8Array(w * h); }
+    has(x, y) { x += this.ox; y += this.oy; return x >= 0 && y >= 0 && x < this.w && y < this.h && this.a[y * this.w + x] === 1; }
+    add(x, y) { x = Math.round(x) + this.ox; y = Math.round(y) + this.oy; if (x >= 0 && y >= 0 && x < this.w && y < this.h) this.a[y * this.w + x] = 1; return this; }
+    del(x, y) { x += this.ox; y += this.oy; if (x >= 0 && y >= 0 && x < this.w && y < this.h) this.a[y * this.w + x] = 0; return this; }
     rect(x0, y0, x1, y1) { for (let y = Math.round(y0); y <= Math.round(y1); y++) for (let x = Math.round(x0); x <= Math.round(x1); x++) this.add(x, y); return this; }
     ellipse(cx, cy, rx, ry) { for (let y = Math.floor(cy - ry - 1); y <= cy + ry + 1; y++) for (let x = Math.floor(cx - rx - 1); x <= cx + rx + 1; x++) { const dx = (x + 0.5 - cx) / rx, dy = (y + 0.5 - cy) / ry; if (dx * dx + dy * dy <= 1) this.add(x, y); } return this; }
     // thick segment from (x0, y0) to (x1, y1), width w
@@ -144,7 +147,15 @@
       }
       return this;
     }
-    each(fn) { for (let y = 0; y < this.h; y++) for (let x = 0; x < this.w; x++) if (this.a[y * this.w + x]) fn(x, y); }
+    each(fn) { for (let y = 0; y < this.h; y++) for (let x = 0; x < this.w; x++) if (this.a[y * this.w + x]) fn(x - this.ox, y - this.oy); }
+  }
+  // A grid drawn in shifted coordinates (see Mask): set/get/filled take the same coordinates as the masks.
+  class OffsetGrid extends Grid {
+    constructor(w, h, ox, oy) { super(w, h); this.ox = ox; this.oy = oy; }
+    in(x, y) { return super.in(Math.round(x) + this.ox, Math.round(y) + this.oy); }
+    get(x, y) { return super.get(Math.round(x) + this.ox, Math.round(y) + this.oy); }
+    set(x, y, c, a) { return super.set(Math.round(x) + this.ox, Math.round(y) + this.oy, c, a); }
+    outline(c, diag) { const ox = this.ox, oy = this.oy; this.ox = this.oy = 0; super.outline(c, diag); this.ox = ox; this.oy = oy; return this; }
   }
 
   // Paints parts back to front onto a grid. Each part is lit from the top-left: its
@@ -152,14 +163,16 @@
   // `spec` parts (plate, blades) get a white glint on their top-left corners.
   // `sep` draws a dark line where the part overlaps parts painted before it.
   class Painter {
-    constructor(w, h) { this.g = new Grid(w, h); this.id = new Int16Array(w * h); this.n = 0; this.w = w; this.h = h; }
-    mask() { return new Mask(this.w, this.h); }
+    constructor(w, h, ox = 0, oy = 0) { this.g = ox || oy ? new OffsetGrid(w, h, ox, oy) : new Grid(w, h); this.id = new Int16Array(w * h); this.n = 0; this.w = w; this.h = h; this.ox = ox; this.oy = oy; }
+    mask() { return new Mask(this.w, this.h, this.ox, this.oy); }
+    idx(x, y) { x += this.ox; y += this.oy; return x >= 0 && y >= 0 && x < this.w && y < this.h ? y * this.w + x : -1; }
     part(m, rampOrFn, o = {}) {
       const pid = ++this.n, base = o.base === undefined ? 2 : o.base;
       if (o.sep) m.each((x, y) => {
         for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
           const X = x + dx, Y = y + dy;
-          if (!m.has(X, Y) && X >= 0 && Y >= 0 && X < this.w && Y < this.h && this.id[Y * this.w + X] > 0 && (o.sepSides ? o.sepSides(dx, dy) : true)) this.g.set(X, Y, INK);
+          const i = this.idx(X, Y);
+          if (!m.has(X, Y) && i >= 0 && this.id[i] > 0 && (o.sepSides ? o.sepSides(dx, dy) : true)) this.g.set(X, Y, INK);
         }
       });
       m.each((x, y) => {
@@ -181,11 +194,11 @@
         }
         k = Math.max(0, Math.min(rp.length - 1 - (o.spec ? 0 : 1), k));
         this.g.set(x, y, rp[k]);
-        this.id[y * this.w + x] = pid;
+        const i = this.idx(x, y); if (i >= 0) this.id[i] = pid;
       });
       return this;
     }
-    px(x, y, c) { this.g.set(x, y, c); if (this.g.in(x, y)) this.id[y * this.w + x] = ++this.n; return this; }
+    px(x, y, c) { this.g.set(x, y, c); const i = this.idx(x, y); if (i >= 0) this.id[i] = ++this.n; return this; }
     done() { this.g.outline(INK); return this.g; }
   }
   const mailTex = (x, y) => ((x + y) % 2 ? 1 : -1) * ((x * 3 + y) % 4 === 0 ? 0 : 1) * 0.6 > 0 ? 1 : 0;
@@ -299,17 +312,19 @@
     const P = new Painter(32, 40);
     const atk = pose === 'attack';
     const b = pose === 'walk' && step % 2 === 1 ? -1 : 0;
-    const plateBody = g.body === 'plate' || g.body === 'plateMail';
-    const legRamp = plateBody ? STEEL : g.body === 'tunic' ? g.drab : g.hose;
-    const armRamp = g.body === 'plate' ? STEEL : g.body === 'plateMail' || g.body === 'mailTabard' ? STEEL : g.body === 'tunic' ? g.drab : g.liv;
-    const armOpts = g.body === 'plateMail' || g.body === 'mailTabard' ? { tex: mailTex, base: 1 } : g.body === 'plate' ? { spec: true } : g.body === 'tunic' ? {} : { tex: quiltTex };
-    const footRamp = plateBody ? STEEL : LEATHER;
+    const O = g.over || {};                                         // a hero's own colours and cut (see HEROES)
+    const plateBody = O.plate !== undefined ? O.plate : g.body === 'plate' || g.body === 'plateMail';
+    const legRamp = O.legs || (plateBody ? STEEL : g.body === 'tunic' ? g.drab : g.hose);
+    const armRamp = O.arms || (g.body === 'plate' ? STEEL : g.body === 'plateMail' || g.body === 'mailTabard' ? STEEL : g.body === 'tunic' ? g.drab : g.liv);
+    const armOpts = O.armOpts || (g.body === 'plateMail' || g.body === 'mailTabard' ? { tex: mailTex, base: 1 } : g.body === 'plate' ? { spec: true } : g.body === 'tunic' ? {} : { tex: quiltTex });
+    const footRamp = O.feet || (plateBody ? STEEL : LEATHER);
     const heraldFn = (x0, y0, w, h) => (x, y) => tRamp(blazon(g.arms, (x - x0) / w, (y - y0) / h));
-    const torsoFn = g.body === 'plate' || g.body === 'plateMail' || g.body === 'mailTabard' ? heraldFn(11, 15 + b, 10, 15)
-      : g.body === 'tunic' ? () => g.drab : () => g.liv;
-    const torsoOpts = g.body === 'gambeson' || g.body === 'jack' ? { tex: quiltTex } : {};
+    const torsoFn = O.torso || (g.body === 'plate' || g.body === 'plateMail' || g.body === 'mailTabard' ? heraldFn(11, 15 + b, 10, 15)
+      : g.body === 'tunic' ? () => g.drab : () => g.liv);
+    const torsoOpts = O.torsoOpts || (g.body === 'gambeson' || g.body === 'jack' ? { tex: quiltTex } : {});
+    const hem = O.robe ? 37 : O.long ? 33 : 30;                     // how far the skirt / robe / coat reaches
 
-    if (dir === 2) return sideFrame(g, P, pose, step, b, { legRamp, armRamp, armOpts, footRamp, torsoFn, torsoOpts });
+    if (dir === 2) return sideFrame(g, P, pose, step, b, { legRamp, armRamp, armOpts, footRamp, torsoFn, torsoOpts, hem, plateBody, handRamp: O.hands });
 
     // ---------------- front / back
     const back = dir === 1;
@@ -317,7 +332,7 @@
     const swing = pose === 'walk' ? [0, 1, 0, -1][step] : 0;
     // legs
     const legL = P.mask().rect(11, 27 + b, 14, 35 - (lift === 1 ? 1 : 0)), legR = P.mask().rect(18, 27 + b, 21, 35 - (lift === 2 ? 1 : 0));
-    P.part(legL, legRamp, plateBody ? { spec: true } : {}); P.part(legR, legRamp, plateBody ? { spec: true } : {});
+    if (!O.robe) { P.part(legL, legRamp, plateBody ? { spec: true } : {}); P.part(legR, legRamp, plateBody ? { spec: true } : {}); }
     P.part(P.mask().rect(10, 36 - (lift === 1 ? 1 : 0), 14, 37 - (lift === 1 ? 1 : 0)), footRamp, { base: 1 });
     P.part(P.mask().rect(18, 36 - (lift === 2 ? 1 : 0), 22, 37 - (lift === 2 ? 1 : 0)), footRamp, { base: 1 });
     if (plateBody) for (const kx of [11, 18]) {                                                   // knee cops and joints
@@ -326,22 +341,23 @@
     }
     // torso + skirt (surcoat / tabard / gambeson / tunic)
     const torso = P.mask().poly([[10, 15 + b], [22, 15 + b], [21, 26 + b], [11, 26 + b]]);
-    const skirt = P.mask().poly([[11, 25 + b], [21, 25 + b], [22, 30 + b], [10, 30 + b]]);
-    if (g.body === 'plate' && !back) {
+    const skirt = O.robe ? P.mask().poly([[11, 25 + b], [21, 25 + b], [24, 37], [8, 37]])
+      : P.mask().poly([[11, 25 + b], [21, 25 + b], [22 + (hem - 30) * 0.3, hem + b], [10 - (hem - 30) * 0.3, hem + b]]);
+    if (g.body === 'plate' && !back && !O.torso) {
       P.part(torso, STEEL, { spec: true });                                                           // breastplate under the surcoat
       const surcoat = P.mask().poly([[11.5, 17 + b], [20.5, 17 + b], [21, 26 + b], [11, 26 + b]]);
       P.part(surcoat, torsoFn, { flat: false }); P.part(skirt, torsoFn, { sep: true, sepSides: (dx, dy) => dy < 0 });
     } else {
       P.part(torso, torsoFn, torsoOpts); P.part(skirt, torsoFn, Object.assign({ sep: true, sepSides: (dx, dy) => dy < 0 }, torsoOpts));
     }
-    if (g.body === 'tunic' || g.body === 'jack' || g.body === 'gambeson') P.part(P.mask().rect(12, 25 + b, 20, 25 + b), LEATHER, { flat: true, base: 1 });   // belt
+    if (O.belt !== false && (O.belt || g.body === 'tunic' || g.body === 'jack' || g.body === 'gambeson')) P.part(P.mask().rect(11, 25 + b, 21, 25 + b), O.belt || LEATHER, { flat: true, base: 1 });   // belt
     // arms
     const armAtk = atk && !back;
     const lArm = P.mask().capsule(9.5, 17 + b, 9 - swing * 0.6, 24 + b, 3.4);
     const rArm = armAtk ? P.mask().capsule(22.5, 17 + b, 25.5, 10 + b, 3.4) : P.mask().capsule(22.5, 17 + b, 24 + swing * 0.6, 24 + b, 3.4);
     P.part(lArm, armRamp, Object.assign({ sep: true }, armOpts)); P.part(rArm, armRamp, Object.assign({ sep: true }, armOpts));
-    if (plateBody) { P.part(P.mask().ellipse(9.5, 16.5 + b, 3, 2.3), STEEL, { spec: true, sep: true }); P.part(P.mask().ellipse(22.5, 16.5 + b, 3, 2.3), STEEL, { spec: true, sep: true }); }
-    const handRamp = plateBody ? STEEL : g.skin;
+    if (plateBody && O.pauldrons !== false) { P.part(P.mask().ellipse(9.5, 16.5 + b, 3, 2.3), O.pauldrons || STEEL, { spec: true, sep: true }); P.part(P.mask().ellipse(22.5, 16.5 + b, 3, 2.3), O.pauldrons || STEEL, { spec: true, sep: true }); }
+    const handRamp = O.hands || (plateBody ? STEEL : g.skin);
     const lh = [9 - swing * 0.6, 25.5 + b], rh = armAtk ? [25.8, 9 + b] : [24 + swing * 0.6, 25.5 + b];
     P.part(P.mask().ellipse(lh[0], lh[1], 1.5, 1.4), handRamp, { sep: true });
     // head
@@ -458,25 +474,27 @@
   function sideFrame(g, P, pose, step, b, R0) {
     const atk = pose === 'attack';
     const st = pose === 'walk' ? [2.5, 0, -2.5, 0][step] : atk ? 3 : 1;
-    const plateBody = g.body === 'plate' || g.body === 'plateMail';
+    const plateBody = R0.plateBody !== undefined ? R0.plateBody : g.body === 'plate' || g.body === 'plateMail';
     const S = g.skin, H = g.hair, cy = 9 + b;
     // far side first (darker)
     if (g.shield) {
       const sm = P.mask().poly([[17, 17 + b], [22.5, 17 + b], [22.5, 24 + b], [19.5, 30 + b], [17, 24 + b]]);
       P.part(sm, (x, y) => tRamp(blazon(g.arms, 0.55 + (x - 17) / 12, (y - 17 - b) / 13)), { base: 1 });
     }
+    const robe = R0.hem >= 37;
     const farLeg = P.mask().capsule(17, 27 + b, 18 + st, 35, 3.2), nearLeg = P.mask().capsule(15, 27 + b, 14 - st, 35, 3.2);
-    P.part(farLeg, R0.legRamp, { base: 1 });
+    if (!robe) P.part(farLeg, R0.legRamp, { base: 1 });
     P.part(P.mask().rect(16 + st, 36, 19 + st, 37), R0.footRamp, { base: 0 });
     P.part(P.mask().capsule(17.5, 17 + b, 18.5 - st * 0.4, 24 + b, 3), R0.armRamp, Object.assign({}, R0.armOpts, { base: 1 }));
     // body
     const torso = P.mask().poly([[12.5, 15 + b], [19, 15 + b], [18.5, 26 + b], [13, 26 + b]]);
-    const skirt = P.mask().poly([[13, 25 + b], [18.5, 25 + b], [19.5, 30 + b], [12, 30 + b]]);
+    const hem = R0.hem || 30;
+    const skirt = P.mask().poly([[13, 25 + b], [18.5, 25 + b], [19.5 + (hem - 30) * 0.4 - st * (robe ? 0.3 : 0), hem + (robe ? 0 : b)], [12 - (hem - 30) * 0.4 - st * (robe ? 0.3 : 0), hem + (robe ? 0 : b)]]);
     const fn = (x, y) => (typeof R0.torsoFn === 'function' ? R0.torsoFn(x + 1, y) : R0.torsoFn);
-    P.part(nearLeg, R0.legRamp, plateBody ? { spec: true, sep: true } : { sep: true });
+    if (!robe) P.part(nearLeg, R0.legRamp, plateBody ? { spec: true, sep: true } : { sep: true });
     P.part(P.mask().rect(11 - st, 36, 15 - st, 37), R0.footRamp, { base: 1 });
     P.part(torso, fn, R0.torsoOpts); P.part(skirt, fn, Object.assign({ sep: true, sepSides: (dx, dy) => dy < 0 }, R0.torsoOpts));
-    if (plateBody) P.part(P.mask().ellipse(15.5, 16.5 + b, 2.8, 2.2), STEEL, { spec: true, sep: true });
+    if (plateBody && !(g.over && g.over.pauldrons === false)) P.part(P.mask().ellipse(15.5, 16.5 + b, 2.8, 2.2), (g.over && g.over.pauldrons) || STEEL, { spec: true, sep: true });
     // head
     P.part(P.mask().rect(14, 13 + b, 17, 15 + b), S, { base: 1 });
     const head = P.mask().ellipse(15.5, cy, 4.2, 5.1);
@@ -507,7 +525,7 @@
     if (g.weapon === 'longbow') drawWeapon(P, 'longbow', atk ? 7 : hand[0] - 1, atk ? 21 + b : hand[1] - 3, -90, { draw: false, flip: true, sep: true });
     else if (g.weapon === 'crossbow') drawWeapon(P, 'crossbow', hand[0] + 3, hand[1] - (atk ? 4 : 0), atk ? 180 : -150, { sep: true });
     else drawWeapon(P, g.weapon, hand[0] - (atk ? 0 : 1), hand[1], atk ? (long ? 180 : 195) : long ? -93 : -98, { sep: true });
-    P.part(P.mask().ellipse(hand[0], hand[1], 1.5, 1.4), plateBody ? STEEL : S, {});
+    P.part(P.mask().ellipse(hand[0], hand[1], 1.5, 1.4), R0.handRamp || (plateBody ? STEEL : S), {});
     return P.done();
   }
 
@@ -904,9 +922,362 @@
     return { img: sheet, anim: { fw: 48, fh: 52, fps: 6, tracks, labels: ['front', 'back', 'left', 'right', 'attack'] }, name: `cavalry-${g.troop}-${g.lance ? 'lance' : g.rider.weapon}-${g.coatName}` };
   }
 
+  // ================================================================ HEROES
+  // Heroes must not look like the rank and file. Each archetype has a silhouette of
+  // its own (an outrageous hat, a cape, an oversized signature weapon), a bold personal
+  // colour scheme instead of the army's livery, and a glowing aura outline, so a hero
+  // can be picked out of a crowded field at a glance. Frames are 40 x 48 (the extra room
+  // is for hats, capes and weapons); the body is drawn by the soldier code with the
+  // hero's own colours, then the hero's pieces are layered on top.
+  const HERO_PALS = {
+    royal: ['#6a2a9a', '#e0b440', '#d0a0ff'], blood: ['#a81c2c', '#2a2430', '#ff6a50'], frost: ['#2a76b8', '#e8f0f8', '#9aeeff'],
+    venom: ['#3e8a2a', '#2a2430', '#b0ff5a'], ember: ['#d0581a', '#3a2418', '#ffc050'], bone:  ['#d8d0b8', '#3a3440', '#8af0e0'],
+    rose:  ['#d84a84', '#f4e4ec', '#ffa8dc'], sun:   ['#e8b830', '#f8f4e8', '#fff2a0'], teal:  ['#169686', '#ecdcaa', '#6affe0'],
+    night: ['#2c2c64', '#9a9ad0', '#a8b0ff'],
+  };
+  const HEROES = {
+    witch:        { torso: 'robe',   hats: ['witch'], capes: [null], weapons: ['tome', 'staff'], hair: ['long', 'wild'], pals: ['venom', 'royal', 'night', 'rose'], beard: ['none'] },
+    reaper:       { torso: 'robe',   hats: ['deephood'], capes: ['tattered'], weapons: ['scythe'], hair: ['short'], pals: ['bone', 'night', 'blood'], beard: ['none'], eyes: true, tattered: true },
+    cavalier:     { torso: 'doublet', hats: ['cavalier'], capes: ['shoulder'], weapons: ['rapier'], hair: ['long', 'short', 'tail'], pals: ['blood', 'teal', 'royal', 'rose', 'sun'], beard: ['moustache', 'none', 'goatee'] },
+    berserker:    { torso: 'bare',   hats: ['horns', 'none'], capes: ['fur'], weapons: ['greataxe', 'maul'], hair: ['wild'], pals: ['ember', 'blood', 'frost'], beard: ['full', 'full', 'none'], paint: true },
+    paladin:      { torso: 'plate',  hats: ['winged', 'halo', 'none'], capes: ['long'], weapons: ['greatsword', 'maul'], hair: ['short', 'long'], pals: ['sun', 'frost', 'royal'], beard: ['none', 'full'], glowWeapon: true },
+    monk:         { torso: 'habit',  hats: ['straw', 'none'], capes: [null], weapons: ['quarterstaff'], hair: ['bald'], pals: ['ember', 'sun', 'teal'], beard: ['none', 'full', 'stubble'], beads: true },
+    necromancer:  { torso: 'coat',   hats: ['hood', 'darkcrown'], capes: ['long'], weapons: ['skullstaff'], hair: ['long', 'short'], pals: ['venom', 'night', 'bone'], beard: ['none', 'goatee'], eyes: true, skulls: true },
+    huntress:     { torso: 'tunic',  hats: ['hood'], capes: ['scarf'], weapons: ['longbow'], hair: ['long', 'tail'], pals: ['venom', 'teal', 'night', 'rose'], beard: ['none'], quiver: true },
+    alchemist:    { torso: 'coat',   hats: ['beak'], capes: [null], weapons: ['flask'], hair: ['short'], pals: ['night', 'bone', 'teal'], beard: ['none'], potions: true },
+    jester:       { torso: 'motley', hats: ['jester'], capes: [null], weapons: ['daggers'], hair: ['short'], pals: ['rose', 'royal', 'sun', 'blood'], beard: ['none'] },
+    warlord:      { torso: 'plate',  hats: ['crown', 'crown', 'laurel'], capes: ['ermine'], weapons: ['greatsword', 'scepter'], hair: ['long', 'short'], pals: ['royal', 'blood', 'sun'], beard: ['full'] },
+    shieldmaiden: { torso: 'tunic',  hats: ['winged'], capes: [null], weapons: ['spear'], hair: ['braids'], pals: ['frost', 'teal', 'blood'], beard: ['none'], roundShield: true },
+  };
+  const GOLDR = ['#5a3a10', '#9a6a1a', '#d8a030', '#f4d060', '#fff8d0'];
+  const BONER = ['#4a4238', '#8a7e68', '#c4b898', '#e8dec4', '#fffaf0'];
+  const FUR = ['#2a2018', '#4a3a2a', '#6e5a44', '#94806a', '#b8a890'];
+  const STRAW = ['#5a4418', '#8a7030', '#b89a48', '#dcc46c', '#f4e4a0'];
+
+  function heroGenome(o) {
+    const r = R.make(o.seed, 'hero32');
+    const kind = HEROES[o.hero] ? o.hero : r.pick(Object.keys(HEROES));
+    const H = HEROES[kind];
+    let palName = r.pick(H.pals);
+    let pal = HERO_PALS[palName];
+    if (FACTIONS[o.faction] && o.palette === 'faction') pal = [FACTIONS[o.faction].main, pal[1], mix(FACTIONS[o.faction].main, '#ffffff', 0.5)];
+    const M = ramp(pal[0], 5, 0.55), S2 = ramp(pal[1], 5, 0.5), glow = pal[2], GL = ramp(glow, 5, 0.45);
+    const base = soldierGenome(Object.assign({}, o, { troop: 'knight' }));
+    const g = Object.assign(base, {
+      kind, palName, M, S2, glow, GL,
+      hat: r.pick(H.hats), cape: r.pick(H.capes), heroWeapon: o.weapon && o.weapon !== 'random' ? o.weapon : r.pick(H.weapons),
+      hairStyle0: r.pick(H.hair), beard: r.pick(H.beard), helm: 'none', plume: false, shield: false, weapon: 'none',
+      tattered: !!H.tattered, glowEyes: !!H.eyes, paint: !!H.paint, beads: !!H.beads, skulls: !!H.skulls, quiver: !!H.quiver,
+      potions: !!H.potions, roundShield: !!H.roundShield, glowWeapon: !!H.glowWeapon || r.chance(0.25),
+      capeSeed: r.int(0, 999),
+      // personal traits, so two heroes of one archetype still differ at a glance
+      familiar: r.pick([null, null, 'raven', 'wisp', 'skull']), motes: r.chance(0.45), runes: r.chance(0.3),
+      mark: r.pick([null, null, null, 'eyepatch', 'scar']),
+    });
+    g.hairStyle = g.hairStyle0 === 'wild' || g.hairStyle0 === 'braids' ? 'long' : g.hairStyle0 === 'tail' ? 'short' : g.hairStyle0;
+    if (g.hat === 'hood' || g.hat === 'deephood') { g.helm = 'hood'; g.liv = M; }
+    if (kind === 'reaper' || kind === 'witch') g.skin = ramp(r.pick(['#e8d8d0', '#d8e0d0', '#c8b8c8']), 5, 0.4);
+    if (kind === 'berserker') g.hair = ramp(r.pick(['#c04020', '#e8d8b0', '#3a2418', '#d08a30']), 5, 0.5);
+    // the body's cut and colours
+    const T = H.torso, bodyOver = { belt: false };
+    const DK = ramp(mix(pal[1], '#1a1420', 0.55), 5, 0.4);
+    if (T === 'robe') Object.assign(bodyOver, { robe: true, torso: () => M, arms: M, hands: g.skin, feet: DK, belt: S2 });
+    if (T === 'habit') Object.assign(bodyOver, { robe: true, torso: () => M, arms: M, hands: g.skin, feet: LEATHER, belt: STRAW });
+    if (T === 'coat') Object.assign(bodyOver, { long: true, torso: (x) => (x >= 15 && x <= 17 ? S2 : M), arms: M, hands: LEATHER, legs: DK, feet: LEATHER, belt: LEATHER });
+    if (T === 'doublet') Object.assign(bodyOver, { torso: (x) => ((x % 3) === 0 ? S2 : M), arms: M, armOpts: { tex: (x, y) => (y % 3 === 0 ? 1 : 0) }, hands: g.skin, legs: S2, feet: LEATHER, belt: GOLDR });
+    if (T === 'bare') Object.assign(bodyOver, { torso: () => g.skin, torsoOpts: {}, arms: g.skin, armOpts: {}, hands: LEATHER, legs: M, feet: FUR, belt: LEATHER });
+    if (T === 'plate') Object.assign(bodyOver, { plate: true, torso: (x, y) => (x >= 13 && x <= 19 ? M : STEEL), arms: STEEL, armOpts: { spec: true }, hands: STEEL, legs: STEEL, feet: STEEL, pauldrons: GOLDR, belt: GOLDR });
+    if (T === 'tunic') Object.assign(bodyOver, { torso: () => M, arms: kind === 'shieldmaiden' ? STEEL : M, armOpts: kind === 'shieldmaiden' ? { tex: mailTex, base: 1 } : {}, hands: LEATHER, legs: DK, feet: LEATHER, belt: LEATHER });
+    if (T === 'motley') Object.assign(bodyOver, { torso: (x, y) => ((Math.floor((x + y) / 3) + Math.floor((x - y + 40) / 3)) % 2 ? M : S2), arms: S2, hands: g.skin, legs: M, feet: S2, belt: false });
+    g.over = bodyOver; g.body = T === 'plate' ? 'plate' : 'tunic'; g.DK = DK;
+    return g;
+  }
+
+  const HERO_WEAPONS = {
+    scythe:       g => [{ mat: WOODR, t: [-9, 17], w: 1.4 }, { mat: g.glowWeapon ? g.GL : STEEL, spec: true, blade: [[14.5, 0.5], [18, 0.5], [18, -4], [16, -9], [12, -13], [9, -13.5], [12.5, -10], [15, -5]] }],
+    greatsword:   g => [{ mat: LEATHER, t: [-3, 0.5], w: 1.5 }, { mat: GOLDR, t: [-3.8, -3.2], w: 2.2, spec: true }, { mat: GOLDR, guard: [-3.5, 3.5], t: [1.2, 1.2], w: 1.5, spec: true }, { mat: g.glowWeapon ? g.GL : STEEL, t: [2, 15.5], w: 2.6, spec: true }, { mat: g.glowWeapon ? g.GL : STEEL, t: [15.5, 17], w: 1.2, spec: true }],
+    maul:         g => [{ mat: WOODR, t: [-3, 12], w: 1.5 }, { mat: g.glowWeapon ? g.GL : STEEL, spec: true, blade: [[11.5, -3.5], [16, -3.5], [16, 3.5], [11.5, 3.5]] }, { mat: GOLDR, t: [11, 11], guard: [-3.5, 3.5], w: 1.2 }],
+    greataxe:     g => [{ mat: WOODR, t: [-4, 14], w: 1.5 }, { mat: g.glowWeapon ? g.GL : STEEL, spec: true, blade: [[9, 0], [15, 0], [16.5, 5], [12, 6], [8, 4]] }, { mat: g.glowWeapon ? g.GL : STEEL, spec: true, blade: [[10, 0], [14, 0], [15, -4], [11, -4.5]] }],
+    rapier:       g => [{ mat: LEATHER, t: [-2, 0.5], w: 1.2 }, { mat: GOLDR, ball: 1.7, t: [1, 1] }, { mat: STEEL, t: [2, 15], w: 1, spec: true }],
+    staff:        g => [{ mat: WOODR, t: [-8, 13], w: 1.4 }, { mat: GOLDR, guard: [-2, 2], t: [13.5, 13.5], w: 1.2 }, { mat: g.GL, ball: 2.4, t: [16, 16] }],
+    skullstaff:   g => [{ mat: ramp('#3a3040', 5, 0.4), t: [-8, 13], w: 1.4 }, { mat: BONER, ball: 2.6, t: [15.5, 15.5] }],
+    quarterstaff: g => [{ mat: WOODR, t: [-12, 14], w: 1.5 }, { mat: GOLDR, t: [-12, -10.5], w: 1.7 }, { mat: GOLDR, t: [12.5, 14], w: 1.7 }],
+    scepter:      g => [{ mat: GOLDR, t: [-2, 8], w: 1.5, spec: true }, { mat: GOLDR, ball: 2, t: [9.5, 9.5] }, { mat: g.GL, ball: 1, t: [9.5, 9.5] }],
+    spear:        g => [{ mat: WOODR, t: [-13, 16], w: 1.3 }, { mat: g.glowWeapon ? g.GL : STEEL, spec: true, blade: [[15, -1.6], [20.5, 0], [15, 1.6], [14.5, 0]] }],
+    flask:        g => [{ mat: ramp('#c8e0e8', 5, 0.3), ball: 2, t: [1.5, 1.5] }, { mat: g.GL, ball: 1.2, t: [1.8, 1.8] }],
+    dagger:       g => [{ mat: LEATHER, t: [-1, 0.5], w: 1.2 }, { mat: GOLDR, guard: [-1.6, 1.6], t: [1, 1], w: 1 }, { mat: STEEL, t: [1.5, 6], w: 1.3, spec: true }],
+  };
+  function drawHeroWeapon(P, g, kind, hx, hy, deg) {
+    const parts = HERO_WEAPONS[kind](g), a = deg * Math.PI / 180, ca = Math.cos(a), sa = Math.sin(a);
+    const X = (t, s) => hx + t * ca - s * sa, Y = (t, s) => hy + t * sa + s * ca;
+    for (const p of parts) {
+      const m = P.mask();
+      if (p.blade) m.poly(p.blade.map(([t, s]) => [X(t, s), Y(t, s)]));
+      else if (p.ball) m.ellipse(X(p.t[0], 0), Y(p.t[0], 0), p.ball, p.ball);
+      else if (p.guard) m.capsule(X(p.t[0], p.guard[0]), Y(p.t[0], p.guard[0]), X(p.t[0], p.guard[1]), Y(p.t[0], p.guard[1]), p.w);
+      else m.capsule(X(p.t[0], 0), Y(p.t[0], 0), X(p.t[1], 0), Y(p.t[1], 0), p.w);
+      P.part(m, p.mat, { spec: p.spec, sep: true });
+    }
+    if (kind === 'skullstaff') { const sx = X(15.5, 0), sy = Y(15.5, 0); P.g.set(sx - 1, sy, '#141010').set(sx + 1, sy, '#141010').set(sx - 1, sy, g.glow).set(sx + 1, sy, g.glow).set(sx, sy + 1.5, '#141010'); }
+    return { tipX: X(16, 0), tipY: Y(16, 0) };
+  }
+
+  // Pieces behind the body: cape (inside), long hair, quiver.
+  function heroBack(g, P, dir, pose, step, b) {
+    const wave = pose === 'walk' ? [0, 1, 0, -1][step] : pose === 'attack' ? 2 : 0;
+    const M = g.M, S2 = g.S2;
+    if (g.cape && g.cape !== 'scarf' && dir !== 1) {
+      if (dir === 0) {
+        const m = P.mask().poly([[8, 16 + b], [24, 16 + b], [27 + wave, 37], [5 - wave, 37]]);
+        if (g.cape === 'shoulder') { m.each((x, y) => { if (x > 14 || y > 30) m.del(x, y); }); }
+        if (g.cape === 'fur') { m.each((x, y) => { if (y > 26 + b) m.del(x, y); }); }
+        jag(g, m, 37);
+        P.part(m, g.cape === 'ermine' ? ramp('#c02030', 5, 0.5) : g.cape === 'fur' ? FUR : S2, { base: 1 });
+      } else {                                             // side: the cape streams out behind
+        const m = P.mask().poly([[16, 15 + b], [20, 15 + b], [27 + wave * 1.5, 34 + wave], [21, 37], [17, 30]]);
+        if (g.cape === 'shoulder') m.each((x, y) => { if (y > 30) m.del(x, y); });
+        if (g.cape === 'fur') m.each((x, y) => { if (y > 25 + b) m.del(x, y); });
+        jag(g, m, 37);
+        P.part(m, g.cape === 'ermine' ? ermineFn : g.cape === 'fur' ? FUR : M, { sep: false, shade: (x) => (x > 22 ? -1 : 0) });
+      }
+    }
+    if (g.hairStyle0 === 'wild' && dir !== 1) {
+      const m = P.mask(); for (let i = 0; i < 5; i++) { const a = -Math.PI * (0.12 + i * 0.19); m.capsule(16, 8 + b, 16 + Math.cos(a) * 7, 10 + b + Math.sin(a) * 6, 2.8); }
+      P.part(m, g.hair, { tex: (x, y) => ((x * 5 + y * 3) % 6 === 0 ? 1 : 0) });
+    }
+    if (g.quiver && dir !== 1) {
+      const qx = dir === 2 ? 20 : 21;
+      P.part(P.mask().capsule(qx, 13 + b, qx + 3, 24 + b, 3), LEATHER, {});
+      for (let i = 0; i < 3; i++) P.g.set(qx + i - 1, 12 + b - (i % 2), i % 2 ? '#e8e0d0' : g.M[3]);
+    }
+  }
+  const ermineFn = (x, y) => ((x * 7 + y * 5) % 11 === 0 ? ['#141010', '#1a1416', '#201a1c', '#2a2224', '#302a2c'] : ['#a8a4a0', '#d0ccc8', '#ecebe6', '#f8f6f2', '#ffffff']);
+  function jag(g, m, hemY) {
+    if (!g.tattered) return;
+    const r = R.make(g.capeSeed, 'jag');
+    for (let x = -4; x < 40; x++) { const d = r.int(0, 4); for (let k = 0; k < d; k++) m.del(x, hemY - k); }
+  }
+
+  // Pieces in front: hats, faces, extras, weapons.
+  function heroFront(g, P, dir, pose, step, b) {
+    const back = dir === 1, side = dir === 2, atk = pose === 'attack' || pose === 'cast', cast = pose === 'cast';
+    const cy = 9 + b, cx = side ? 15.5 : 16, M = g.M, S2 = g.S2, wave = pose === 'walk' ? [0, 1, 0, -1][step] : 0;
+    // back view: the cape covers the back
+    if (back && g.cape && g.cape !== 'scarf') {
+      const m = P.mask().poly([[9, 15 + b], [23, 15 + b], [26 + wave, 37], [6 - wave, 37]]);
+      if (g.cape === 'shoulder') m.each((x, y) => { if (x < 16 || y > 30) m.del(x, y); });
+      if (g.cape === 'fur') m.each((x, y) => { if (y > 26 + b) m.del(x, y); });
+      jag(g, m, 37);
+      P.part(m, g.cape === 'ermine' ? ermineFn : g.cape === 'fur' ? FUR : M, { sep: true, shade: (x) => (x % 5 === 0 ? -1 : 0) });
+      if (g.cape === 'ermine' || g.cape === 'long') P.part(P.mask().rect(8, 15 + b, 24, 17 + b), g.cape === 'ermine' ? ermineFn : GOLDR, { sep: true });
+    }
+    if (back && g.quiver) { P.part(P.mask().capsule(19, 13 + b, 13, 26 + b, 3.2), LEATHER, { sep: true }); for (let i = 0; i < 3; i++) P.g.set(19 + i, 12 + b - (i % 2), i % 2 ? '#e8e0d0' : g.M[3]); }
+    if (back && g.hairStyle0 === 'braids') { P.part(P.mask().capsule(14, 12 + b, 13, 24 + b, 2).capsule(18, 12 + b, 19, 24 + b, 2), g.hair, { tex: (x, y) => (y % 2 ? -1 : 0), sep: true }); }
+    // fur mantle and ermine collar sit on the shoulders
+    if (g.cape === 'fur' && !back) { const m = P.mask(); for (let i = 0; i < 6; i++) m.ellipse(side ? 13 + i * 1.6 : 9 + i * 2.8, 16 + b + (i % 2), 2.6, 2.2); P.part(m, FUR, { sep: true, tex: (x, y) => ((x + y * 2) % 3 === 0 ? 1 : 0) }); }
+    if (g.cape === 'ermine' && !back) { const m = side ? P.mask().rect(13, 15 + b, 20, 17 + b) : P.mask().rect(9, 15 + b, 23, 17 + b); P.part(m, ermineFn, { sep: true }); }
+    // braids hang in front
+    if (g.hairStyle0 === 'braids' && !back) {
+      const xs = side ? [18] : [11, 21];
+      for (const x of xs) { P.part(P.mask().capsule(x, 11 + b, x + (side ? 1 : 0), 23 + b, 2.2), g.hair, { tex: (xx, y) => (y % 2 ? -1 : 0), sep: true }); P.g.set(x, 24 + b, g.S2[2]); }
+    }
+    if (g.hairStyle0 === 'tail' && (back || side)) P.part(P.mask().capsule(side ? 19 : 16, 9 + b, side ? 22 : 16, 17 + b, 2.2), g.hair, { sep: true });
+    // war paint, beads, skull pauldrons, potions
+    if (g.paint && !back) { const pc = M[2]; if (!side) { P.g.set(12, cy + 1, pc).set(13, cy + 1, pc).set(19, cy + 1, pc).set(20, cy + 1, pc); for (let y = 18; y <= 23; y += 2) P.g.set(14 + (y % 4 ? 0 : 1), y + b, pc).set(18 - (y % 4 ? 0 : 1), y + b, pc); } else P.g.set(12, cy + 1, pc).set(13, cy + 1, pc); }
+    if (g.over && g.over.torso && !g.over.plate && g.kind === 'berserker' && !back && !side) { P.g.set(16, 19 + b, g.skin[1]).set(15, 21 + b, g.skin[1]).set(17, 21 + b, g.skin[1]).set(16, 23 + b, g.skin[1]); }
+    if (g.beads && !back) for (let i = 0; i <= 8; i++) { const a = Math.PI * (0.15 + i * 0.0875); P.g.set(Math.round((side ? 15 : 16) + Math.cos(a) * 4), Math.round(15 + b + Math.sin(a) * 4), i % 2 ? '#3a2418' : GOLDR[3]); }
+    if (g.skulls) for (const x of side ? [15.5] : [9.5, 22.5]) {
+      P.part(P.mask().ellipse(x, 16 + b, 2.8, 2.6), BONER, { sep: true });
+      if (!back) { P.g.set(x - 1, 16 + b, '#141010').set(x + 1, 16 + b, '#141010'); if (g.glowEyes) P.g.set(x - 1, 16 + b, g.glow); }
+    }
+    if (g.potions && !back) for (let i = 0; i < 3; i++) { const x = side ? 13 + i * 2 : 12 + i * 3, c = ramp(['#e04040', '#40c060', '#4080e0'][i], 4, 0.5); P.part(P.mask().rect(x, 25 + b, x + 1, 27 + b), c, { sep: true }); P.g.set(x, 24 + b, LEATHER[3]); }
+    if (g.kind === 'jester' && !back && !side) { P.g.set(14, cy + 3, '#8a2a2a').set(18, cy + 3, '#8a2a2a').set(15, cy + 4, '#8a2a2a').set(16, cy + 4, '#8a2a2a').set(17, cy + 4, '#8a2a2a'); P.g.set(14, cy - 1, '#141010').set(18, cy - 1, '#141010'); }
+    if (g.over && g.over.plate && !back) {                         // gold trim and a sunburst on the breastplate
+      for (let y = 16; y <= 25; y++) { P.g.set(side ? 13 : 12, y + b, GOLDR[2]); if (!side) P.g.set(20, y + b, GOLDR[1]); }
+      if (!side) { P.g.set(16, 19 + b, GOLDR[4]).set(15, 20 + b, GOLDR[3]).set(17, 20 + b, GOLDR[3]).set(16, 21 + b, GOLDR[3]).set(16, 20 + b, g.glow); }
+    }
+    // headgear
+    const hat = g.hat;
+    if (hat === 'witch') {
+      const tip = side ? 7 : 24, m = P.mask().poly([[cx - 4.5, 5 + b], [cx + 4.5, 5 + b], [cx + 2, -2 + b], [tip, -7 + b + (pose === 'walk' ? step % 2 : 0)], [cx - 1, -2 + b]]);
+      P.part(P.mask().ellipse(cx, 5 + b, 9.5, 1.8), M, { sep: true });
+      P.part(m, M, { sep: true });
+      P.part(P.mask().rect(cx - 4, 3 + b, cx + 4, 3 + b), S2, { flat: true });
+      P.g.set(cx + 1, 3 + b, g.glow);
+    } else if (hat === 'cavalier') {
+      P.part(P.mask().ellipse(cx, 4.5 + b, 9, 2.2), M, { sep: true });
+      P.part(P.mask().ellipse(cx, 2.5 + b, 4.6, 3), M, { sep: true });
+      P.part(P.mask().rect(cx - 4, 3 + b, cx + 4, 3 + b), S2, { flat: true });
+      const f = side ? -1 : 1, fm = P.mask().capsule(cx + 2 * f, 2 + b, cx + 7 * f, -3 + b, 3).capsule(cx + 7 * f, -3 + b, cx + 12 * f, -2 + b + (pose === 'walk' ? step % 2 : 0), 2.4);
+      P.part(fm, ramp(g.palName === 'sun' ? '#f8f4e8' : g.glow, 5, 0.5), { tex: (x, y) => ((x + y) % 2 ? 0 : -1), sep: true });
+    } else if (hat === 'deephood') {
+      const m = P.mask().ellipse(cx, cy - 0.5, 6.2, 6.6); m.rect(cx - 6, cy + 3, cx + 6, cy + 7); m.add(cx, cy - 8 + b * 0).add(cx + 1, cy - 7);
+      P.part(m, M, { sep: true });
+      if (!back) { const f = P.mask(); for (let y = cy - 2; y <= cy + 4; y++) for (let x = (side ? 10 : 12); x <= (side ? 15 : 20); x++) f.add(x, y); P.part(f, ['#08060a', '#0e0a10', '#141018', '#1a1620'], { flat: true, base: 0 }); }
+    } else if (hat === 'hood' && g.kind === 'huntress') {
+      // a wolf-pelt hood: pricked ears, a grey muzzle over the brow, and a scarf mask
+      const WOLF = ['#2a2a30', '#4a4a52', '#76767e', '#a4a4aa', '#d0d0d4'];
+      for (const f of side ? [1] : [-1, 1]) P.part(P.mask().poly([[cx + 1.5 * f, 3 + b], [cx + 5 * f, 3 + b], [cx + 4 * f, -2 + b]]), WOLF, { sep: true });
+      P.part(side ? P.mask().rect(10, 3 + b, 17, 5 + b) : P.mask().rect(12, 3 + b, 20, 5 + b), WOLF, { sep: true });
+      if (!back) { if (side) P.g.set(10, 5 + b, '#141010'); else P.g.set(14, 4 + b, g.glow).set(18, 4 + b, g.glow); }
+      if (!side && !back) for (let x = 13; x <= 19; x++) P.g.set(x, cy + 3, S2[2]).set(x, cy + 4, S2[1]);
+    } else if (hat === 'jester') {
+      for (const [f, col] of [[-1, M], [1, S2]]) {
+        if (side && f > 0) continue;
+        const ex = side ? 22 : cx + 9 * f, m = P.mask().capsule(cx + 2.5 * f, 4 + b, cx + 6 * f, -3 + b, 3).capsule(cx + 6 * f, -3 + b, ex, 2 + b + (pose === 'walk' ? (step + (f > 0 ? 1 : 0)) % 2 : 0), 2.6);
+        P.part(m, col, { sep: true });
+        P.part(P.mask().ellipse(ex, 3 + b + (pose === 'walk' ? (step + (f > 0 ? 1 : 0)) % 2 : 0), 1.4, 1.4), GOLDR, { spec: true });
+      }
+      P.part(P.mask().ellipse(cx, 4 + b, 5, 2.6), M, { sep: true });
+    } else if (hat === 'crown' || hat === 'darkcrown') {
+      const C = hat === 'crown' ? GOLDR : ramp('#4a4450', 5, 0.5), m = P.mask().rect(cx - 4.5, 2 + b, cx + 4.5, 4 + b);
+      for (let i = 0; i < 5; i++) m.add(cx - 4 + i * 2, 1 + b).add(cx - 4 + i * 2, 0 + b);
+      P.part(m, C, { spec: true, sep: true });
+      P.g.set(cx, 3 + b, hat === 'crown' ? '#d02030' : g.glow).set(cx - 3, 3 + b, hat === 'crown' ? '#2a60d0' : g.glow);
+    } else if (hat === 'straw') {
+      const m = P.mask().poly([[cx - 11, 6 + b], [cx + 11, 6 + b], [cx + 3, 1 + b], [cx, -1 + b], [cx - 3, 1 + b]]);
+      P.part(m, STRAW, { tex: (x, y) => ((x + y) % 3 === 0 ? -1 : 0), sep: true });
+    } else if (hat === 'beak') {
+      P.part(P.mask().rect(cx - 4, -2 + b, cx + 4, 4 + b), ramp('#2a2430', 5, 0.4), { sep: true });
+      P.part(P.mask().ellipse(cx, 4.5 + b, 9.5, 1.8), ramp('#2a2430', 5, 0.4), { sep: true });
+      P.part(P.mask().rect(cx - 4, 2 + b, cx + 4, 2 + b), S2, { flat: true });
+      if (!back) {
+        const mask = side ? P.mask().ellipse(14, cy + 0.5, 3.6, 4).capsule(12, cy + 1, 6, cy + 5, 3) : P.mask().ellipse(16, cy + 0.5, 4.4, 4.2).capsule(16, cy + 2, 16, cy + 8, 3.2);
+        P.part(mask, BONER, { sep: true });
+        for (const ex of side ? [12.5] : [14, 18]) { P.part(P.mask().ellipse(ex, cy, 1.4, 1.4), GOLDR, {}); P.g.set(ex, cy, g.glow); }
+      }
+    } else if (hat === 'horns') {
+      P.part(P.mask().ellipse(cx, 6 + b, 5.2, 3.8), STEEL, { spec: true, sep: true });
+      for (const f of side ? [1] : [-1, 1]) P.part(P.mask().capsule(cx + 4 * f, 5 + b, cx + 7.5 * f, 2 + b, 2.4).capsule(cx + 7.5 * f, 2 + b, cx + 7 * f, -3 + b, 1.8), BONER, { sep: true });
+    } else if (hat === 'winged') {
+      P.part(P.mask().ellipse(cx, 6 + b, 5.2, 3.8), g.over && g.over.plate ? GOLDR : STEEL, { spec: true, sep: true });
+      for (const f of side ? [1] : [-1, 1]) {
+        const m = P.mask().poly([[cx + 4 * f, 6 + b], [cx + 10 * f, -1 + b - (pose === 'walk' ? step % 2 : 0)], [cx + 9 * f, 2 + b], [cx + 11 * f, 2 + b], [cx + 8 * f, 5 + b], [cx + 9 * f, 6 + b]]);
+        P.part(m, BONER, { sep: true, tex: (x, y) => (y % 2 ? -1 : 0) });
+      }
+    } else if (hat === 'halo') {
+      const hy = -1 + b + (pose === 'walk' && step % 2 ? 1 : 0);
+      for (let a = 0; a < Math.PI * 2; a += 0.1) P.g.set(cx + Math.cos(a) * 5, hy + Math.sin(a) * 1.4, a > Math.PI ? GOLDR[4] : GOLDR[3]);
+    }
+    if (g.hat === 'laurel') for (let x = cx - 5; x <= cx + 5; x++) { if (side && x > cx + 1) continue; P.g.set(x, 3 + b + (Math.abs(x - cx) > 3 ? 1 : 0), (x % 2 ? '#3a8a2a' : '#6ac040')); }
+    if (g.glowEyes && !back) { if (side) P.g.set(12, cy, g.glow); else P.g.set(14, cy, g.glow).set(18, cy, g.glow); }
+    if (g.mark === 'eyepatch' && !back && g.hat !== 'deephood' && g.hat !== 'beak') { if (side) P.g.set(13, cy, '#141010').set(14, cy - 1, '#141010'); else { P.g.set(18, cy, '#141010').set(19, cy, '#141010').set(18, cy - 1, '#141010'); P.g.line(12, cy - 3, 20, cy - 1, '#2a2020'); } }
+    if (g.mark === 'scar' && !back && g.hat !== 'deephood' && g.hat !== 'beak') P.g.line(side ? 13 : 13, cy - 2, side ? 14 : 14, cy + 2, mix(g.skin[1], '#a02030', 0.55));
+    if (g.runes && !back) for (let i = 0; i < 4; i++) { const x = side ? 14 + (i % 2) * 2 : 12 + i * 3, y = (g.over && g.over.robe ? 30 : 22) + b + (i % 2) * 2; P.g.set(x, y, g.glow).set(x, y + 1, g.GL[2]); }
+    if (g.cape === 'scarf') {                                           // a long scarf that streams in the wind
+      const ex = side ? 27 + wave : back ? 8 - wave : 26 + wave;
+      P.part(P.mask().capsule(side ? 17 : 16, 14 + b, ex, 18 + b + wave, 2.4).capsule(ex, 18 + b + wave, ex + (side ? 3 : 2), 24 + b, 2), g.S2, { sep: true });
+    }
+    // round shield
+    if (g.roundShield) {
+      const sx = side ? 9 : back ? 23 : 8, sy = 22 + b;
+      if (side || !back) {
+        P.part(P.mask().ellipse(sx, sy, side ? 2.6 : 6, 6.4), (x, y) => (Math.atan2(y - sy, x - sx) + Math.PI) * 4 / Math.PI % 2 < 1 ? M : S2, { sep: true, flat: true, shade: (x) => (x < sx - 2 ? 1 : x > sx + 2 ? -1 : 0) });
+        P.part(P.mask().ellipse(sx, sy, 1.6, 1.6), STEEL, { spec: true });
+      }
+    }
+    // weapon
+    const W = g.heroWeapon, armAtk = atk && !back;
+    let hand;
+    if (side) hand = armAtk ? [9, 21 + b] : [12, 24 + b];
+    else hand = armAtk ? [25.8, 9 + b] : [24, 25.5 + b];
+    if (W === 'tome') {
+      const bx = side ? 6 : back ? 26 : 4, by = (atk ? 10 : 16) + b + (step % 2);
+      const open = atk;
+      const m = open ? P.mask().rect(bx - 4, by, bx + 4, by + 4) : P.mask().rect(bx - 2, by, bx + 2, by + 5);
+      P.part(m, open ? ramp('#f0e8d0', 5, 0.3) : M, { sep: true });
+      if (open) { P.g.vline(bx, by, by + 4, M[1]); for (let i = 0; i < 3; i++) P.g.set(bx - 3 + i, by + 1 + i, g.glow).set(bx + 2 + (i % 2), by + 1 + i, g.glow); }
+      else { P.part(P.mask().rect(bx - 2, by + 2, bx + 2, by + 2), GOLDR, { flat: true }); P.g.set(bx, by + 2, g.glow); }
+      if (open) for (let i = 0; i < 6; i++) { const a = i / 6 * Math.PI * 2 + step; P.g.set(bx + Math.cos(a) * 6, by + 2 + Math.sin(a) * 3, i % 2 ? g.GL[4] : g.GL[2]); }
+    } else if (W === 'longbow') {
+      drawWeapon(P, 'longbow', side ? (atk ? 7 : 11) : hand[0] + 1.5, side ? 21 + b : hand[1] - (armAtk ? -6 : 3), -90, { draw: armAtk && !side, flip: side, sep: true });
+    } else if (W === 'daggers') {
+      drawHeroWeapon(P, g, 'dagger', hand[0], hand[1], armAtk ? -120 : -70);
+      if (!side) drawHeroWeapon(P, g, 'dagger', 9, 25.5 + b, armAtk ? -40 : -110);
+      if (atk) for (let i = 0; i < 3; i++) P.g.set(hand[0] + 3 + i * 2, hand[1] - 4 + i, STEEL[4]);
+    } else if (W === 'flask' && atk) {
+      const fx = side ? 2 : 30, fy = 6 + b;
+      drawHeroWeapon(P, g, 'flask', fx, fy, -90);
+      for (let i = 1; i < 5; i++) P.g.set(fx + (side ? i * 1.5 : -i * 1.5), fy + i * 1.2, i % 2 ? g.GL[3] : g.GL[2]);
+    } else if (W !== 'flask' || !atk) {
+      const long = ['scythe', 'spear', 'quarterstaff', 'staff', 'skullstaff'].includes(W);
+      const deg = side ? (armAtk ? (long ? 185 : 200) : long ? -93 : -100) : armAtk ? (long ? -60 : -150) : long ? -86 : W === 'flask' ? -90 : -62;
+      const tip = drawHeroWeapon(P, g, W, side ? hand[0] - (atk ? 0 : 1) : hand[0], hand[1], back && !side ? -94 : deg);
+      if (atk && (W === 'staff' || W === 'skullstaff' || g.glowWeapon)) for (let i = 0; i < 8; i++) { const a = i / 8 * Math.PI * 2; P.g.set(tip.tipX + Math.cos(a) * 3.5, tip.tipY + Math.sin(a) * 3.5, i % 2 ? g.GL[4] : g.GL[2]); }
+    }
+    if (!back) P.part(P.mask().ellipse(hand[0], hand[1], 1.5, 1.4), (g.over && g.over.hands) || g.skin, {});
+    // familiars and motes
+    const t = pose === 'walk' ? step : pose === 'attack' ? 1 : 2;
+    if (g.familiar === 'raven') {
+      const fx = side ? 18 : back ? 22 : 10, fy = 13 + b - (atk ? 3 : 0);
+      const m = P.mask().ellipse(fx, fy, 2, 1.6).add(fx + (side ? 2 : -2), fy - 1).add(fx + (side ? 3 : -3), fy - 1);
+      if (atk) m.capsule(fx - 3, fy - 2, fx + 3, fy - 2, 1.4);
+      P.part(m, ['#0e0c14', '#1a1824', '#2a2838', '#3e3c50', '#5a5870'], { sep: true });
+      P.g.set(fx + (side ? 3 : -3), fy, GOLDR[3]); P.g.set(fx + (side ? 1 : -1), fy - 1, g.glow);
+    } else if (g.familiar === 'wisp' || g.familiar === 'skull') {
+      const a = t * Math.PI / 2, fx = 16 + Math.cos(a) * 12, fy = 6 + b + Math.sin(a) * 3;
+      if (g.familiar === 'wisp') { P.part(P.mask().ellipse(fx, fy, 1.8, 1.8), g.GL, { flat: true, base: 3 }); P.g.set(fx - Math.cos(a) * 2.5, fy - Math.sin(a), g.GL[2]).set(fx - Math.cos(a) * 4, fy - Math.sin(a) * 1.5, g.GL[1]); }
+      else { P.part(P.mask().ellipse(fx, fy, 2.3, 2.1), BONER, { sep: true }); P.g.set(fx - 1, fy, g.glow).set(fx + 1, fy, g.glow); }
+    }
+    if (g.motes) for (let i = 0; i < 4; i++) {
+      const x = [3, 29, 6, 26][i], y = 34 - ((t * 5 + i * 9) % 26);
+      P.g.set(x + (i % 2), y, i % 2 ? g.GL[4] : g.glow);
+    }
+    // the special move: a ring of the hero's light
+    if (cast) for (let a = 0; a < Math.PI * 2; a += 0.09) {
+      const rr = 15 + Math.sin(a * 6) * 1.2, x = 16 + Math.cos(a) * rr, y = 22 + Math.sin(a) * rr * 0.55;
+      if (dither(Math.round(x), Math.round(y), 0.7)) P.g.set(x, y, a % 0.5 < 0.25 ? g.GL[4] : g.GL[2]);
+    }
+  }
+
+  function heroFrame(g, dir, pose, step) {
+    const OX = 4, OY = 8, out = new Grid(40, 48);
+    const bodyPose = pose === 'cast' ? 'attack' : pose;
+    const back = dir === 1;
+    // behind the body
+    const B = new Painter(40, 48, OX, OY);
+    heroBack(g, B, dir, pose, step, bodyPose === 'walk' && step % 2 === 1 ? -1 : 0);
+    let bg = B.done();
+    // the body: the soldier code in the hero's own colours (back frames come back mirrored)
+    const body = soldierFrame(g, dir, bodyPose, step);
+    // in front
+    const F = new Painter(40, 48, OX, OY);
+    heroFront(g, F, dir, pose, step, bodyPose === 'walk' && step % 2 === 1 ? -1 : 0);
+    let fg = F.done();
+    if (back) { bg = bg.flipX(); fg = fg.flipX(); }
+    out.blit(bg); out.blit(body, back ? 4 : OX, OY); out.blit(fg);
+    // aura: a second outline in the hero's glow colour, shimmering between two tones
+    if (g.aura !== false) {
+      const k = pack(INK), src = out.copy();
+      for (let y = 0; y < 48; y++) for (let x = 0; x < 40; x++) {
+        if (src.filled(x, y)) continue;
+        if (src.get(x - 1, y) === k || src.get(x + 1, y) === k || src.get(x, y - 1) === k || src.get(x, y + 1) === k)
+          out.set(x, y, (x + y + step) % 3 === 0 ? g.GL[4] : g.glow, 220);
+      }
+    }
+    return out;
+  }
+  function genHero32(o) {
+    const g = heroGenome(o);
+    g.aura = o.aura !== 'off';
+    const sheet = new Grid(160, 288);
+    const rows = [['walk', 0], ['walk', 1], ['walk', 2], ['walk', 3], ['attack', 0], ['cast', 0]];
+    rows.forEach(([pose, step], row) => {
+      for (let col = 0; col < 4; col++) {
+        const fr = col === 3 ? heroFrame(g, 2, pose, step).flipX() : heroFrame(g, col, pose, step);
+        sheet.blit(fr, col * 40, row * 48);
+      }
+    });
+    const tracks = [0, 1, 2, 3].map(c => [0, 1, 2, 3].map(r => ({ x: c * 40, y: r * 48 })));
+    tracks.push([0, 1, 2, 3].map(c => ({ x: c * 40, y: 192 })));
+    tracks.push([0, 0, 1, 1, 2, 2, 3, 3].map(c => ({ x: c * 40, y: 240 })));
+    return { img: sheet, anim: { fw: 40, fh: 48, fps: 6, tracks, labels: ['front', 'back', 'left', 'right', 'attack', 'special'] }, name: `hero-${g.kind}-${g.heroWeapon}-${g.palName}` };
+  }
+
   Object.assign(PG.GENERATORS, {
     arms:    { group: 'Medieval 32px', fn: genArms,    label: 'Coat of arms', size: '32 x 36', options: { own: ['no', 'yes'] } },
     soldier: { group: 'Medieval 32px', fn: genSoldier, label: 'Soldier sheet', size: '32 x 40 frames', options: { troop: ['random', ...Object.keys(TROOPS)], weapon: ['random', 'sword', 'mace', 'axe', 'spear', 'halberd', 'poleaxe', 'bill', 'longbow', 'crossbow'], helm: ['random', 'none', 'greathelm', 'bascinet', 'sallet', 'kettle', 'coif', 'hood', 'cap'] } },
+    champion: { group: 'Medieval 32px', fn: genHero32, label: 'Hero sheet', size: '40 x 48 frames', options: { hero: ['random', ...Object.keys(HEROES)], weapon: ['random', ...Object.keys(HERO_WEAPONS).filter(k => k !== 'dagger'), 'tome', 'longbow', 'daggers'], palette: ['own', 'faction'], aura: ['on', 'off'] } },
     cavalry: { group: 'Medieval 32px', fn: genCavalry, label: 'Cavalry sheet', size: '48 x 52 frames', options: { troop: ['random', 'knight', 'manatarms', 'captain'], weapon: ['random', 'lance', 'sword', 'mace', 'axe'], coat: ['random', ...Object.keys(COATS)] } },
     field:   { group: 'Medieval 32px', fn: genField,   label: 'Field ground', size: '64 x 64 seamless', options: { field: ['random', ...Object.keys(FIELD)] } },
     decal:   { group: 'Medieval 32px', fn: genDecal,   label: 'Ground decal', size: '32 x 24', options: { decal: ['random', 'blood', 'scorch', 'trampled'] } },

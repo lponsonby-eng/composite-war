@@ -57,6 +57,14 @@ whole army's surcoats, shields, banners and tents match:
 - **arms**: 32 x 36 coat of arms on a heater shield (divisions, ordinaries and charges, keeping the rule of tincture)
 - **soldier**: 128 x 232 sheet of 32 x 40 frames (front/back/left/right; walk, attack) plus two fallen bodies in blood;
   troops: knight, man-at-arms, captain, spearman, archer, crossbowman, levy
+- **champion** (heroes): 160 x 288 sheet of 40 x 48 frames (front/back/left/right; walk, attack, special).
+  Heroes are built to stand apart from the rank and file, in the spirit of Vampire Survivors' cast: twelve
+  archetypes (witch, reaper, cavalier, berserker, paladin, monk, necromancer, huntress, alchemist, jester,
+  warlord, shieldmaiden), each with its own silhouette (witch hats, plumed cavalier hats, plague masks, jester
+  caps, horned and winged helms, halos, crowns, wolf-pelt hoods), capes that billow as they walk, an oversized
+  signature weapon, a bold personal palette instead of army livery, and a glowing aura outline. Personal traits
+  (a raven or wisp familiar, drifting motes, glowing runes, eyepatches, scars) make heroes of one archetype differ.
+  `--palette faction` tints a hero in their faction's colour; `--aura off` removes the outline
 - **cavalry**: 192 x 292 sheet of 48 x 52 frames (horse and rider; front/back/left/right; walk, charge) plus a fallen
   horse and rider; seven horse coats, heraldic caparisons, chanfrons, couched lances
 - **field**: 64 x 64 seamless ground (leafy meadow, stony camp, mud, rutted road)
