@@ -30,6 +30,7 @@ class Battle {
     this.stats = { loss: 0, flank: 0, rear: 0, charge: 0, general: 0, hits: 0 };
     this.units = []; this.squads = []; this.projs = []; this.fx = []; this.texts = []; this.dead = [];
     this.zones = []; this.pending = []; this.custom = {};
+    if (!this.headless) BattleFX.init(this);         // dust, blood and scorch marks
     this.time = 0; this.limit = DATA.battleTimeLimit;
     this.done = false; this.banner = null;
     this.xp = {};                            // gid -> XP earned from kills this battle
@@ -503,6 +504,7 @@ class Battle {
         else if (this.speedFor(u, u.x, ny) > 0) u.y = ny;
         u.walkT += dt;
         if (u.atkT <= 0) u.dir = faceDir(vx, vy);
+        if (!this.headless && (u.charging || (u.cav && u.run > 30)) && Math.random() < dt * BattleFX.cfg.dustRate / this.men) BattleFX.dust(this, u.x, u.y);
       }
       if (u.sq.order === 'retreat' || u.routing) { if (u.x < -6 || u.x > this.W + 6 || u.y < 8 || u.y > this.H - 4) u.escaped = true; }
       else u.x = clamp(u.x, 4, this.W - 4);
@@ -510,6 +512,7 @@ class Battle {
     }
 
     this.separate();
+    if (!this.headless) BattleFX.update(this, dt);
     this.updateProjectiles(dt);
 
     if (this.terrain.walls) for (const g of this.terrain.gates) g.hitT -= dt;
@@ -528,22 +531,27 @@ class Battle {
   }
 
   // ------------------------------------------------------------------ morale
-  // Which side of tg's block u is striking: front, side (flank) or rear.
+  // Which side of tg's block u is striking: front, side (flank) or rear. Measured in
+  // the block's own frame: blows from within its frontage are front (or rear, from
+  // behind); only attackers beyond the ends of its line are on its flank.
   flankOf(u, tg) {
     const q = tg.sq; if (q.cx == null) return 'front';
-    let dx = u.x - q.cx, dy = u.y - q.cy; const d = Math.hypot(dx, dy) || 1;
-    const dot = (dx / d) * q.face[0] + (dy / d) * q.face[1];
-    return dot > 0.35 ? 'front' : dot < -0.35 ? 'rear' : 'side';
+    const dx = u.x - q.cx, dy = u.y - q.cy, [fx, fy] = q.face;
+    const along = dx * fx + dy * fy, lat = Math.abs(-dx * fy + dy * fx);
+    const back = -this.squadDepth(q) / 2;                              // behind its back rank (men pushed into the block still count as front)
+    if (lat <= this.squadWidth(q) / 2 + 6) return along >= back ? 'front' : 'rear';
+    return along < back ? 'rear' : 'side';
   }
   // A melee blow shakes the block that takes it: more from the flank or rear, more from a charge.
+  // charged: 0, or how hard a charge landed (1 cavalry, less for infantry: DATA.battle.charge.shock)
   shock(q, side, charged) {
     const M = DATA.battle.morale;
     // per hit, scaled so it takes as much real damage as before to break a block: with
     // more hp (and heavier blows) a man takes hpMul / atkMul times as many hits to fall
     const B = DATA.battle, per = Math.pow(B.atkMul / B.hpMul, B.shockExp);
-    let k = ((side === 'rear' ? M.rear : side === 'side' ? M.flank : 0) + (charged ? M.charge : 0)) * per;
+    let k = ((side === 'rear' ? M.rear : side === 'side' ? M.flank : 0) + M.charge * charged) * per;
     if (k) q.morale -= k / q.startN;
-    this.stats.hits++; if (side !== 'front') this.stats[side === 'rear' ? 'rear' : 'flank'] += (side === 'rear' ? M.rear : M.flank) / q.startN; if (charged) this.stats.charge += M.charge / q.startN;
+    this.stats.hits++; if (side !== 'front') this.stats[side === 'rear' ? 'rear' : 'flank'] += (side === 'rear' ? M.rear : M.flank) / q.startN; if (charged) this.stats.charge += M.charge * charged * per / q.startN;
   }
   // Morale each step: blocks wheel toward the enemy they fight, recover out of contact,
   // waver, rout (and rally once safe), and a rout shakes nearby friends.
@@ -667,7 +675,7 @@ class Battle {
       }
       if (!u.back && pushing && (q.charging || d < CH.dist) && q.state !== 'routing') {
         speed *= CH.speed;
-        if (!u.charging) { u.charging = true; u.impact = true; }
+        if (!u.charging) { u.charging = true; if (this.time - (u.lastAtk ?? -99) > 4) u.impact = true; }   // only a real charge into contact, not jostling in a melee
       } else { u.charging = false; if (!pushing) u.impact = false; }
       // in a big block only the men near the enemy break ranks; the rest keep their places
       // and the block presses forward behind its general
@@ -839,10 +847,13 @@ class Battle {
       const dx = p.tx - p.x, dy = p.ty - p.y, d = Math.hypot(dx, dy);
       const step = p.speed * dt;
       p.angle = Math.atan2(dy, dx);
+      if (p.d0 == null) p.d0 = Math.max(1, d);                       // for the arc it is drawn on
+      p.t = clamp(1 - d / Math.max(p.d0, d), 0, 1);
       if (d <= step + 2) {
         p.dead = true;
         if (p.gate) { this.hitGate(p.gate, p.dmg); this.addFx(p.big || p.splash ? 'fire' : 'hit', p.tx, p.ty, 0.3); }
         else if (p.splash) {
+          if (!this.headless && (p.big || p.splash >= 12)) BattleFX.impact(this, p.tx, p.ty + 6, p.splash);
           if (p.big) for (let i = 0; i < 5; i++) this.addFx(i % 2 ? 'smoke' : 'fire', p.tx + (Math.random() - 0.5) * p.splash, p.ty + (Math.random() - 0.5) * p.splash * 0.6, 0.6);
           else if (!p.quiet) this.addFx('fire', p.tx, p.ty, 0.4); else this.addFx('hit', p.tx, p.ty, 0.2);
           for (const v of this.units) if (v.alive && !v.escaped && v.side !== p.side && Math.hypot(v.x - p.tx, v.y - 6 - p.ty) <= p.splash) this.damage(v, p.dmg, p.gid, true, p.src);
@@ -989,8 +1000,8 @@ class Battle {
       dmg *= C.chargeMul;
     }
     else if (u.impact && !u.t.proj) dmg *= DATA.battle.charge.impact;  // infantry charging home
-    const charged = (u.run >= C.chargeRun && u.cav) || (u.impact && !u.t.proj);
-    u.run = 0; u.impact = false; u.revealT = 2;                       // fighting gives away a hidden position
+    const charged = u.run >= C.chargeRun && u.cav ? 1 : u.impact && !u.t.proj ? DATA.battle.charge.shock : 0;   // cavalry shake a block more than infantry
+    u.run = 0; u.impact = false; u.revealT = 2; u.lastAtk = this.time;  // fighting gives away a hidden position
     if (!u.t.proj) dmg *= 1 + DATA.battle.hills.melee * clamp(u.h - tg.h, -1, 1);   // fighting downhill
     if (u.sq.state === 'wavering') dmg *= DATA.battle.morale.waverAtk;
     if (u.t.antiCav && tg.cav) dmg *= DATA.antiCavMul;               // spears against horses
@@ -1018,6 +1029,7 @@ class Battle {
     const dmg = Math.max(1, Math.round(amount * (0.85 + Math.random() * 0.3) - def));
     v.hp -= dmg; v.hitT = 0.12;
     if (!this.headless && (this.men === 1 || v.isLeader)) this.texts.push({ x: v.x, y: v.y - 16, s: String(dmg), life: 0.6, color: v.isLeader ? '#ffd84a' : '#ffffff' });
+    if (!this.headless && v.hp > 0 && Math.random() < BattleFX.cfg.bloodHit) BattleFX.blood(this, v.x, v.y, 0.8);
     if (v.hp <= 0) {
       v.alive = false;
       if (byGid) this.xp[byGid] = (this.xp[byGid] || 0) + (v.isLeader ? DATA.leveling.killGeneral : DATA.leveling.killSoldier / this.men);
@@ -1025,7 +1037,7 @@ class Battle {
       if (!v.isLeader) { sq.morale -= M.losses / sq.startN; this.stats.loss += M.losses / sq.startN; }
       if (src) src.kills++;
       if (!v.isLeader) v.sq.rerank = true;                              // the ranks close up (see sizeUp)
-      this.addFx('smoke', v.x, v.y - 6, 0.5);
+      if (!this.headless) { BattleFX.blood(this, v.x, v.y, 1.6, 4); if (v.isLeader) this.addFx('smoke', v.x, v.y - 6, 0.5); }   // where he fell
       if (!this.headless && !v.isLeader && Assets.img[v.sprite] && Assets.img[v.sprite].corpse) {   // the body stays where it fell
         this.dead.push({ x: v.x, y: v.y, sprite: v.sprite, flip: Math.random() < 0.5 });
         if (this.dead.length > 400) this.dead.shift();
@@ -1200,6 +1212,7 @@ class Battle {
     ctx.setTransform(this.scale, 0, 0, this.scale, this.ox, this.oy);
     ctx.imageSmoothingEnabled = this.scale < 2;
     ctx.drawImage(this.bg, 0, 0, this.W, this.H);
+    BattleFX.drawGround(ctx, this);                   // blood, scorch marks and dust
     ctx.imageSmoothingEnabled = false;
     const [vx0, vy0] = this.toWorld(0, 0), [vx1, vy1] = this.toWorld(canvas.width, canvas.height);
     const onScreen = (x, y) => x > vx0 - 30 && x < vx1 + 30 && y > vy0 - 40 && y < vy1 + 30;
@@ -1221,7 +1234,7 @@ class Battle {
     }
 
     // the fallen, under everyone else
-    for (const d of this.dead || []) if (onScreen(d.x, d.y) && this.cellVisible(d.x, d.y)) Assets.drawCorpse(ctx, d.sprite, d.x, d.y, UNIT_SIZE.soldier, d.flip, 0.95);
+    for (const d of this.dead || []) if (onScreen(d.x, d.y) && this.cellVisible(d.x, d.y)) Assets.drawCorpse(ctx, d.sprite, d.x, d.y, Look.on ? Look.unitSize : UNIT_SIZE.soldier, d.flip, 0.95);
 
     // selected squads: where they are going, as a faint ghost of the formation
     const lw = 1 / Math.max(0.5, this.cam.z);
@@ -1266,9 +1279,17 @@ class Battle {
       const frame = Math.floor(u.walkT * 8) % 4;
       const alpha = u.routing ? 0.5 : u.hitT > 0 ? 0.55 : u.hidden && u.side === this.playerSide ? 0.7 : 1;   // own troops hidden in woods: see-through
       // drawn larger than on the map (22 px, generals 25 px), outlined in their side's colour
-      const size = u.isLeader ? UNIT_SIZE.leader : UNIT_SIZE.soldier, top = u.y + 2 - size;
-      if (!u.spriteO) u.spriteO = Assets.outlined(u.sprite, DATA.factions[this.factions[u.side]].neutral ? '#ffffff' : colors[u.side]);   // neutral troops: white
-      Assets.drawUnit(ctx, u.spriteO, u.dir, moving ? frame : 0, u.atkT > 0, u.x - size / 2, top, alpha, size);
+      const size = u.isLeader ? UNIT_SIZE.leader : Look.on ? Look.unitSize : UNIT_SIZE.soldier, top = u.y + 2 - size;
+      const team = DATA.factions[this.factions[u.side]].neutral ? '#c8c0b0' : colors[u.side];
+      if (Look.on && !u.isLeader && this.cam.z < Look.lodZoom) {      // far off: a tiny bold figure in the side's colour
+        const fig = Look.figure(u.t.type, team, u.dir === 2 || (u.dir < 2 && u.side === 1), moving ? frame % 2 : 0, u.atkT > 0);
+        if (alpha !== 1) ctx.globalAlpha = alpha;
+        ctx.drawImage(fig, Math.round(u.x - 6.5), Math.round(u.y + 2 - 14));
+        if (alpha !== 1) ctx.globalAlpha = 1;
+      } else {
+        if (!u.spriteO || u.spriteLook !== Look.on) { u.spriteO = Assets.outlined(u.sprite, DATA.factions[this.factions[u.side]].neutral ? '#ffffff' : colors[u.side]); u.spriteLook = Look.on; }   // neutral troops: white
+        Assets.drawUnit(ctx, u.spriteO, u.dir, moving ? frame : 0, u.atkT > 0, u.x - size / 2, top, alpha, size);
+      }
       if (u.isLeader) {
         hpBar(ctx, u.x - 9, top - 3, 18, u.hp / u.maxHp, '#ffd84a');
         if (u.side === this.playerSide) hpBar(ctx, u.x - 9, top - 1, 18, u.sq.mp / u.sq.maxMp, '#6fb6ff');
@@ -1294,10 +1315,21 @@ class Battle {
     }
     for (const p of this.projs) {
       if (!this.cellVisible(p.x, p.y)) continue;
+      // arrows and cannonballs fly on an arc (drawn only: they still land where aimed)
+      const arc = p.img === 'arrow' ? 0.2 : p.splash >= 18 || p.big ? 0.28 : 0.04, t = p.t || 0, d0 = p.d0 || 0;
+      const h = Math.min(130, arc * d0 * 4 * t * (1 - t)), slope = arc * 4 * (1 - 2 * t);
+      if (p.img === 'arrow' && Look.on) {
+        const cx = Math.cos(p.angle), sy = Math.sin(p.angle) - slope, n = Math.hypot(cx, sy) || 1, ux = cx / n, uy = sy / n;
+        ctx.fillStyle = 'rgba(16,12,24,0.22)'; ctx.fillRect(p.x - 1, p.y - 0.5, 3, 1);            // its shadow on the ground
+        ctx.strokeStyle = 'rgba(236,226,200,0.9)'; ctx.lineWidth = 0.9; ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.moveTo(p.x - ux * 8, p.y - h - uy * 8); ctx.lineTo(p.x + ux * 2, p.y - h + uy * 2); ctx.stroke();
+        continue;
+      }
       const im = Assets.img['fx:' + p.img];
       if (!im) continue;
-      ctx.save(); ctx.translate(Math.round(p.x), Math.round(p.y));
-      if (p.img !== 'shuriken') ctx.rotate(p.angle); else ctx.rotate(this.time * 20);
+      if (h > 2) { ctx.fillStyle = 'rgba(16,12,24,0.25)'; ctx.beginPath(); ctx.ellipse(p.x, p.y, 3, 1.4, 0, 0, Math.PI * 2); ctx.fill(); }
+      ctx.save(); ctx.translate(Math.round(p.x), Math.round(p.y - h));
+      if (p.img !== 'shuriken') ctx.rotate(Math.atan2(Math.sin(p.angle) - slope, Math.cos(p.angle))); else ctx.rotate(this.time * 20);
       HD.draw(ctx, im, -Math.floor(im.width / 2), -Math.floor(im.height / 2));
       ctx.restore();
     }
@@ -1309,6 +1341,7 @@ class Battle {
         ctx.beginPath(); ctx.arc(f.x, f.y, 7 + k * 3, a0 - 0.9, a0 + 0.9); ctx.stroke();
       } else Assets.drawFx(ctx, f.name, f.t, f.x, f.y);
     }
+    BattleFX.drawAir(ctx, this);
     Look.drawClouds(ctx, vx0, vy0, vx1, vy1, performance.now() / 1000);   // cloud shadows drift over everything, even while paused
     for (const t of this.texts) if (this.cellVisible(t.x, t.y)) label(ctx, t.s, t.x, t.y, t.color, 'center', 12);
 

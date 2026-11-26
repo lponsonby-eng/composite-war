@@ -57,7 +57,7 @@ window.DATA = {
     // Engagement charge: while advancing or attacking, a frontline block whose general is
     // within `dist` of its target breaks into a run (speed x`speed`); each man's first blow
     // lands `impact` times harder and shakes the enemy's morale like a cavalry charge.
-    charge: { dist: 160, speed: 1.45, impact: 1.25 },
+    charge: { dist: 160, speed: 1.45, impact: 1.25, shock: 0.35 },   // shock: an infantry charge's blow to morale, as a share of a cavalry charge's
     // High ground (height 0 = low, ~1 = hilltop): shooters gain `range` x the height
     // difference to their target as extra range (shooting uphill loses it), melee hits
     // `melee` x the difference harder downhill, climbing slows units by `climb` per unit of

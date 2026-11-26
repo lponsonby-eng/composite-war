@@ -127,6 +127,75 @@ const Look = {
     ctx.restore();
   },
 
+  // ------------------------------------------------------------------ soldiers
+  // Men are drawn smaller (unitSize, world px), and from far off (camera zoom below
+  // lodZoom) as tiny bold pixel figures: a body in the side's colour, a pale head,
+  // walking legs and a silhouette for the troop type, so a block of hundreds reads
+  // as a clean pattern. Generals always keep their full sprite.
+  unitSize: 15,
+  lodZoom: 1.6,
+  _figs: {},
+  // The figure for a troop type in a side's colour, facing right or left (flip),
+  // walking frame 0/1, attacking or not. 13 x 14 pixels, feet on the bottom row.
+  figure(type, team, flip, frame, atk) {
+    const key = [type, team, flip ? 1 : 0, frame, atk ? 1 : 0, this.on ? 1 : 0].join('|');
+    if (this._figs[key]) return this._figs[key];
+    const W = 13, H = 14, cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+    const c = cv.getContext('2d');
+    const shade = (hex, k) => '#' + [1, 3, 5].map(i => Math.round(parseInt(hex.slice(i, i + 2), 16) * k).toString(16).padStart(2, '0')).join('');
+    const pal = hex => { if (!this.on) return hex; this.init(); const [r, g, b] = this._rgb[this.nearest(parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16))]; return `rgb(${r},${g},${b})`; };
+    const T = team, TD = shade(team, 0.62), SKIN = '#d8b48c', METAL = '#b4b8c2', WOOD = '#7a5430', LEG = '#3a2c24', WHITE = '#e6e0d2';
+    const px = (x, y, w, h, col) => { c.fillStyle = pal(col); c.fillRect(x, y, w, h); };
+    const legs = (x) => { if (frame) { px(x - 1, 11, 1, 3, LEG); px(x + 3, 11, 1, 2, LEG); } else { px(x, 11, 1, 3, LEG); px(x + 2, 11, 1, 3, LEG); } };
+    switch (type) {
+      case 'cavalry': {
+        px(1, 8, 9, 3, '#6a4a30'); px(9, 6, 2, 3, '#6a4a30'); px(11, 6, 1, 2, '#5a3c26');           // horse
+        px(frame ? 1 : 2, 11, 1, 3, '#4a3220'); px(frame ? 9 : 8, 11, 1, 3, '#4a3220');
+        px(4, 4, 4, 4, T); px(4, 4, 1, 4, TD); px(5, 1, 3, 3, METAL);                                // rider
+        if (atk) px(7, 5, 6, 1, METAL); else { px(9, 0, 1, 7, WOOD); px(9, 0, 1, 1, METAL); }        // lance
+        break;
+      }
+      case 'shooter':
+        px(4, 1, 3, 3, SKIN); px(4, 1, 3, 1, TD); px(3, 4, 5, 5, T); px(3, 4, 1, 5, TD); legs(4);
+        px(8, 3, 1, 1, WOOD); px(9, 4, 1, 4, WOOD); px(8, 8, 1, 1, WOOD); px(8, 4, 1, 4, atk ? WHITE : '#c8b898');   // bow
+        break;
+      case 'mage':
+        px(5, 0, 1, 1, TD); px(4, 1, 3, 1, TD); px(3, 2, 5, 1, TD); px(4, 3, 3, 2, SKIN);             // pointed hat
+        px(3, 5, 5, 7, T); px(3, 5, 1, 7, TD); px(frame ? 3 : 4, 12, 4, 2, TD);                        // robe
+        px(9, 1, 1, 11, WOOD); px(9, 0, 1, 2, atk ? '#fff0a0' : '#e0b040');                              // staff
+        break;
+      case 'healer':
+        px(4, 1, 3, 3, SKIN); px(4, 1, 3, 1, WHITE); px(3, 4, 5, 8, WHITE); px(5, 4, 1, 8, T); px(frame ? 3 : 4, 12, 4, 2, '#b8b0a0');
+        px(9, 2, 1, 10, WOOD); px(8, 2, 3, 1, '#f0e080');
+        break;
+      case 'artillery':
+        px(5, 7, 7, 2, '#2a2a30'); px(11, 6, 1, 4, '#2a2a30'); px(5, 9, 3, 3, WOOD); px(6, 10, 1, 1, '#3a2a1a');   // cannon
+        px(1, 2, 3, 3, SKIN); px(1, 5, 3, 5, T); px(1, 5, 1, 5, TD); px(frame ? 1 : 2, 10, 1, 3, LEG);             // crew
+        if (atk) px(12, 5, 1, 2, '#ffd060');
+        break;
+      case 'beast':
+        px(2, 4, 9, 7, TD); px(3, 5, 7, 5, shade(team, 0.8)); px(9, 5, 1, 1, '#ffe080'); px(6, 3, 3, 1, TD);
+        px(frame ? 2 : 3, 11, 2, 3, '#2a2028'); px(frame ? 8 : 7, 11, 2, 3, '#2a2028');
+        break;
+      default:                                                                                         // infantry: shield and spear
+        px(4, 1, 3, 3, METAL); px(6, 2, 1, 1, SKIN); px(3, 4, 5, 5, T); px(3, 4, 1, 5, TD); legs(4);
+        px(2, 5, 2, 4, TD);
+        if (atk) { px(7, 6, 6, 1, WOOD); px(12, 6, 1, 1, METAL); } else { px(9, 0, 1, 12, WOOD); px(9, 0, 1, 1, METAL); }
+    }
+    // a dark outline around the whole figure, then mirror it for left-facing men
+    const img = c.getImageData(0, 0, W, H), d = img.data, a = i => d[i * 4 + 3] > 0;
+    const out = [];
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const i = y * W + x; if (a(i)) continue;
+      if ((x > 0 && a(i - 1)) || (x < W - 1 && a(i + 1)) || (y > 0 && a(i - W)) || (y < H - 1 && a(i + W))) out.push(i);
+    }
+    for (const i of out) { d[i * 4] = 20; d[i * 4 + 1] = 16; d[i * 4 + 2] = 26; d[i * 4 + 3] = 235; }
+    c.putImageData(img, 0, 0);
+    let res = cv;
+    if (flip) { res = document.createElement('canvas'); res.width = W; res.height = H; const r = res.getContext('2d'); r.scale(-1, 1); r.drawImage(cv, -W, 0); }
+    return (this._figs[key] = res);
+  },
+
   toggle() {
     this.on = !this.on;
     try { localStorage.setItem('cw-look', this.on ? '1' : '0'); } catch (e) {}
