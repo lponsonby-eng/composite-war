@@ -36,6 +36,13 @@ the Horde's Mother Mushroom (Bog Beasts), the Azure Tide's Prism Spires (Crystal
 (Sun Guards). The Heartlands' Old Stones help the Free Towns' Militia while they hold the Crossroads.
 The bonuses are set in `DATA.landmarkPower` in `js/data.js`.
 
+The map is drawn as a painted atlas with a touch of crisp pixel terracing (`buildTerrain` in `js/mapview.js`):
+each region keeps its own colours and biome (`LOOK`), an elevation field raises mountain ranges away from towns
+and roads (lit from the north-west, stepped into terraces with cliff faces, snow on the frozen peaks), forests are
+clusters of round canopies, rivers run downhill to the sea, the coast is a bright rim over a sea that deepens
+from the shore, and towns are joined by thin pale routes. Region names are italic serif lettering, town names
+plain outlined lettering, and towns are little clusters of houses (cities with walls and towers).
+
 To make a different map: `python3 tools/genmap.py 42` (any number gives a new layout).
 
 ## Pixel art generators

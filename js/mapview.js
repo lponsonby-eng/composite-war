@@ -86,89 +86,191 @@ const MapView = {
       return false;
     };
 
-    // 3. Paint the ground one cell per pixel, then upscale it 4x with the pixel-art
-    //    scaler so coasts and borders get smooth curves (the map is kept at 2x detail).
-    const ground = new Uint32Array(gw * gh), colCache = {};
+    // 3. The atlas look: painted relief with a little crisp pixel terracing.
+    //    Every region keeps its own colours (lowland, forest, rock, peak); an elevation
+    //    field gives hills and mountain ridges away from towns and roads, lit from the
+    //    north-west; high ground steps into terraces with cliff faces; forests are
+    //    clusters of round canopies; rivers run downhill to the sea; the coast is a
+    //    bright rim over a sea that deepens away from the shore.
+    const LOOK = {
+      aster:    { low: ['#3c8a2c', '#57a638', '#7cc24a'], forest: ['#173f1c', '#245c26', '#3a7e30'], rock: ['#5e4430', '#8a6844', '#b8946a', '#dcc29c'], peak: '#ece4d0', mtn: 0.75 },
+      free:     { low: ['#5a9a30', '#78b440', '#9ccc5a'], forest: ['#1c4a1e', '#2a6628', '#428a34'], rock: ['#5e4a30', '#8a7044', '#b89a68', '#dcc89a'], peak: '#ece4d0', mtn: 0.55 },
+      frost:    { low: ['#b8cadc', '#d6e4f0', '#f2f7fb'], forest: ['#1e3a34', '#2a5048', '#3e6a5e'], rock: ['#4e5a6a', '#76849a', '#a4b2c4', '#d0dcea'], peak: '#ffffff', mtn: 0.95 },
+      darkwood: { low: ['#1e4424', '#2c5a2e', '#3e7238'], forest: ['#0c2414', '#163a1e', '#24542a'], rock: ['#3a3428', '#5a5038', '#80744e', '#a89a70'], peak: '#c8c0a0', mtn: 0.6 },
+      ember:    { low: ['#4a3a34', '#614c42', '#7c6452'], forest: ['#2a201c', '#3a2c26', '#4e3c32'], rock: ['#2a1e1c', '#4a3430', '#6e5048', '#94746a'], peak: '#3a2a28', mtn: 1.0 },
+      shadow:   { low: ['#4e4e66', '#62627c', '#7c7c98'], forest: ['#2a2a3c', '#383850', '#4a4a64'], rock: ['#363444', '#525066', '#76748c', '#9c9ab0'], peak: '#c8c8dc', mtn: 0.65 },
+      bog:      { low: ['#4a5a24', '#5e6e30', '#76863c'], forest: ['#24301a', '#344424', '#465a2e'], rock: ['#3e3a24', '#5a5434', '#7a7248', '#9a9264'], peak: '#b0aa80', mtn: 0.25 },
+      azure:    { low: ['#4ea898', '#6cc4b4', '#98dccc'], forest: ['#1e5a50', '#2a7064', '#3e8a7c'], rock: ['#5a6a7a', '#7e90a2', '#a6b8c8', '#d0dce8'], peak: '#f0f8ff', mtn: 0.3 },
+      sun:      { low: ['#c49858', '#d8b270', '#ecce90'], forest: ['#6a6a2a', '#7e7e34', '#949440'], rock: ['#7a4a2a', '#a06a3e', '#c48e58', '#e0b47c'], peak: '#f4dcb0', mtn: 0.55 },
+    };
+    const FOREST = { aster: 0.58, free: 0.62, frost: 0.66, darkwood: 0.36, ember: 0.85, shadow: 0.68, bog: 0.62, azure: 0.78, sun: 2 };
+    const gwh = gw * gh, rng = makeRng(99);
+    const regC = new Array(gwh), elev = new Float32Array(gwh), coast = new Float32Array(gwh);
+    // distance to the sea (two-pass chamfer), so land rises inland
+    for (let i = 0; i < gwh; i++) coast[i] = land[i] === 0 ? 0 : 1e6;
+    for (let pass = 0; pass < 2; pass++) {
+      const f = pass === 0;
+      for (let k = 0; k < gwh; k++) {
+        const i = f ? k : gwh - 1 - k, gx = i % gw, gy = (i / gw) | 0, d = f ? -1 : 1;
+        let v = coast[i];
+        if (gx + d >= 0 && gx + d < gw) v = Math.min(v, coast[i + d] + 1);
+        if (gy + d >= 0 && gy + d < gh) v = Math.min(v, coast[i + d * gw] + 1);
+        if (gx + d >= 0 && gx + d < gw && gy + d >= 0 && gy + d < gh) v = Math.min(v, coast[i + d * gw + d] + 1.41);
+        coast[i] = v;
+      }
+    }
+    const seaD = new Float32Array(gwh);                                               // distance out to sea
+    for (let i = 0; i < gwh; i++) seaD[i] = land[i] === 0 ? 1e6 : 0;
+    for (let pass = 0; pass < 2; pass++) {
+      const f = pass === 0;
+      for (let k = 0; k < gwh; k++) {
+        const i = f ? k : gwh - 1 - k, gx = i % gw, gy = (i / gw) | 0, d = f ? -1 : 1;
+        let v = seaD[i];
+        if (gx + d >= 0 && gx + d < gw) v = Math.min(v, seaD[i + d] + 1);
+        if (gy + d >= 0 && gy + d < gh) v = Math.min(v, seaD[i + d * gw] + 1);
+        if (gx + d >= 0 && gx + d < gw && gy + d >= 0 && gy + d < gh) v = Math.min(v, seaD[i + d * gw + d] + 1.41);
+        seaD[i] = v;
+      }
+    }
+    const ridged = (x, y) => 1 - Math.abs(2 * fbm(x, y) - 1);
+    for (let gy = 0; gy < gh; gy++) for (let gx = 0; gx < gw; gx++) {
+      const i = gy * gw + gx, x = gx * CELL + 1, y = gy * CELL + 1, reg = regAt(x, y);
+      regC[i] = reg;
+      if (land[i] !== 1) continue;
+      const L = LOOK[reg] || LOOK.free;
+      const keep = Math.max(0, Math.min(1, (distAt(x, y) - 12) / 30));             // towns and roads stay on low ground
+      const range = Math.max(0, Math.min(1, (fbm(x / 190 + 50, y / 190 + 90) - 0.35) * 4));   // mountains gather into ranges
+      const r = ridged(x / 64 + 11, y / 64 + 3), ridge = r * r;
+      elev[i] = Math.min(1, coast[i] / 40) * 0.16 + fbm(x / 110 + 30, y / 110) * 0.2 + ridge * L.mtn * keep * range * 1.15;
+    }
+    const E = (gx, gy) => elev[Math.max(0, Math.min(gh - 1, gy)) * gw + Math.max(0, Math.min(gw - 1, gx))];
+    const TER = 0.4, level = (gx, gy) => { const e = E(gx, gy); return e < TER ? -1 : Math.floor((e - TER) * 11); };
+    // rivers: from high ground, downhill to the sea or a lake
+    const river = new Uint8Array(gwh);
+    const sources = [];
+    for (let t = 0; t < 4000 && sources.length < 12; t++) {
+      const gx = Math.floor(rng() * gw), gy = Math.floor(rng() * gh), i = gy * gw + gx;
+      if (land[i] === 1 && elev[i] > 0.55 && regC[i] !== 'azure' && regC[i] !== 'sun' && regC[i] !== 'ember') sources.push([gx, gy]);
+    }
+    for (const [sx, sy] of sources) {
+      let gx = sx, gy = sy, steps = 0;
+      const path = [];
+      while (steps++ < 700) {
+        const i = gy * gw + gx;
+        if (land[i] !== 1) break;
+        path.push(i);
+        let best = null, be = 1e9;
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1]]) {
+          const nx = gx + dx, ny = gy + dy; if (nx < 1 || ny < 1 || nx >= gw - 1 || ny >= gh - 1) continue;
+          const j = ny * gw + nx; if (river[j] === 2) continue;
+          const e = elev[j] - (land[j] !== 1 ? 1 : 0) + (noise(nx / 6, ny / 6) - 0.5) * 0.02 + coast[j] * 0.006;   // downhill, and always toward the sea
+          if (e < be) { be = e; best = [nx, ny]; }
+        }
+        if (!best) break;
+        river[i] = 2; [gx, gy] = best;
+      }
+      if (path.length < 30 || path.length > 320) { for (const i of path) river[i] = 0; continue; }
+      path.forEach((i, k) => { river[i] = 1; if (k > path.length * 0.5) river[i + 1] = 1; });
+    }
+    // paint
+    const ground = new Uint32Array(gwh), colCache = {};
     const toInt = col => colCache[col] || (colCache[col] = (() => { const [r, g, b] = hexRgb(col); return ((255 << 24) | (b << 16) | (g << 8) | r) >>> 0; })());
-    const rng = makeRng(99);
-    // Calm ground: colours blend across broad, soft patches in a few gentle steps
-    // (instead of hard 3-colour noise and heavy speckle).
+    const BAY = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
     const mixInt = (a, b, t) => { const p = hexRgb(a), q = hexRgb(b);
-      const r = Math.round(p[0] + (q[0] - p[0]) * t), g = Math.round(p[1] + (q[1] - p[1]) * t), bl = Math.round(p[2] + (q[2] - p[2]) * t);
-      return ((255 << 24) | (bl << 16) | (g << 8) | r) >>> 0; };
-    const steps = (t, n) => Math.round(Math.max(0, Math.min(1, t)) * n) / n;
-    const ramp = (pal, t) => t < 0.5 ? mixInt(pal[0], pal[1], t * 2) : mixInt(pal[1], pal[2], (t - 0.5) * 2);
-    const WATER = {
-      frost: ['#bcd8ee', '#a6c8e4', '#e8f4fc'],       // icy water
-      bog: ['#4a5a3a', '#3e4c30', '#6a7a4a'],         // murky
-      azure: ['#3cc4d8', '#2aa6c4', '#a8f4ff'],       // bright lagoon
+      return ((255 << 24) | (Math.round(p[2] + (q[2] - p[2]) * t) << 16) | (Math.round(p[1] + (q[1] - p[1]) * t) << 8) | Math.round(p[0] + (q[0] - p[0]) * t)) >>> 0; };
+    // pick from a palette at tone t (0..1), dithered between the steps: painted, but still pixels
+    const tone = (pal, t, gx, gy) => {
+      const f = Math.max(0, Math.min(0.999, t)) * (pal.length - 1), k = Math.floor(f), fr = f - k;
+      const steps = 3, s = Math.floor(fr * steps), sub = fr * steps - s, j = (s + (sub * 16 > BAY[(gy & 3) * 4 + (gx & 3)] ? 1 : 0)) / steps;
+      return mixInt(pal[k], pal[Math.min(pal.length - 1, k + 1)], Math.min(1, j));
+    };
+    const WATER = { frost: ['#7aa8cc', '#a8cce6', '#e8f4fc'], bog: ['#3a4a2a', '#4a5a34', '#6a7a4a'], azure: ['#1e8aa8', '#3cb4cc', '#a8f4ff'] };
+    const canopy = (gx, gy) => {                                                     // round tree crowns on a 5-cell grid
+      const cs = 5, cx0 = Math.floor(gx / cs), cy0 = Math.floor(gy / cs);
+      let bd = 9, bdx = 0, bdy = 0;
+      for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) {
+        const cx = cx0 + ox, cy = cy0 + oy, h = Math.imul(cx * 374761393 + cy * 668265263, 1274126177) >>> 0;
+        const px = (cx + 0.25 + ((h & 255) / 255) * 0.5) * cs, py = (cy + 0.25 + (((h >> 8) & 255) / 255) * 0.5) * cs;
+        const dx = gx - px, dy = gy - py, d = Math.hypot(dx, dy) / 3.3;
+        if (d < bd) { bd = d; bdx = dx; bdy = dy; }
+      }
+      if (bd > 1) return 0.05;
+      return 0.5 + (1 - bd) * 0.25 + (bdx + bdy < -1 ? 0.25 : bdx + bdy > 1.5 ? -0.25 : 0);
     };
     for (let gy = 0; gy < gh; gy++) for (let gx = 0; gx < gw; gx++) {
-      const x = gx * CELL, y = gy * CELL, v = cellAt(gx, gy), reg = regAt(x, y);
-      const pal = DATA.regions[reg].ground;
-      const n = fbm(x / 30 + 50, y / 30), soft = fbm(x / 75 + 50, y / 75);
-      let col, ci = null;
+      const i = gy * gw + gx, x = gx * CELL, y = gy * CELL, v = land[i], reg = regC[i], L = LOOK[reg] || LOOK.free;
+      let ci;
       if (v === 1) {
-        if (near(gx, gy, 1, c => c === 0)) col = reg === 'frost' ? '#e4eef6' : reg === 'ember' ? '#3e3434' : reg === 'bog' ? '#6a5a3a' : '#e9d38f';
-        else if (near(gx, gy, 1, c => c === 3)) col = '#2a201e';
-        else {
-          const t = 0.5 + (steps((soft - 0.25) / 0.5, 5) - 0.5) * 0.7;   // low contrast, 6 soft bands
-          ci = rng() < 0.006 ? mixInt(pal[1], pal[3], 0.5) : ramp(pal, t);
+        const e = elev[i], lv = level(gx, gy);
+        const shade = (E(gx - 1, gy - 1) - E(gx + 1, gy + 1)) * 14;                // light from the north-west
+        const seaN = near(gx, gy, 1, c => c === 0);
+        if (river[i] === 1) ci = toInt(near(gx, gy, 1, c => c === 0) ? '#8ad0f0' : (river[i - 1] === 1 && river[i + 1] === 1) || (river[i - gw] === 1 && river[i + gw] === 1) ? '#b8e8fa' : '#6ab8e6');
+        else if (river[i + 1] === 1 || river[i - 1] === 1 || river[i + gw] === 1 || river[i - gw] === 1) ci = mixInt(L.low[0], '#2a4a3a', 0.35);   // dark river banks
+        else if (seaN) ci = toInt(reg === 'frost' ? '#f4f8ff' : reg === 'ember' ? '#3a302e' : reg === 'bog' ? '#7a6a40' : '#ecd99a');      // beach rim
+        else if (near(gx, gy, 1, c => c === 3)) ci = toInt('#241a18');
+        else if (lv >= 0) {
+          // terraces: a cliff face below every step down, a bright lip on top
+          const above1 = level(gx, gy - 1), above2 = level(gx, gy - 2), below = level(gx, gy + 1);
+          const peak = e > 0.78 && (reg === 'frost' || reg === 'shadow' || reg === 'aster' || reg === 'free' || reg === 'azure');
+          if (above1 > lv || above2 > lv) ci = tone(L.rock, (gx % 3 === 0 ? 0.05 : 0.22) + (above1 > lv ? 0 : 0.08), gx, gy);
+          else if (below < lv) ci = peak ? toInt('#ffffff') : tone(L.rock, 0.95, gx, gy);
+          else ci = peak ? tone([L.rock[2], L.peak, '#ffffff'], 0.45 + shade * 0.5, gx, gy) : tone(L.rock, 0.5 + shade + (noise(x / 9, y / 9) - 0.5) * 0.25, gx, gy);
+        } else {
+          const hill = Math.max(0, (e - 0.26) / (TER - 0.26));
+          const f = fbm(x / 48 + 100, y / 48), isForest = f > FOREST[reg] && distAt(x, y) > 14;
+          if (isForest) ci = tone(L.forest, canopy(gx, gy) + shade * 0.6, gx, gy);
+          else {
+            let t = 0.55 + shade * (0.6 + hill) + (fbm(x / 30 + 50, y / 30) - 0.5) * 0.45 - hill * 0.12 + (noise(x / 4 + 300, y / 4) - 0.5) * 0.22;
+            ci = hill > 0.55 ? tone([L.low[0], L.low[1], L.rock[2]], t * 0.9, gx, gy) : tone(L.low, t, gx, gy);
+            if (rng() < 0.004) ci = toInt(L.low[2]);
+          }
         }
-      } else if (v === 3) {                                         // lava
-        col = fbm(x / 8, y / 8) > 0.55 ? '#ffb03a' : '#e8501e';
-        if (rng() < 0.015) col = '#ffe070';
-      } else if (v === 2) {                                         // lake
-        const w = WATER[reg] || ['#4a8ad0', '#3a74bc', '#9fd0f4'];
-        col = near(gx, gy, 1, c => c === 1) ? w[0] : w[1];
-        if (rng() < 0.004) col = w[2];
-        if (reg === 'frost' && n > 0.5) col = '#e8f4fc';            // frozen
-      } else {
-        const w = WATER[reg];
-        if (near(gx, gy, 2, c => c === 1)) col = w ? w[0] : '#5fa8dc';
-        else ci = mixInt('#3a71b5', '#2e5f9f', steps((soft - 0.3) / 0.4, 3));
-        if (reg === 'frost' && n > 0.6 && fbm(x / 12, y / 12) > 0.55) { col = '#f0f8ff'; ci = null; }   // ice floes
-        if (rng() < 0.003) { col = '#8cc6ee'; ci = null; }
+      } else if (v === 3) {                                                          // lava
+        ci = toInt(fbm(x / 8, y / 8) > 0.55 ? '#ffb03a' : '#e8501e');
+        if (rng() < 0.015) ci = toInt('#ffe070');
+      } else if (v === 2) {                                                          // lakes
+        const w = WATER[reg] || ['#2a78c0', '#3a92d4', '#a8e0fa'];
+        ci = toInt(near(gx, gy, 1, c => c === 1) ? w[1] : w[0]);
+        if (rng() < 0.004 || (reg === 'frost' && fbm(x / 9, y / 9) > 0.62)) ci = toInt(w[2]);
+      } else {                                                                       // the sea: bright by the shore, deep far out
+        const d = seaD[i], landAbove = cellAt(gx, gy - 1) === 1 || cellAt(gx, gy - 2) === 1;
+        const wave = Math.sin(x / 5 + fbm(x / 30, y / 30) * 9 + y / 9) > 0.975 && fbm(x / 22 + 40, y / 22) > 0.5;
+        if (d <= 1.01) ci = toInt(reg === 'frost' ? '#e8f4fc' : '#d8f4ff');                      // foam
+        else if (landAbove && d < 4) ci = toInt('#1a4a7a');                              // the land's shadow on the water
+        else ci = tone(['#123676', '#1a52a0', '#2672bc', '#3a98d4', '#5cc0e2'], 1.02 - Math.sqrt(d / 26) * 0.85 + (fbm(x / 40 + 7, y / 40) - 0.5) * 0.18, gx, gy);
+        if (wave && d > 3) ci = mixInt('#2a7cc4', '#a8e0fa', 0.35);
+        if (reg === 'frost' && d > 4 && fbm(x / 12, y / 12) > 0.6) ci = toInt('#f0f8ff');   // ice floes
+        if (rng() < 0.0025) ci = toInt('#a8e0fa');
       }
-      ground[gy * gw + gx] = ci != null ? ci : toInt(col);
+      ground[i] = ci;
     }
     const cv = HD.upData(new Uint8ClampedArray(ground.buffer), gw, gh, 2, false);   // 4x of a 2-px cell = 2x world
     const ctx = cv.getContext('2d');
     ctx.setTransform(2, 0, 0, 2, 0, 0);
+    this.elev = { elev, gw, gh, CELL };
 
-    // 4. Roads, styled per region (stone, sand, planks...)
-    const ROAD = { frost: ['#8a9cb0', '#c8d6e4'], ember: ['#2a2220', '#6a5a50'], sun: ['#b08850', '#e8cc90'],
-      darkwood: ['#3a2c1e', '#6a5236'], azure: ['#c8b890', '#f4ead0'], shadow: ['#4a4a5a', '#8a8a9c'], bog: ['#4a3a22', '#7a6440'] };
+    // 4. Routes: thin pale lines between towns, as on an atlas
+    ctx.lineCap = 'round';
     for (const [a, b] of segs) {
-      const len = Math.hypot(b.x - a.x, b.y - a.y);
-      for (let i = 0; i <= len; i += 1) {
-        const t = i / len, wob = Math.sin(t * Math.PI) * Math.sin(t * 9 + a.x) * 3;
-        const nx = -(b.y - a.y) / len, ny = (b.x - a.x) / len;
-        const x = a.x + (b.x - a.x) * t + nx * wob, y = a.y + (b.y - a.y) * t + ny * wob;
-        const [dark, lite] = ROAD[regAt(x, y)] || ['#9b7a4a', '#d3b27a'];
-        const wet = cellAt(Math.floor(x / CELL), Math.floor(y / CELL)) !== 1;
-        ctx.fillStyle = wet ? '#5a3e22' : dark; ctx.fillRect(Math.round(x) - 2, Math.round(y) - 2, 4, 4);
-        ctx.fillStyle = wet ? (i % 3 ? '#a8804a' : '#5a3e22') : lite; ctx.fillRect(Math.round(x) - 1, Math.round(y) - 1, 2, 2);   // bridges over water
-      }
+      ctx.strokeStyle = 'rgba(20,30,20,0.35)'; ctx.lineWidth = 2.4;
+      ctx.beginPath(); ctx.moveTo(a.x, a.y + 0.8); ctx.lineTo(b.x, b.y + 0.8); ctx.stroke();
+      ctx.strokeStyle = 'rgba(255,252,236,0.85)'; ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
     }
 
-    // 5. Scenery, kept away from towns, roads and landmarks
+    // 5. A little scenery for each region's character (the forests and hills now do most of the work)
     const lm = Object.entries(MAP.landmarks);
     const deco = [];
-    for (let y = 8; y < H; y += 11) for (let x = 6; x < W; x += 12) {
-      const cx = x + (rng() - 0.5) * 8, cy = y + (rng() - 0.5) * 6;
-      const gx = Math.floor(cx / CELL), gy = Math.floor(cy / CELL);
-      if (cellAt(gx, gy) !== 1 || cellAt(gx - 5, gy) !== 1 || cellAt(gx + 5, gy) !== 1 || near(gx, gy, 2, c => c !== 1)) continue;
-      if (distAt(cx, cy) < 22) continue;
+    const FLAVOUR = { frost: ['snowpine', 'icerock'], ember: ['deadpine', 'ashrock'], shadow: ['gravestone', 'deadpine'], bog: ['mushroom', 'reeds'],
+      azure: ['palm', 'crystal'], sun: ['cactus', 'cactus', 'bones'], darkwood: ['mushroom'] };
+    for (let y = 8; y < H; y += 14) for (let x = 6; x < W; x += 15) {
+      const cx = x + (rng() - 0.5) * 10, cy = y + (rng() - 0.5) * 8;
+      const gx = Math.floor(cx / CELL), gy = Math.floor(cy / CELL), reg = regAt(cx, cy), list = FLAVOUR[reg];
+      if (!list || cellAt(gx, gy) !== 1 || near(gx, gy, 3, c => c !== 1) || level(gx, gy) >= 0 || river[gy * gw + gx] || distAt(cx, cy) < 22) continue;
       let ds = 1e9;
       for (const s of spots) ds = Math.min(ds, Math.hypot(cx - s.x, cy - s.y + 6));
-      if (ds < 36 || lm.some(([, p]) => Math.abs(cx - p.x) < 48 * LS && cy < p.y + 30 && cy > p.y - 72 * LS)) continue;
-      const reg = regAt(cx, cy), list = DATA.regions[reg].deco;
-      const f = fbm(cx / 55 + 200, cy / 55);
-      const dense = reg === 'darkwood' ? 0.42 : reg === 'sun' || reg === 'shadow' ? 0.7 : 0.55;
-      if (f > dense) deco.push([list[Math.floor(fbm(cx / 40 + 400, cy / 40) * 3.99) % list.length], cx, cy]);
-      else if (rng() < (reg === 'sun' ? 0.1 : 0.06)) deco.push([list[Math.floor(rng() * list.length)], cx, cy]);
-      else if (rng() < 0.04 && reg !== 'frost' && reg !== 'sun' && reg !== 'ember') deco.push([['grass_tuft', 'bush'][Math.floor(rng() * 2)], cx, cy]);
+      if (ds < 40 || lm.some(([, p]) => Math.abs(cx - p.x) < 48 * LS && cy < p.y + 30 && cy > p.y - 72 * LS)) continue;
+      if (rng() < (reg === 'sun' ? 0.12 : 0.1)) deco.push([list[Math.floor(rng() * list.length)], cx, cy]);
     }
     for (const [reg, p] of lm) deco.push(['@' + reg, p.x, p.y]);
     deco.sort((a, b) => a[2] - b[2]);
@@ -535,25 +637,18 @@ const MapView = {
       const L = r.f && DATA.landmarkPower.factions[r.f], seat = L && DATA.landmarkSeat(r.f);
       const held = L && game && game.spots && game.spots[seat] && game.spots[seat].owner === r.f;
       const sub = L ? (held ? `${DATA.plural(DATA.units[L.unit].name)} empowered` : 'Power broken: capital lost') : '';
-      const ss = fs * 0.72;
-      ctx.font = `${ss}px PixelFont`;
-      const sw = sub ? ctx.measureText(sub).width + ss : 0;
-      ctx.font = `${fs}px PixelFont`;
-      const tw = Math.max(ctx.measureText(r.name).width + fs * 0.9, sw), th = fs * 1.25 + (sub ? ss * 1.2 : 0), x0 = r.x - tw / 2, y0 = r.y - fs * 0.625;
-      const px = 1 / z;                                      // one screen pixel, in world pixels
-      ctx.fillStyle = 'rgba(10,8,20,0.82)';
-      ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x0, y0, tw, th, 3 * px) : ctx.rect(x0, y0, tw, th); ctx.fill();
-      ctx.strokeStyle = r.trim; ctx.lineWidth = 1.5 * px;
-      ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x0, y0, tw, th, 3 * px) : ctx.rect(x0, y0, tw, th); ctx.stroke();
-      ctx.fillStyle = r.trim; ctx.fillRect(x0 + 2 * px, y0 + th - 3 * px, tw - 4 * px, 1.5 * px);
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.lineJoin = 'round'; ctx.lineWidth = 3 * px; ctx.strokeStyle = '#0a0814';
-      ctx.strokeText(r.name, r.x, r.y - fs * 0.08);
-      ctx.fillStyle = '#fff4d6'; ctx.fillText(r.name, r.x, r.y - fs * 0.08);
+      // atlas lettering: big italic serif with a soft shadow and a dark edge, no plate
+      const px = 1 / z, ss = fs * 0.66, F = "Georgia, 'Times New Roman', serif";
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
+      ctx.font = `italic 700 ${fs * 1.25}px ${F}`;
+      ctx.fillStyle = 'rgba(0,0,0,0.45)'; ctx.fillText(r.name, r.x + 2 * px, r.y + 2.5 * px);
+      ctx.lineWidth = 3 * px; ctx.strokeStyle = 'rgba(16,12,24,0.85)'; ctx.strokeText(r.name, r.x, r.y);
+      ctx.fillStyle = '#fff8e6'; ctx.fillText(r.name, r.x, r.y);
       if (sub) {
-        ctx.font = `${ss}px PixelFont`;
-        ctx.lineWidth = 2.5 * px; ctx.strokeText(sub, r.x, r.y + fs * 0.62 + ss * 0.45);
-        ctx.fillStyle = held ? lighten(r.trim, 0.35) : '#ff8a7a'; ctx.fillText(sub, r.x, r.y + fs * 0.62 + ss * 0.45);
+        ctx.font = `italic 600 ${ss}px ${F}`;
+        const sy = r.y + fs * 0.95;
+        ctx.lineWidth = 2.6 * px; ctx.strokeText(sub, r.x, sy);
+        ctx.fillStyle = held ? lighten(r.trim, 0.45) : '#ff8a7a'; ctx.fillText(sub, r.x, sy);
       }
     }
     ctx.textBaseline = 'alphabetic';
@@ -647,7 +742,31 @@ const MapView = {
     const want = { village: 38, town: 46, shrine: 40, capital: 58, city: 58 }[s.kind] || 40;
     const sc = Math.max(1, Math.min(2.4, want / bw));
     const bx = s.x - 24 * sc, by = s.y - 3 - 38 * sc;              // the building stands at (24, 38) in its picture
+    // a town is a little cluster, as on an atlas: smaller houses beside the main building
+    // (on the owner's coloured ground), and cities get a stone wall with towers in front
+    {
+      const small = Art.building(style, 0), sbw = small.box.x1 - small.box.x0 + 1, ssc = Math.max(0.7, Math.min(1.6, (tier === 3 ? 30 : tier === 2 ? 26 : 20) / sbw));
+      const spots2 = tier === 3 ? [[-28, -6], [28, -5], [-17, -14], [18, -13]] : tier === 2 ? [[-24, -3], [23, -2]] : [[(id.charCodeAt(0) % 2 ? -1 : 1) * 20, -4]];
+      for (const [dx, dy] of spots2) HD.draw(ctx, small, s.x + dx - 24 * ssc, s.y + dy - 3 - 38 * ssc, 48 * ssc, 40 * ssc);
+    }
     HD.draw(ctx, im, bx, by, 48 * sc, 40 * sc);
+    if (tier === 3) {                                             // the city wall: crenellated, with corner towers and a gate
+      const x0 = s.x - 30, x1 = s.x + 30, wy = s.y + 1, STONE = s.region === 'ember' ? ['#2a2224', '#4a3e3c', '#6a5c58'] : s.region === 'sun' ? ['#6a4a2a', '#b08a5a', '#d8b47c'] : ['#2a2430', '#8a8a96', '#bcbcc8'];
+      ctx.fillStyle = STONE[0]; ctx.fillRect(x0 - 1, wy - 6, x1 - x0 + 2, 8);
+      ctx.fillStyle = STONE[1]; ctx.fillRect(x0, wy - 5, x1 - x0, 6);
+      ctx.fillStyle = STONE[2]; ctx.fillRect(x0, wy - 5, x1 - x0, 1);
+      ctx.fillStyle = STONE[0];
+      for (let x = x0; x < x1; x += 4) ctx.fillRect(x + 2, wy - 7, 2, 2);
+      ctx.fillRect(s.x - 5, wy - 4, 10, 6);                                         // gate
+      ctx.fillStyle = '#5a3a20'; ctx.fillRect(s.x - 4, wy - 3, 8, 5);
+      for (const tx of [x0 - 3, x1 - 4]) {                                          // towers
+        ctx.fillStyle = STONE[0]; ctx.fillRect(tx - 1, wy - 13, 9, 16);
+        ctx.fillStyle = STONE[1]; ctx.fillRect(tx, wy - 12, 7, 14);
+        ctx.fillStyle = STONE[2]; ctx.fillRect(tx, wy - 12, 2, 14);
+        ctx.fillStyle = color; ctx.fillRect(tx + 1, wy - 18, 5, 5);                  // a faction pennant
+        ctx.fillStyle = STONE[0]; ctx.fillRect(tx + 3, wy - 18, 1, 6);
+      }
+    }
     // flag pole planted on the roof's highest point
     const poleX = Math.round(bx + (im.box.tx + 0.5) * sc), poleBase = Math.round(by + im.box.ty * sc + 2);
     let lift = 1;
@@ -699,16 +818,16 @@ const MapView = {
     const opp = game.oppSpots && game.oppSpots[id];
     if (opp) this.drawBeacon(ctx, id, s, opp, poleBase - Heraldry.poleLen(tier) - 14);
 
-    // name on a dark plate with a faction-coloured underline
+    // name: plain lettering with a dark outline, as on an atlas, and a thin underline in the owner's colour
     const fs = [0, 11, 12, 14][tier];
     ctx.font = `${fs}px PixelFont`;
-    const tw = Math.ceil(ctx.measureText(s.name).width) + 8, ty = s.y + 26;
-    ctx.fillStyle = 'rgba(14,10,24,0.72)';
-    ctx.fillRect(Math.round(s.x - tw / 2), ty - fs + 1, tw, fs + 2);
-    ctx.fillStyle = color;
-    ctx.fillRect(Math.round(s.x - tw / 2), ty + 3, tw, 2);
-    if (tier === 3) { ctx.fillStyle = '#ffd84a'; ctx.fillRect(Math.round(s.x - tw / 2) - 2, ty - fs + 1, 2, fs + 4); ctx.fillRect(Math.round(s.x + tw / 2), ty - fs + 1, 2, fs + 4); }
-    label(ctx, s.name, s.x, ty, owner === game.player ? '#fff6b0' : '#ffffff', 'center', fs);
+    const tw = Math.ceil(ctx.measureText(s.name).width), ty = s.y + 26;
+    ctx.textAlign = 'center'; ctx.lineJoin = 'round';
+    ctx.lineWidth = 3.2; ctx.strokeStyle = 'rgba(12,10,20,0.92)'; ctx.strokeText(s.name, s.x, ty);
+    ctx.fillStyle = tier === 3 ? '#ffe27a' : owner === game.player ? '#fff6b0' : '#ffffff';
+    ctx.fillText(s.name, s.x, ty);
+    ctx.fillStyle = 'rgba(12,10,20,0.85)'; ctx.fillRect(Math.round(s.x - tw / 2) - 1, ty + 2, tw + 2, 3);
+    ctx.fillStyle = color; ctx.fillRect(Math.round(s.x - tw / 2), ty + 3, tw, 1);
   },
 
   // Bobbing badge: gold "!" = a hero you can hire here; pink "?" = a general you can persuade.
