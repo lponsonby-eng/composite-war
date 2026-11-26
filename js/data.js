@@ -13,13 +13,13 @@ window.DATA = {
   title: 'Composite War',
 
   startGold: 150,
-  battleTimeLimit: 300,          // seconds; when time runs out the defender holds
+  battleTimeLimit: 480,          // seconds; when time runs out the defender holds (fights are long and heavy now)
 
   // --- Battles ---------------------------------------------------------------
   // The battlefield (world pixels), how far units see through the fog of war,
   // and heroes' magic points (MP) for skills.
   // The field is big and seen from high above: armies march further, shooters reach
-  // further (rangeMul, also ground skills' reach) and spells cover more (areaMul).
+  // further (rangeMul; skills use skillRangeMul) and spells cover more (areaMul).
   battle: {
     width: 2000, height: 1280,
     // men: each campaign soldier takes the field as this many men in a live battle, so armies
@@ -35,8 +35,20 @@ window.DATA = {
       recover: 4, wavering: 60, rout: 25, rally: 50, waverAtk: 0.85 },
     flank: { side: 1.3, rear: 1.6 },                                  // damage when hitting a block's flank or rear
     turnRate: 0.7,                                                    // radians per second a block can wheel
-    rangeMul: 1.45,              // ranged units' range and ground skills' reach
+    rangeMul: 2.4,               // ranged units' range: shooters, casters and artillery fire from far off
+    skillRangeMul: 1.45,         // ground skills' reach (and Eagle Eye's range bonus)
     areaMul: 1.3,                // skill radii
+    // Toughness and weight of blows in battle: everyone has hpMul times their listed hp and
+    // hits atkMul (ranged: rangedAtkMul) times harder, cdMul times less often, and armour
+    // counts defMul times, so blocks hold in a clash for a while and every volley counts.
+    // Healing, skill damage and skill healing grow with hpMul so they keep their weight.
+    // shockExp: how far per-hit morale shocks (flank, rear, charge) shrink with the extra
+    // hits a kill now takes (0: not at all, so blocks break early; 1: fully, so they fight
+    // almost to the last man). Tuned so live fights last about twice as long as before.
+    hpMul: 3, atkMul: 1.3, rangedAtkMul: 1.8, cdMul: 1.3, defMul: 1.5, shockExp: 0.5,
+    // Town gates are shut in a siege and must be battered down: hp (x menMul in big live
+    // battles), and how hard each kind of unit hits them (artillery smashes, arrows barely scratch).
+    gate: { hp: 1400, menMul: 5, melee: 1, artillery: 4, shooter: 0.1, mage: 0.4 },
     speedMul: 1.3,               // marching pace on the big field
     spacing: 9.5,                // pixels between men in a block (ranks and files)
     squadGap: 40,                // gap between neighbouring blocks in a group formation
@@ -425,6 +437,7 @@ window.DATA = {
     rock:   { speed: 0,    cover: 0 },                    // crystal pillars and boulders: solid
     stream: { speed: 0.7,  cover: 0, footing: 0.85 },     // thin shallow streams
     bridge: { speed: 1,    cover: 0 },                    // bridges and causeways over rivers
+    gate:   { speed: 0,    cover: 0 },                    // a town gate: shut until battered down (defenders pass through their own)
   },
 };
 
