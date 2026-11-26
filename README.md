@@ -196,4 +196,17 @@ the fords. Mud slows everyone. Walls are solid with one gate; defenders stay beh
 them, get cover from arrows and +1.5 defence inside. Tune it in `DATA.ground`.
 
 ## Art
+**Generated art in the game** (`js/gensprites.js`): the game runs the Pixelgen generators itself (no image
+files needed), seeded so every picture is always the same:
+- human units (knights, archers, spearmen, robed mages and priests, militia...) use medieval soldier sheets
+  in their faction's heraldry, and horse cavalry (lancers, ember riders, nightmare riders) cavalry sheets.
+  The look of each unit is set in `Gen.UNITS`; units not listed there (monsters, beast riders, artillery)
+  keep their old sprites for now
+- every general except monsters is a unique hero (archetype from what they lead, lords are warlords; set
+  `hero: 'witch'` on a general in `js/data.js` to choose) with a matching portrait. Dialogue shows the
+  portrait at 128 px in a mood guessed from the line (set `mood: 'fierce'` / `'smile'` on a scene to choose)
+- fallen soldiers stay on the battlefield in their blood, and green battlefields are a generated meadow with
+  generated bushes, rocks and stumps
+Sprites are made the first time they are needed and the rest are made in the background after loading.
+
 Placeholder art and audio come from the Ninja Adventure pack (CC0) and Kenney (CC0).

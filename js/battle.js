@@ -18,7 +18,7 @@ class Battle {
     this.factions = [opts.attFaction, opts.defFaction];
     this.playerSide = opts.playerSide === 'att' ? 0 : opts.playerSide === 'def' ? 1 : -1;
     this.headless = !!opts.headless;
-    this.units = []; this.squads = []; this.projs = []; this.fx = []; this.texts = [];
+    this.units = []; this.squads = []; this.projs = []; this.fx = []; this.texts = []; this.dead = [];
     this.zones = []; this.pending = []; this.custom = {};
     this.time = 0; this.limit = DATA.battleTimeLimit;
     this.done = false; this.banner = null;
@@ -652,6 +652,10 @@ class Battle {
       if (byGid) this.xp[byGid] = (this.xp[byGid] || 0) + (v.isLeader ? DATA.leveling.killGeneral : DATA.leveling.killSoldier);
       if (src) src.kills++;
       this.addFx('smoke', v.x, v.y - 6, 0.5);
+      if (!this.headless && !v.isLeader && Assets.img[v.sprite] && Assets.img[v.sprite].corpse) {   // the body stays where it fell
+        this.dead.push({ x: v.x, y: v.y, sprite: v.sprite, flip: Math.random() < 0.5 });
+        if (this.dead.length > 400) this.dead.shift();
+      }
       if (!this.headless && this.seenByPlayer(v)) Assets.sfx('kill', 0.35);
       if (v.isLeader) {
         for (const u of v.sq.members) if (u.alive) { u.routing = true; u.routT = 1.2; }
@@ -744,11 +748,19 @@ class Battle {
       id.data[i + 3] = 255;
     }
     lc.putImageData(id, 0, 0);
-    ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(lo, 0, 0, lw * 4, lh * 4);
-    ctx.globalAlpha = 0.16;
-    for (let y = 0; y < this.H; y += 16) for (let x = 0; x < this.W; x += 16) HD.draw(ctx, T['tile:ground_grass'], x, y);
-    ctx.globalAlpha = 1;
+    const meadow = typeof Gen !== 'undefined' && Gen.on && PixelGen.generate('field', { seed: (seed >>> 0) % 9973 + 1, field: 'meadow' });
+    if (meadow) {
+      // generated leafy meadow, drawn so its pixels match the unit sprites (3/4 of a world pixel)
+      const tile = Gen.canvas(meadow.img, 64, 64, 0, 1), ts = 48;
+      ctx.imageSmoothingEnabled = false;
+      for (let y = 0; y < this.H; y += ts) for (let x = 0; x < this.W; x += ts) ctx.drawImage(tile, x, y, ts, ts);
+    } else {
+      ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(lo, 0, 0, lw * 4, lh * 4);
+      ctx.globalAlpha = 0.16;
+      for (let y = 0; y < this.H; y += 16) for (let x = 0; x < this.W; x += 16) HD.draw(ctx, T['tile:ground_grass'], x, y);
+      ctx.globalAlpha = 1;
+    }
     const tint = (DATA.regions[this.terrain.region] || {}).battle;
     if (tint) {                                    // recolour the grass to the region's ground (snow, sand, ash...)
       ctx.globalCompositeOperation = 'color'; ctx.fillStyle = tint; ctx.fillRect(0, 0, this.W, this.H);
@@ -756,10 +768,15 @@ class Battle {
       ctx.globalAlpha = 1;
     }
     const lush = !['frost', 'sun', 'ember'].includes(this.terrain.region);
-    for (let i = 0; i < 90; i++) {
-      const n = ['grass_tuft', 'grass_tuft', 'bush'][Math.floor(rng() * 3)];
+    for (let i = 0; i < (meadow ? 26 : 90); i++) {
       const x = Math.floor(rng() * (this.W - 16)), y = Math.floor(rng() * (this.H - 16));
-      if (lush && this.terrain.kindAt(x + 8, y + 8) === GROUND.grass) HD.draw(ctx, T['tile:' + n], x, y);
+      if (!lush || this.terrain.kindAt(x + 8, y + 8) !== GROUND.grass) continue;
+      if (meadow) {                                // generated bushes, rocks and stumps
+        const kind = ['bush', 'bush', 'rock', 'stump'][Math.floor(rng() * 4)];
+        const p = PixelGen.generate('prop', { seed: 1 + Math.floor(rng() * 40), prop: kind }).img, c = Gen.canvas(p, p.w, p.h, 0, 1);
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(c, x, y, p.w * 0.75, p.h * 0.75);
+      } else HD.draw(ctx, T['tile:' + ['grass_tuft', 'grass_tuft', 'bush'][Math.floor(rng() * 3)]], x, y);
     }
     this.terrain.draw(ctx);
     return cv;
@@ -808,6 +825,9 @@ class Battle {
       ctx.beginPath(); ctx.ellipse(z.x, z.y, z.r, z.r * 0.6, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
       if (z.warn) { const k = 1 - (z.until - this.time); const im = Assets.img['fx:fireball']; if (im) HD.draw(ctx, im, 0, 0, 16, 16, Math.round(z.x - 8 + (1 - k) * 60), Math.round(z.y - 8 - (1 - k) * 160), 16, 16); }
     }
+
+    // the fallen, under everyone else
+    for (const d of this.dead || []) if (onScreen(d.x, d.y) && this.cellVisible(d.x, d.y)) Assets.drawCorpse(ctx, d.sprite, d.x, d.y, UNIT_SIZE.soldier, d.flip, 0.95);
 
     // selected squads: their destination
     for (const q of this.sel) if (q.leader.alive && (q.order === 'move' || q.order === 'hold')) {

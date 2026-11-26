@@ -270,6 +270,10 @@
     const hairs = ['#2a1c14', '#3a2418', '#5a3418', '#6a4020', '#8a5a28', '#a83020', '#c89038', '#e8e4dc', '#8a7a6a', '#181820'];
     const ok = hairs.filter(h => Math.abs(PG.rgbToHsl(...hexRgb(h))[2] - skinL) > 0.22);
     G.hair = ramp(r.pick(ok.length ? ok : hairs), 5, 0.5);
+    if (o.robe === 'yes') {                                  // a robed caster in the army's colours
+      G.over = { robe: true, torso: (x) => (x >= 15 && x <= 17 ? livMetal : liv), arms: liv, hands: G.skin, feet: LEATHER, belt: livMetal };
+      G.shield = false; G.beard = r.pick(['none', 'full', 'none']);
+    }
     return G;
   }
   // Weapon pieces in local coordinates: t runs along the weapon from the hand, s across it.
@@ -284,6 +288,7 @@
       case 'poleaxe': return [{ ...W, t: [-11, 15], w: 1.2 }, { ...M, blade: [[12, 0], [15, 0], [15, 3.2], [12, 3]] }, { ...M, t: [12.5, 14.5], w: 2.6, mat: STEEL, s: -1.4 }, { ...M, t: [15, 18], w: 1 }];
       case 'bill': return [{ ...W, t: [-13, 14], w: 1.2 }, { ...M, blade: [[13, -0.5], [19, 0.5], [17.5, 2.5], [16, 1.5], [13.5, 1.5]] }];
       case 'crossbow': return [{ ...W, t: [-3, 7], w: 1.8 }, { ...M, guard: [-4.5, 4.5], t: [6, 6], w: 1.2 }];
+      case 'staff': return [{ ...W, t: [-12, 13], w: 1.3 }, { mat: ramp('#c8a040', 5, 0.5), guard: [-1.6, 1.6], t: [13.5, 13.5], w: 1 }, { mat: ramp('#7ad8ff', 5, 0.5), ball: 1.9, t: [15.5, 15.5] }];
       default: return [];
     }
   }
@@ -374,7 +379,7 @@
     if (g.weapon === 'longbow') drawWeapon(P, 'longbow', rh[0] + 1.5, rh[1] - (armAtk ? -6 : 3), -90, { draw: armAtk, sep: true });
     else if (g.weapon === 'crossbow') drawWeapon(P, 'crossbow', rh[0] - 3, rh[1] - 1, armAtk ? -100 : -20, { sep: true });
     else {
-      const long = ['spear', 'halberd', 'poleaxe', 'bill'].includes(g.weapon);
+      const long = ['spear', 'halberd', 'poleaxe', 'bill', 'staff'].includes(g.weapon);
       const deg = armAtk ? (long ? -60 : -150) : long ? -86 : -62;
       drawWeapon(P, g.weapon, rh[0], rh[1], deg, { sep: true });
     }
@@ -523,7 +528,7 @@
     // near arm and weapon
     const hand = atk ? [9, 21 + b] : [12 + st * 0.3, 24 + b];
     P.part(P.mask().capsule(14.5, 17 + b, hand[0] + 0.5, hand[1] - 0.5, 3.2), R0.armRamp, Object.assign({ sep: true }, R0.armOpts));
-    const long = ['spear', 'halberd', 'poleaxe', 'bill'].includes(g.weapon);
+    const long = ['spear', 'halberd', 'poleaxe', 'bill', 'staff'].includes(g.weapon);
     if (g.weapon === 'longbow') drawWeapon(P, 'longbow', atk ? 7 : hand[0] - 1, atk ? 21 + b : hand[1] - 3, -90, { draw: false, flip: true, sep: true });
     else if (g.weapon === 'crossbow') drawWeapon(P, 'crossbow', hand[0] + 3, hand[1] - (atk ? 4 : 0), atk ? 180 : -150, { sep: true });
     else drawWeapon(P, g.weapon, hand[0] - (atk ? 0 : 1), hand[1], atk ? (long ? 180 : 195) : long ? -93 : -98, { sep: true });
@@ -1496,7 +1501,7 @@
 
   Object.assign(PG.GENERATORS, {
     arms:    { group: 'Medieval 32px', fn: genArms,    label: 'Coat of arms', size: '32 x 36', options: { own: ['no', 'yes'] } },
-    soldier: { group: 'Medieval 32px', fn: genSoldier, label: 'Soldier sheet', size: '32 x 40 frames', options: { troop: ['random', ...Object.keys(TROOPS)], weapon: ['random', 'sword', 'mace', 'axe', 'spear', 'halberd', 'poleaxe', 'bill', 'longbow', 'crossbow'], helm: ['random', 'none', 'greathelm', 'bascinet', 'sallet', 'kettle', 'coif', 'hood', 'cap'] } },
+    soldier: { group: 'Medieval 32px', fn: genSoldier, label: 'Soldier sheet', size: '32 x 40 frames', options: { troop: ['random', ...Object.keys(TROOPS)], robe: ['no', 'yes'], weapon: ['random', 'sword', 'mace', 'axe', 'spear', 'halberd', 'poleaxe', 'bill', 'longbow', 'crossbow', 'staff'], helm: ['random', 'none', 'greathelm', 'bascinet', 'sallet', 'kettle', 'coif', 'hood', 'cap'] } },
     champion: { group: 'Medieval 32px', fn: genHero32, label: 'Hero sheet', size: '40 x 48 frames', options: { hero: ['random', ...Object.keys(HEROES)], weapon: ['random', ...Object.keys(HERO_WEAPONS).filter(k => k !== 'dagger'), 'tome', 'longbow', 'daggers'], palette: ['own', 'faction'], aura: ['on', 'off'] } },
     heroface: { group: 'Medieval 32px', fn: genHeroPortrait, label: 'Hero portrait', size: '64 x 64 x 3 moods', options: { hero: ['random', ...Object.keys(HEROES)], weapon: ['random', ...Object.keys(HERO_WEAPONS).filter(k => k !== 'dagger'), 'tome', 'longbow', 'daggers'], palette: ['own', 'faction'] } },
     cavalry: { group: 'Medieval 32px', fn: genCavalry, label: 'Cavalry sheet', size: '48 x 52 frames', options: { troop: ['random', 'knight', 'manatarms', 'captain'], weapon: ['random', 'lance', 'sword', 'mace', 'axe'], coat: ['random', ...Object.keys(COATS)] } },
