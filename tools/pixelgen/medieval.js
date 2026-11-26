@@ -9,6 +9,8 @@
 //              rows 0-3 walk, row 4 attack, then a 32px row of two fallen bodies
 //    champion  160 x 288 hero sheet: 40 x 48 frames, cols down/up/left/right, rows walk x4,
 //              attack, special. Twelve archetypes, each with its own silhouette and aura.
+//    heroface  192 x 64: the matching 64 x 64 dialogue portrait of a champion (same seed and
+//              options), in three moods: neutral, fierce, smile
 //    cavalry   192 x 292 sheet: 48 x 52 frames (horse + rider), dirs x walk/attack, then a fallen horse and rider
 //    field     64 x 64 seamless ground: meadow, camp, mud, road
 //    decal     blood pools, scorch marks and trampled grass to scatter on ground
@@ -1007,18 +1009,18 @@
     flask:        g => [{ mat: ramp('#c8e0e8', 5, 0.3), ball: 2, t: [1.5, 1.5] }, { mat: g.GL, ball: 1.2, t: [1.8, 1.8] }],
     dagger:       g => [{ mat: LEATHER, t: [-1, 0.5], w: 1.2 }, { mat: GOLDR, guard: [-1.6, 1.6], t: [1, 1], w: 1 }, { mat: STEEL, t: [1.5, 6], w: 1.3, spec: true }],
   };
-  function drawHeroWeapon(P, g, kind, hx, hy, deg) {
+  function drawHeroWeapon(P, g, kind, hx, hy, deg, k = 1) {
     const parts = HERO_WEAPONS[kind](g), a = deg * Math.PI / 180, ca = Math.cos(a), sa = Math.sin(a);
-    const X = (t, s) => hx + t * ca - s * sa, Y = (t, s) => hy + t * sa + s * ca;
+    const X = (t, s) => hx + (t * ca - s * sa) * k, Y = (t, s) => hy + (t * sa + s * ca) * k;
     for (const p of parts) {
       const m = P.mask();
       if (p.blade) m.poly(p.blade.map(([t, s]) => [X(t, s), Y(t, s)]));
-      else if (p.ball) m.ellipse(X(p.t[0], 0), Y(p.t[0], 0), p.ball, p.ball);
-      else if (p.guard) m.capsule(X(p.t[0], p.guard[0]), Y(p.t[0], p.guard[0]), X(p.t[0], p.guard[1]), Y(p.t[0], p.guard[1]), p.w);
-      else m.capsule(X(p.t[0], 0), Y(p.t[0], 0), X(p.t[1], 0), Y(p.t[1], 0), p.w);
+      else if (p.ball) m.ellipse(X(p.t[0], 0), Y(p.t[0], 0), p.ball * k, p.ball * k);
+      else if (p.guard) m.capsule(X(p.t[0], p.guard[0]), Y(p.t[0], p.guard[0]), X(p.t[0], p.guard[1]), Y(p.t[0], p.guard[1]), p.w * k);
+      else m.capsule(X(p.t[0], 0), Y(p.t[0], 0), X(p.t[1], 0), Y(p.t[1], 0), p.w * k);
       P.part(m, p.mat, { spec: p.spec, sep: true });
     }
-    if (kind === 'skullstaff') { const sx = X(15.5, 0), sy = Y(15.5, 0); P.g.set(sx - 1, sy, '#141010').set(sx + 1, sy, '#141010').set(sx - 1, sy, g.glow).set(sx + 1, sy, g.glow).set(sx, sy + 1.5, '#141010'); }
+    if (kind === 'skullstaff') { const sx = X(15.5, 0), sy = Y(15.5, 0); P.g.set(sx - k, sy, '#141010').set(sx + k, sy, '#141010').set(sx - k, sy, g.glow).set(sx + k, sy, g.glow).set(sx, sy + 1.5 * k, '#141010'); }
     return { tipX: X(16, 0), tipY: Y(16, 0) };
   }
 
@@ -1274,10 +1276,229 @@
     return { img: sheet, anim: { fw: 40, fh: 48, fps: 6, tracks, labels: ['front', 'back', 'left', 'right', 'attack', 'special'] }, name: `hero-${g.kind}-${g.heroWeapon}-${g.palName}` };
   }
 
+  // ================================================================ HERO PORTRAITS
+  // A 64 x 64 bust for dialogue, made from the same genome as the hero sheet (same
+  // seed and options = the same person): hat, hair, beard, colours, cape, weapon,
+  // familiar and marks all match. Three expressions side by side: neutral, fierce, smile.
+  const EXPRESSIONS = ['neutral', 'fierce', 'smile'];
+  function portraitBust(g, expr) {
+    const W = 64, cx = 32, cy = 26, M = g.M, S2 = g.S2, S = ramp(mix(g.skin[2], '#b89a88', 0.18), 6, 0.42), Hh = ramp(g.hair[2], 6, 0.55);
+    // background: a dark vignette lit by the hero's glow
+    const bg = new Grid(W, W), BGR = ramp(mix(g.glow, '#0c0a14', 0.72), 5, 0.5);
+    bg.each((x, y) => { const d = Math.hypot(x - cx, (y - 24) * 1.1) / 44; return rampAt(BGR, 0.85 - d * 0.9, x, y); });
+    if (g.motes) { const r = R.make(g.capeSeed, 'motes'); for (let i = 0; i < 10; i++) { const x = r.int(2, 61), y = r.int(2, 44); bg.set(x, y, g.GL[3]); if (i % 3 === 0) bg.set(x + 1, y, g.GL[2]).set(x - 1, y, g.GL[2]).set(x, y - 1, g.GL[2]).set(x, y + 1, g.GL[2]); } }
+    const P = new Painter(W, W);
+    const hat = g.hat, masked = hat === 'beak' || hat === 'deephood';
+    // ---- behind: weapon over the shoulder, long or wild hair, hood backs, cape
+    const Wp = g.heroWeapon;
+    if (['greatsword', 'maul', 'greataxe', 'spear', 'staff', 'skullstaff', 'quarterstaff', 'scythe', 'scepter', 'rapier'].includes(Wp)) {
+      const long = ['spear', 'staff', 'skullstaff', 'quarterstaff', 'scythe'].includes(Wp);
+      drawHeroWeapon(P, g, Wp, long ? 52 : 50, long ? 80 : 66, long ? -84 : -78, long ? 2.3 : 2.4);
+    }
+    if (Wp === 'longbow') { const m = P.mask(); for (let t = -1; t <= 1; t += 0.02) m.capsule(52 + 6 * (1 - t * t), 34 + t * 30, 52 + 6 * (1 - (t + 0.02) ** 2), 34 + (t + 0.02) * 30, 2.2); P.part(m, WOODR, {}); P.g.line(52, 4, 52, 64, '#d8d0b8'); }
+    if (g.cape && g.cape !== 'scarf' && g.cape !== 'fur') P.part(P.mask().poly([[2, 64], [62, 64], [58, 46], [6, 46]]), g.cape === 'ermine' ? ramp('#a01828', 5, 0.5) : M, { base: 1 });
+    if (g.hairStyle0 === 'wild' && !masked) { const m = P.mask(); for (let i = 0; i < 9; i++) { const a = -Math.PI * (0.02 + i * 0.12); m.capsule(cx, cy, cx + Math.cos(a) * 20, cy - 2 + Math.sin(a) * 18, 6); } P.part(m, Hh, { tex: (x, y) => ((x * 3 + y * 5) % 7 === 0 ? 1 : 0) }); }
+    if (g.hairStyle === 'long' && !masked && hat !== 'hood') P.part(P.mask().poly([[19, 20], [45, 20], [49, 50], [15, 50]]), Hh, { tex: (x) => (x % 4 === 0 ? -1 : 0) });
+    if (hat === 'hood' || hat === 'deephood') P.part(P.mask().ellipse(cx, 30, 18, 21), M, { base: 1 });
+    // ---- shoulders and clothes
+    const T = HEROES[g.kind].torso;
+    const bust = P.mask().poly([[2, 64], [62, 64], [59, 52], [48, 45], [16, 45], [5, 52]]);
+    const clothFn = T === 'motley' ? (x, y) => ((Math.floor((x + y) / 6) + Math.floor((x - y + 80) / 6)) % 2 ? M : S2)
+      : T === 'doublet' ? (x) => (Math.floor(x / 3) % 3 === 0 ? S2 : M)
+      : T === 'bare' ? () => S : T === 'plate' ? (x) => (x >= 24 && x <= 40 ? M : STEEL)
+      : T === 'coat' ? (x) => (x >= 29 && x <= 35 ? S2 : M) : () => M;
+    P.part(bust, clothFn, { spec: T === 'plate', tex: T === 'robe' || T === 'habit' ? (x) => (x % 7 === 0 ? -1 : 0) : null });
+    P.part(P.mask().rect(26, 34, 38, 47), S, { shade: (x, y) => (y < 40 ? -1 : 0) });                        // neck
+    if (T === 'plate') {
+      for (const x of [11, 53]) { const pm = P.mask().ellipse(x, 53, 11, 8); P.part(pm, STEEL, { spec: true, sep: true }); pm.each((xx, yy) => { if (!pm.has(xx, yy - 1) || !pm.has(xx, yy + 2)) P.g.set(xx, yy, GOLDR[3]); }); }
+      P.part(P.mask().poly([[24, 44], [40, 44], [38, 48], [26, 48]]), STEEL, { spec: true, sep: true });       // gorget
+      for (let i = 0; i < 8; i++) { const a = i / 8 * Math.PI * 2; P.g.line(32, 56, 32 + Math.cos(a) * 4, 56 + Math.sin(a) * 4, i % 2 ? GOLDR[2] : GOLDR[4]); } P.g.set(32, 56, g.glow);
+    }
+    if (T === 'coat') for (const f of [-1, 1]) P.part(P.mask().poly([[cx + 5 * f, 47], [cx + 12 * f, 46], [cx + 13 * f, 33], [cx + 8 * f, 38]]), S2, { sep: true });   // high collar
+    if (T === 'doublet') { const m = P.mask(); for (let x = 22; x <= 42; x += 2) m.add(x, 44).add(x + 1, 45).add(x, 46).add(x, 45); P.part(m, ramp('#f4f0e8', 5, 0.3), { sep: true }); }   // ruff
+    if (T === 'habit') P.part(P.mask().ellipse(cx, 47, 17, 4), M, { sep: true, base: 2 });                     // hood down
+    if (T === 'robe') { P.g.line(26, 45, 32, 56, S2[2]); P.g.line(38, 45, 32, 56, S2[2]); }
+    if (T === 'tunic' && g.kind === 'shieldmaiden') for (const x of [11, 53]) P.part(P.mask().ellipse(x, 54, 10, 8), STEEL, { tex: mailTex, base: 1, sep: true });
+    if (T === 'bare') { P.g.line(24, 54, 31, 57, S[1]); P.g.line(40, 54, 33, 57, S[1]); if (g.paint) for (let i = 0; i < 3; i++) P.g.line(22 + i * 3, 50, 26 + i * 3, 62, M[2]); }
+    if (g.cape === 'fur') { const m = P.mask(); for (let i = 0; i < 9; i++) m.ellipse(6 + i * 6.5, 48 + (i % 2) * 2, 6, 5); P.part(m, FUR, { sep: true, tex: (x, y) => ((x + y * 2) % 3 === 0 ? 1 : 0) }); }
+    if (g.cape === 'ermine') P.part(P.mask().poly([[4, 52], [60, 52], [56, 46], [8, 46]]), ermineFn, { sep: true });
+    if (g.cape === 'long' || g.cape === 'shoulder') { P.part(P.mask().ellipse(18, 49, 3, 3), GOLDR, { spec: true, sep: true }); P.g.set(18, 49, g.glow); }
+    if (g.cape === 'scarf') P.part(P.mask().poly([[18, 44], [46, 44], [50, 52], [14, 52]]), S2, { sep: true, tex: (x, y) => (y % 3 === 0 ? -1 : 0) });
+    if (g.skulls) for (const x of [10, 54]) { P.part(P.mask().ellipse(x, 51, 7, 6.5), BONER, { sep: true }); P.part(P.mask().ellipse(x - 2.5, 51, 1.6, 2), ['#141010', '#141010', '#141010', '#141010'], { flat: true }); P.part(P.mask().ellipse(x + 2.5, 51, 1.6, 2), ['#141010', '#141010', '#141010', '#141010'], { flat: true }); P.g.set(x - 2, 51, g.glow).set(x + 3, 51, g.glow); P.g.hline(x - 3, x + 3, 56, '#3a3228'); }
+    if (g.beads) for (let i = 0; i <= 14; i++) { const a = Math.PI * (0.1 + i * 0.057); P.part(P.mask().ellipse(cx + Math.cos(a) * 12, 44 + Math.sin(a) * 9, 1.3, 1.3), i % 3 ? ['#2a1810', '#4a2e1e', '#6e4a30', '#946a44'] : GOLDR, {}); }
+    if (g.potions) for (let i = 0; i < 4; i++) { const c = ramp(['#e04040', '#40c060', '#4080e0', '#e0c040'][i], 4, 0.5); P.part(P.mask().rect(14 + i * 5, 55 + (i % 2), 16 + i * 5, 60 + (i % 2)), c, { sep: true }); }
+    if (g.quiver) { P.part(P.mask().capsule(44, 50, 52, 38, 5), LEATHER, { sep: true }); for (let i = 0; i < 3; i++) P.part(P.mask().capsule(48 + i * 2, 38 - i, 50 + i * 3, 31 - i, 1.8), i % 2 ? ramp('#e8e0d0', 4, 0.3) : M, {}); P.g.line(16, 46, 46, 62, LEATHER[1]); }
+    if (g.runes) for (let i = 0; i < 5; i++) { const x = 14 + i * 9, y = 58 + (i % 2) * 2; P.g.set(x, y, g.glow).set(x + 1, y - 1, g.glow).set(x + 2, y, g.GL[2]); }
+    // ---- head
+    const head = P.mask();
+    for (let y = 12; y <= 40; y++) for (let x = 18; x <= 46; x++) {
+      const dx = (x + 0.5 - cx) / 11.5, dy = (y + 0.5 - cy) / 13.5;
+      if (dx * dx + dy * dy > 1) continue;
+      if (y > 31 && Math.abs(x + 0.5 - cx) > 11.5 - (y - 31) * 0.75) continue;            // jaw
+      head.add(x, y);
+    }
+    P.part(P.mask().ellipse(20, 28, 2.4, 4).ellipse(44, 28, 2.4, 4), S, { sep: true });                      // ears
+    P.part(head, S, { sep: true });
+    // ---- face
+    const fierce = expr === 'fierce', smile = expr === 'smile', glowEyes = g.glowEyes;
+    if (!masked) {
+      // eyes
+      for (const [ex, f] of [[26, -1], [38, 1]]) {
+        if (g.mark === 'eyepatch' && f > 0) { P.part(P.mask().ellipse(ex, 28, 3.6, 3), ['#141010', '#1e1a1a', '#2a2424', '#383030'], {}); P.g.line(19, 21, 45, 29, '#2a2020'); continue; }
+        P.g.hline(ex - 3, ex + 2, 26, '#2a1814');                                                       // upper lid
+        P.g.hline(ex - 2, ex + 1, 27, '#f4f0ea').hline(ex - 2, ex + 1, 28, '#e4dcd4');
+        const iris = glowEyes ? g.glow : g.eye || '#3a5a8a';
+        P.g.set(ex - 1, 27, iris).set(ex, 27, iris).set(ex - 1, 28, iris).set(ex, 28, mix(iris, '#000000', 0.4));
+        if (!glowEyes) P.g.set(ex - 1, 27, '#ffffff'); else { P.g.set(ex + 2, 27, g.GL[2]).set(ex - 3, 27, g.GL[2]); }
+        P.g.hline(ex - 2, ex + 1, 29, S[2]);
+        if (fierce) { P.g.hline(ex - 2, ex + 1, 28, S[2]); P.g.hline(ex - 3, ex + 2, 26, '#1a0e0c'); }            // narrowed
+        if (smile) { P.g.hline(ex - 2, ex + 1, 28, S[3]); P.g.hline(ex - 2, ex + 1, 29, S[4]); P.g.set(ex - 3, 27, '#2a1814').set(ex + 2, 27, '#2a1814'); }   // eyes curved by the cheeks
+        // brows
+        const inner = f < 0 ? ex + 2 : ex - 3, outer = f < 0 ? ex - 3 : ex + 2;
+        const yIn = fierce ? 25 : smile ? 21 : 23, yOut = fierce ? 21 : smile ? 22 : 23;
+        P.g.line(outer, yOut, inner, yIn, Hh[1]); P.g.line(outer, yOut - 1, inner, yIn - 1, Hh[2]);
+        if (fierce) P.g.line(outer, yOut + 1, inner, yIn + 1, Hh[0]);
+      }
+      // nose and cheeks
+      P.g.vline(33, 28, 33, S[2]); P.g.set(32, 31, S[4]).set(31, 34, S[1]).set(34, 34, S[1]).set(32, 34, S[2]).set(33, 34, S[2]);
+      P.g.set(23, 33, mix(S[3], '#e07070', 0.35)).set(41, 33, mix(S[2], '#e07070', 0.35));
+      if (g.mark === 'scar') P.g.line(23, 22, 27, 34, mix(S[2], '#a02030', 0.55));
+      if (g.paint) { P.g.hline(21, 27, 31, M[2]); P.g.hline(37, 43, 31, M[2]); P.g.hline(22, 26, 32, M[1]); P.g.hline(38, 42, 32, M[1]); }
+      if (g.kind === 'jester') { for (const x of [24, 40]) P.part(P.mask().ellipse(x, 33, 2, 1.6), ramp('#e04070', 4, 0.4), { flat: true }); P.g.set(26, 24, '#141010').set(26, 30, '#141010').set(38, 24, '#141010').set(38, 30, '#141010'); }
+      // beard
+      if (g.beard === 'full' || g.beard === 'goatee' || g.beard === 'moustache' || g.beard === 'stubble') {
+        const bm = P.mask();
+        if (g.beard === 'full') head.each((x, y) => { if (y >= 33 || (y >= 30 && (x <= 23 || x >= 41))) bm.add(x, y); });
+        if (g.beard === 'full') bm.poly([[22, 38], [42, 38], [38, 47], [26, 47]]);
+        if (g.beard === 'goatee') bm.poly([[29, 39], [35, 39], [33, 45], [31, 45]]);
+        if (g.beard !== 'stubble') bm.poly([[26, 36], [38, 36], [40, 38], [33, 35.5], [31, 35.5], [24, 38]]);
+        if (g.beard === 'stubble') head.each((x, y) => { if (y >= 32 && (x + y) % 2 === 0) bm.add(x, y); });
+        bm.del(30, 37); bm.del(31, 37); bm.del(32, 37); bm.del(33, 37); bm.del(34, 37);
+        P.part(bm, g.beard === 'stubble' ? S.map(c => mix(c, Hh[1], 0.45)) : Hh, { tex: (x, y) => ((x * 3 + y) % 5 === 0 ? -1 : 0), sep: g.beard !== 'stubble' });
+      }
+    }
+    if (!masked) {
+      // mouth (after the beard, so it always shows)
+      const lip = mix(S[1], '#8a2a30', 0.5);
+      if (smile) { P.g.hline(28, 36, 37, '#2a1814'); P.g.set(27, 36, '#2a1814').set(37, 36, '#2a1814').set(26, 35, S[1]).set(38, 35, S[1]); P.g.hline(29, 35, 38, '#f4ece4'); P.g.hline(30, 34, 39, '#7a2a30'); P.g.hline(30, 34, 40, lip);
+        P.g.set(23, 32, mix(S[3], '#e06070', 0.5)).set(24, 32, mix(S[3], '#e06070', 0.5)).set(40, 32, mix(S[2], '#e06070', 0.5)).set(41, 32, mix(S[2], '#e06070', 0.5)); }
+      else if (fierce) { P.g.hline(28, 36, 37, '#2a1814'); P.g.hline(28, 36, 38, '#f4ece4'); P.g.set(30, 38, '#c8bcb0').set(34, 38, '#c8bcb0'); P.g.hline(28, 36, 39, '#2a1814'); P.g.set(27, 38, '#2a1814').set(37, 38, '#2a1814'); P.g.set(32, 24, S[1]).set(32, 25, S[1]); }
+      else { P.g.hline(29, 35, 37, lip); P.g.hline(30, 34, 38, S[3]); }
+    }
+    // ---- hair (front)
+    if (!masked && hat !== 'hood' && g.hairStyle !== 'bald') {
+      const hm = P.mask();
+      head.each((x, y) => { const fringe = 19 + ((x * 7) % 3) + (g.hairStyle0 === 'wild' ? ((x * 5) % 4) : 0); if (y < fringe || ((x <= 21 || x >= 43) && y < 31)) hm.add(x, y); });
+      hm.ellipse(cx, 15, 12.5, 5);
+      if (g.hairStyle === 'long') { hm.rect(18, 20, 21, 46); hm.rect(43, 20, 46, 46); }
+      P.part(hm, Hh, { tex: (x, y) => ((x * 3 + y * 5) % 7 === 0 ? 1 : (x + y) % 6 === 0 ? -1 : 0), sep: true, sepSides: (dx, dy) => dy > 0 });
+    }
+    if (g.hairStyle === 'bald' && !masked && hat === 'none') { P.g.set(27, 15, S[5]).set(28, 15, S[5]).set(26, 16, S[4]); }
+    if (g.hairStyle0 === 'braids') for (const x of [17, 47]) P.part(P.mask().capsule(x, 30, x + (x < 32 ? -1 : 1), 58, 4.4), Hh, { tex: (xx, y) => (y % 3 === 0 ? -1 : 0), sep: true });
+    // ---- headgear
+    if (hat === 'witch') {
+      P.part(P.mask().poly([[21, 15], [43, 15], [40, 6], [54, -2], [44, -3], [32, 2], [26, 6]]), M, { sep: true });
+      P.part(P.mask().ellipse(cx, 16, 24, 3.6), M, { sep: true, base: 1 });
+      P.part(P.mask().rect(22, 12, 42, 14), S2, { flat: true });
+      P.part(P.mask().rect(30, 11, 34, 15), GOLDR, { spec: true }); P.g.set(32, 13, g.glow);
+    } else if (hat === 'cavalier') {
+      P.part(P.mask().ellipse(cx, 9, 11, 7), M, { sep: true });
+      P.part(P.mask().ellipse(cx, 15, 22, 3.6), M, { sep: true });
+      P.part(P.mask().rect(21, 11, 43, 13), S2, { flat: true });
+      const fm = P.mask().capsule(38, 10, 48, 0, 6).capsule(48, 0, 62, 6, 4.5);
+      P.part(fm, ramp(g.palName === 'sun' ? '#f8f4e8' : g.glow, 5, 0.5), { tex: (x, y) => ((x + y) % 2 ? 0 : -1), sep: true });
+    } else if (hat === 'hood' || hat === 'deephood') {
+      const m = P.mask().ellipse(cx, 27, 16, 19); m.add(cx, 6).add(cx, 7);
+      const open = P.mask().ellipse(cx, 31, hat === 'deephood' ? 9 : 11, hat === 'deephood' ? 11 : 13);
+      open.each((x, y) => m.del(x, y));
+      P.part(m, M, { sep: true });
+      if (hat === 'deephood') {
+        P.part(open, ['#06040a', '#0c0810', '#120e18', '#18141e'], { flat: true, base: 0 });
+        for (const ex of [28, 36]) { P.part(P.mask().ellipse(ex, 30, 1.6, 1.2), g.GL, { flat: true, base: 3 }); P.g.set(ex + (ex < 32 ? -2 : 2), 30, g.GL[1]); }
+        if (expr === 'fierce') for (const ex of [28, 36]) P.g.set(ex, 28, g.GL[2]);
+      }
+      if (g.kind === 'huntress') {
+        const WOLF = ['#2a2a30', '#4a4a52', '#76767e', '#a4a4aa', '#d0d0d4'];
+        for (const f of [-1, 1]) P.part(P.mask().poly([[cx + 4 * f, 10], [cx + 13 * f, 10], [cx + 11 * f, -1]]), WOLF, { sep: true });
+        P.part(P.mask().ellipse(cx, 13, 13, 5), WOLF, { sep: true });
+        P.g.set(27, 13, g.glow).set(37, 13, g.glow);
+        P.part(P.mask().poly([[19, 34], [45, 34], [44, 42], [20, 42]]), S2, { sep: true, tex: (x, y) => (y % 3 === 0 ? -1 : 0) });   // scarf mask
+      }
+    } else if (hat === 'jester') {
+      P.part(P.mask().capsule(26, 12, 14, 2, 8).capsule(14, 2, 5, 13, 6), M, { sep: true });
+      P.part(P.mask().capsule(38, 12, 50, 2, 8).capsule(50, 2, 59, 13, 6), S2, { sep: true });
+      P.part(P.mask().ellipse(cx, 15, 13, 5), M, { sep: true });
+      for (const x of [5, 59]) P.part(P.mask().ellipse(x, 15, 3, 3), GOLDR, { spec: true, sep: true });
+    } else if (hat === 'crown' || hat === 'darkcrown' || hat === 'laurel') {
+      if (hat === 'laurel') { for (let i = 0; i < 14; i++) { const a = Math.PI * (1.05 + i * 0.065), x = cx + Math.cos(a) * 13, y = 19 + Math.sin(a) * 8; P.part(P.mask().ellipse(x, y, 2.2, 1.4), ramp(i % 2 ? '#3a8a2a' : '#6ac040', 4, 0.4), { sep: true }); } }
+      else {
+        const C = hat === 'crown' ? GOLDR : ramp('#4a4450', 5, 0.5), m = P.mask().rect(20, 10, 44, 15);
+        for (let i = 0; i < 5; i++) m.poly([[20 + i * 6, 11], [25 + i * 6, 11], [22.5 + i * 6, hat === 'crown' ? 3 : 0]]);
+        P.part(m, C, { spec: true, sep: true });
+        [[24, '#d02030'], [32, '#2a60d0'], [40, '#30a040']].forEach(([x, c]) => P.part(P.mask().ellipse(x, 13, 1.6, 1.6), hat === 'crown' ? ramp(c, 4, 0.5) : g.GL, { flat: true, base: 2 }));
+      }
+    } else if (hat === 'straw') {
+      P.part(P.mask().poly([[-2, 19], [66, 19], [36, 3], [28, 3]]), STRAW, { tex: (x, y) => ((x + y) % 3 === 0 ? -1 : (x - y) % 5 === 0 ? 1 : 0), sep: true });
+      head.each((x, y) => { if (y >= 20 && y <= 23) P.g.set(x, y, mix(S[1], '#000000', 0.25)); });
+    } else if (hat === 'beak') {
+      P.part(P.mask().rect(21, -1, 43, 12), ramp('#2a2430', 5, 0.4), { sep: true });
+      P.part(P.mask().ellipse(cx, 14, 22, 3.6), ramp('#2a2430', 5, 0.4), { sep: true });
+      P.part(P.mask().rect(21, 9, 43, 10), S2, { flat: true });
+      P.part(P.mask().ellipse(cx, 27, 11, 10.5), BONER, { sep: true });
+      P.part(P.mask().poly([[26, 31], [38, 31], [36, 38], [30, 54], [28, 44]]), BONER, { sep: true });
+      P.g.line(29, 41, 31, 50, BONER[1]);
+      for (const ex of [26, 38]) { P.part(P.mask().ellipse(ex, 26, 4, 4), GOLDR, { spec: true, sep: true }); P.part(P.mask().ellipse(ex, 26, 2.6, 2.6), g.GL, { flat: true, base: expr === 'fierce' ? 3 : 2 }); P.g.set(ex - 1, 25, '#ffffff'); }
+    } else if (hat === 'horns' || hat === 'winged') {
+      const C = hat === 'winged' && g.over && g.over.plate ? GOLDR : STEEL;
+      for (const f of [-1, 1]) {
+        if (hat === 'horns') P.part(P.mask().capsule(cx + 11 * f, 15, cx + 19 * f, 9, 6).capsule(cx + 19 * f, 9, cx + 21 * f, -1, 4).capsule(cx + 21 * f, -1, cx + 18 * f, -6, 2.4), BONER, { sep: true });
+        else for (let i = 3; i >= 0; i--) P.part(P.mask().capsule(cx + 11 * f, 17, cx + (18 + i * 3.5) * f, 13 - i * 4.5, 5.2 - i * 0.5), BONER, { sep: true, tex: (x, y) => ((x + y) % 3 === 0 ? -1 : 0) });
+      }
+      const dome = P.mask().ellipse(cx, 19, 13.5, 9.5); dome.each((x, y) => { if (y > 21) dome.del(x, y); });
+      P.part(dome, C, { spec: true, sep: true });
+      P.part(P.mask().rect(cx - 1, 20, cx + 1, 31), C, { spec: true, sep: true });                          // nasal
+    } else if (hat === 'halo') {
+      for (let a = 0; a < Math.PI * 2; a += 0.04) { P.g.set(cx + Math.cos(a) * 14, 5 + Math.sin(a) * 3.2, a > Math.PI ? GOLDR[4] : GOLDR[3]); P.g.set(cx + Math.cos(a) * 15, 5 + Math.sin(a) * 3.6, g.GL[2]); }
+    }
+    // ---- familiars
+    if (g.familiar === 'raven') {
+      P.part(P.mask().ellipse(11, 40, 6, 5).ellipse(8, 33, 3.6, 3.4).capsule(14, 42, 20, 47, 3.6), ['#0e0c14', '#1a1824', '#2a2838', '#3e3c50', '#5a5870'], { sep: true });
+      P.part(P.mask().poly([[5, 32], [5, 35], [0, 34]]), GOLDR, {}); P.g.set(8, 32, g.glow);
+    } else if (g.familiar === 'wisp') {
+      P.part(P.mask().ellipse(55, 14, 3.6, 3.6), g.GL, { flat: true, base: 3 }); P.part(P.mask().ellipse(55, 14, 1.8, 1.8), g.GL, { flat: true, base: 4 });
+      for (let i = 1; i < 6; i++) P.g.set(55 + i * 1.2, 14 + i * 1.6, g.GL[Math.max(1, 3 - (i >> 1))]);
+    } else if (g.familiar === 'skull') {
+      P.part(P.mask().ellipse(55, 13, 5, 4.6).rect(52, 15, 58, 19), BONER, { sep: true });
+      P.g.set(53, 13, g.glow).set(57, 13, g.glow).set(53, 14, '#141010').set(57, 14, '#141010'); P.g.hline(53, 57, 18, '#3a3228');
+    }
+    // ---- in front: books, daggers, flasks held up
+    if (Wp === 'tome') { P.part(P.mask().rect(6, 46, 22, 60), M, { sep: true }); P.part(P.mask().rect(8, 48, 20, 58), GOLDR, { flat: true, base: 1 }); P.part(P.mask().rect(10, 50, 18, 56), M, { flat: true }); P.part(P.mask().ellipse(14, 53, 2.2, 2.2), g.GL, { flat: true, base: 3 }); }
+    if (Wp === 'daggers') { drawHeroWeapon(P, g, 'dagger', 16, 64, -60, 2.4); drawHeroWeapon(P, g, 'dagger', 48, 64, -120, 2.4); }
+    if (Wp === 'flask') { drawHeroWeapon(P, g, 'flask', 54, 52, -90, 2.6); P.part(P.mask().ellipse(54, 58, 3.6, 3), (g.over && g.over.hands) || S, { sep: true }); }
+    let img = P.done();
+    // aura ring around the silhouette
+    const k = pack(INK), src = img.copy();
+    for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) {
+      if (src.filled(x, y)) continue;
+      if (src.get(x - 1, y) === k || src.get(x + 1, y) === k || src.get(x, y - 1) === k || src.get(x, y + 1) === k) img.set(x, y, (x + y) % 3 === 0 ? g.GL[4] : g.glow);
+    }
+    bg.blit(img);
+    // a thin frame
+    for (let i = 0; i < W; i++) { bg.set(i, 0, INK).set(i, W - 1, INK).set(0, i, INK).set(W - 1, i, INK); bg.set(i, 1, g.GL[1]).set(1, i, g.GL[1]); }
+    return bg;
+  }
+  function genHeroPortrait(o) {
+    const g = heroGenome(o);
+    const sheet = new Grid(64 * 3, 64);
+    EXPRESSIONS.forEach((e, i) => sheet.blit(portraitBust(g, e), i * 64, 0));
+    return { img: sheet, anim: { fw: 64, fh: 64, fps: 1.5, tracks: [[0, 1, 2].map(i => ({ x: i * 64, y: 0 }))], labels: ['neutral / fierce / smile'] }, name: `portrait-${g.kind}-${g.palName}` };
+  }
+
   Object.assign(PG.GENERATORS, {
     arms:    { group: 'Medieval 32px', fn: genArms,    label: 'Coat of arms', size: '32 x 36', options: { own: ['no', 'yes'] } },
     soldier: { group: 'Medieval 32px', fn: genSoldier, label: 'Soldier sheet', size: '32 x 40 frames', options: { troop: ['random', ...Object.keys(TROOPS)], weapon: ['random', 'sword', 'mace', 'axe', 'spear', 'halberd', 'poleaxe', 'bill', 'longbow', 'crossbow'], helm: ['random', 'none', 'greathelm', 'bascinet', 'sallet', 'kettle', 'coif', 'hood', 'cap'] } },
     champion: { group: 'Medieval 32px', fn: genHero32, label: 'Hero sheet', size: '40 x 48 frames', options: { hero: ['random', ...Object.keys(HEROES)], weapon: ['random', ...Object.keys(HERO_WEAPONS).filter(k => k !== 'dagger'), 'tome', 'longbow', 'daggers'], palette: ['own', 'faction'], aura: ['on', 'off'] } },
+    heroface: { group: 'Medieval 32px', fn: genHeroPortrait, label: 'Hero portrait', size: '64 x 64 x 3 moods', options: { hero: ['random', ...Object.keys(HEROES)], weapon: ['random', ...Object.keys(HERO_WEAPONS).filter(k => k !== 'dagger'), 'tome', 'longbow', 'daggers'], palette: ['own', 'faction'] } },
     cavalry: { group: 'Medieval 32px', fn: genCavalry, label: 'Cavalry sheet', size: '48 x 52 frames', options: { troop: ['random', 'knight', 'manatarms', 'captain'], weapon: ['random', 'lance', 'sword', 'mace', 'axe'], coat: ['random', ...Object.keys(COATS)] } },
     field:   { group: 'Medieval 32px', fn: genField,   label: 'Field ground', size: '64 x 64 seamless', options: { field: ['random', ...Object.keys(FIELD)] } },
     decal:   { group: 'Medieval 32px', fn: genDecal,   label: 'Ground decal', size: '32 x 24', options: { decal: ['random', 'blood', 'scorch', 'trampled'] } },

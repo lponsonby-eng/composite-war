@@ -65,6 +65,10 @@ whole army's surcoats, shields, banners and tents match:
   signature weapon, a bold personal palette instead of army livery, and a glowing aura outline. Personal traits
   (a raven or wisp familiar, drifting motes, glowing runes, eyepatches, scars) make heroes of one archetype differ.
   `--palette faction` tints a hero in their faction's colour; `--aura off` removes the outline
+- **heroface** (hero portraits): 192 x 64, the matching 64 x 64 dialogue bust of a champion in three moods
+  (neutral, fierce, smile). Use the same seed and options as the hero sheet and you get the same person: hat,
+  hair, beard, colours, cape, weapon over the shoulder, familiar, scars and eyepatch all match, on a vignette
+  lit by the hero's glow colour, with the aura outline.
 - **cavalry**: 192 x 292 sheet of 48 x 52 frames (horse and rider; front/back/left/right; walk, charge) plus a fallen
   horse and rider; seven horse coats, heraldic caparisons, chanfrons, couched lances
 - **field**: 64 x 64 seamless ground (leafy meadow, stony camp, mud, rutted road)
