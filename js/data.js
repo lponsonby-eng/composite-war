@@ -460,7 +460,7 @@ window.DATA = {
     open: { name: 'Open ground', gates: 4, power: 1.4, gateHp: 1, desc: 'Walls on every side, a gate in each: the attackers can choose where to strike' },
     hill: { name: 'Ridge end',   gates: 2, power: 1.6, gateHp: 1.2, desc: 'On the end of a ridge: cliffs close two sides, leaving two gates to attack' },
     crag: { name: 'Clifftop',    gates: 1, power: 2.0, gateHp: 1.6, desc: 'On a cliff-girt crag: one gate at the top of a narrow ramp, under the defenders\' arrows' },
-    lake: { name: 'Island',      gates: 1, power: 2.0, gateHp: 1.6, desc: 'On an island in a lake: one gate at the end of a long causeway' },
+    lake: { name: 'Island',      gates: 1, power: 2.0, gateHp: 1.6, desc: 'On a rocky island in a lake: one gate at the end of a long causeway, under the defenders\' arrows' },
   },
 };
 
