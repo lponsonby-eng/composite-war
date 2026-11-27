@@ -693,11 +693,9 @@ class Terrain {
       for (const s of [-4, 4]) { ctx.save(); ctx.translate(s * 0.7, s * 0.7); path(pts); ctx.stroke(); ctx.restore(); }
       ctx.setLineDash([]);
     };
-    const cobble = (x, y, w, h) => {
-      ctx.fillStyle = 'rgba(30,24,18,0.3)'; rr(x - 1.5, y - 1.5, w + 3, h + 3, 4); ctx.fill();
-      ctx.fillStyle = ROAD[0]; rr(x, y, w, h, 3); ctx.fill();
-      ctx.fillStyle = ROAD[1];
-      for (let yy = y + 1; yy < y + h - 1.5; yy += 3) for (let xx = x + 1 + ((yy - y) % 6 ? 1.5 : 0); xx < x + w - 2; xx += 3) ctx.fillRect(xx, yy, 2, 1.8);
+    const cobble = (x, y, w, h) => {                                   // set stones, pixel by pixel on the art grid
+      const ax = Math.round(x * ART), ay = Math.round(y * ART);
+      artDraw(ctx, WallArt.cobbles(Math.max(2, Math.round((x + w) * ART) - ax), Math.max(2, Math.round((y + h) * ART) - ay), ax * 7 + ay), ax / ART, ay / ART);
     };
     // a crop field: soil, rows of crops (wheat, greens or furrows), a low fence
     const CROPS = this.region === 'frost' ? [['#c8d4dc', '#a8b8c4']] : this.region === 'sun' ? [['#d8b050', '#b08838'], ['#8a9a40', '#6a7a30']]
@@ -749,7 +747,6 @@ class Terrain {
     }
     const PW = 160, PH = 112;
     cobble(cx - PW / 2, cy - PH / 2, PW, PH);
-    ctx.strokeStyle = 'rgba(30,24,18,0.35)'; ctx.lineWidth = 1.5; rr(cx - PW / 2, cy - PH / 2, PW, PH, 6); ctx.stroke();
     // a well in the square
     ctx.fillStyle = '#2a2630'; ctx.beginPath(); ctx.arc(cx + 34, cy + 22, 7, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = '#a8a4b4'; ctx.beginPath(); ctx.arc(cx + 34, cy + 22, 5.8, 0, Math.PI * 2); ctx.fill();
@@ -813,8 +810,8 @@ class Terrain {
   // the corners, beside each gate and along the long runs.
   // Gameplay still uses the wall cells; this only draws them.
   drawWall(ctx) {
-    const T = this.town, w = T.wall, LIFT = 10, OUT = '#2a2630';
-    const rr = (rx, ry, rw, rh, r) => { ctx.beginPath(); ctx.roundRect ? ctx.roundRect(rx, ry, rw, rh, r) : ctx.rect(rx, ry, rw, rh); };
+    const T = this.town, w = T.wall, LIFT = 10;
+    const A = v => Math.round(v * ART);                                  // world -> art pixels
     // each side's runs of wall between its gates: [x, y, width, height, side]
     const runs = [];
     for (const side of ['n', 'w', 'e', 's']) {
@@ -830,70 +827,38 @@ class Terrain {
         s = c1;
       }
     }
-    // gateways: cobbles through the gap, worn into the ground
+    let seed = 5; for (const ch of this.spotId || 'x') seed = seed * 31 + ch.charCodeAt(0);
+    // gateways: flagstones through the gap
     for (const g of this.gates) {
-      const [o0x, o0y] = this.gatePoint(g, -w / 2 - 8, -g.half), [o1x, o1y] = this.gatePoint(g, w / 2 + 8, g.half);
-      const x = Math.min(o0x, o1x), y = Math.min(o0y, o1y), gw = Math.abs(o1x - o0x), gh = Math.abs(o1y - o0y);
-      ctx.fillStyle = 'rgba(40,32,24,0.35)'; rr(x - 2, y - 2, gw + 4, gh + 4, 4); ctx.fill();
-      ctx.fillStyle = '#a8987a'; rr(x, y, gw, gh, 3); ctx.fill();
-      for (let yy = y + 1.5; yy < y + gh - 1; yy += 2.5) for (let xx = x + 1 + ((yy * 2) % 2 ? 1.2 : 0); xx < x + gw - 1; xx += 2.5) {
-        ctx.fillStyle = (xx * 7 + yy * 3) % 5 < 2 ? '#8a7a5e' : '#c0b090'; ctx.fillRect(xx, yy, 1.6, 1.4);
-      }
+      const [o0x, o0y] = this.gatePoint(g, -w / 2 - 6, -g.half), [o1x, o1y] = this.gatePoint(g, w / 2 + 6, g.half);
+      const x = Math.min(o0x, o1x), y = Math.min(o0y, o1y), P = WallArt.painter(A(Math.abs(o1x - o0x)), A(Math.abs(o1y - o0y)));
+      WallArt.flags(P, 0, 0, P.w, P.h, WallArt.rng(seed + g.x));
+      artDraw(ctx, P.done(), x, y);
     }
-    // shadow cast inside the walls
-    ctx.fillStyle = 'rgba(20,16,30,0.28)';
-    ctx.fillRect(T.x0 + w, T.y0 + w, T.x1 - T.x0 - 2 * w, 10);
-    ctx.fillRect(T.x1 - w - 8, T.y0 + w, 8, T.y1 - T.y0 - 2 * w);
-    for (const [x, y, rw, rh, side] of runs) {
-      ctx.fillStyle = OUT; rr(x - 1.5, y - LIFT - 1.5, rw + 3, rh + LIFT + 3, 2.5); ctx.fill();
-      // the top: the wall-walk's flagstones, lit from the north-west
-      const top = side === 'n' || side === 's' ? ctx.createLinearGradient(0, y - LIFT, 0, y - LIFT + rh) : ctx.createLinearGradient(x, 0, x + rw, 0);
-      top.addColorStop(0, '#cac6d4'); top.addColorStop(1, '#9e9aaa');
-      ctx.fillStyle = top; rr(x - 0.5, y - LIFT - 0.5, rw + 1, rh + 1, 2); ctx.fill();
-      ctx.fillStyle = 'rgba(70,66,84,0.35)';
-      for (let yy = y - LIFT + 3; yy < y - LIFT + rh - 1; yy += 4) for (let xx = x + ((yy | 0) % 8 < 4 ? 1 : 3); xx < x + rw - 1; xx += 5) ctx.fillRect(xx, yy, 0.6, 3);
-      // the south face: brick courses with staggered joints
-      const fy = y + rh - LIFT;
-      ctx.fillStyle = '#7a7686'; ctx.fillRect(x - 0.5, fy, rw + 1, LIFT);
-      ctx.fillStyle = 'rgba(48,44,60,0.6)';
-      for (let yy = fy + 2.5, r = 0; yy < fy + LIFT; yy += 2.5, r++) {
-        ctx.fillRect(x, yy, rw, 0.5);
-        for (let xx = x + (r % 2 ? 1.5 : 3.5); xx < x + rw - 0.5; xx += 4) ctx.fillRect(xx, yy - 2, 0.5, 2);
-      }
-      ctx.fillStyle = 'rgba(255,255,255,0.15)'; ctx.fillRect(x, fy, rw, 0.8);
-      ctx.fillStyle = 'rgba(30,26,40,0.4)'; ctx.fillRect(x - 0.5, y + rh - 1.5, rw + 1, 1.5);   // foot of the wall
-      // battlements on the outer edge
-      const merlon = (mx, my) => { ctx.fillStyle = OUT; rr(mx - 0.5, my - 0.5, 3.6, 3.6, 0.8); ctx.fill(); ctx.fillStyle = '#dcd8e6'; ctx.fillRect(mx, my, 2.6, 1.3); ctx.fillStyle = '#9894a6'; ctx.fillRect(mx, my + 1.3, 2.6, 1.3); };
-      if (side === 'n' || side === 's') for (let xx = x + 1; xx < x + rw - 3; xx += 5) merlon(xx, side === 'n' ? y - LIFT - 1 : fy - 3);
-      else for (let yy = y - LIFT + 1; yy < y + rh - LIFT - 3; yy += 5) merlon(side === 'w' ? x - 1 : x + rw - 2.6, yy);
+    // a soft shadow cast inside the walls
+    ctx.fillStyle = 'rgba(21,26,25,0.35)';
+    ctx.fillRect(T.x0 + w, T.y0 + w, T.x1 - T.x0 - 2 * w, 8);
+    ctx.fillRect(T.x1 - w - 6, T.y0 + w, 6, T.y1 - T.y0 - 2 * w);
+    // the runs: north first, the south face last (it stands in front)
+    const order = runs.slice().sort((p, q) => (p[1] + p[3]) - (q[1] + q[3]));
+    for (const [x, y, rw, rh, side] of order) {
+      const horiz = side === 'n' || side === 's';
+      const im = WallArt.run(A(rw), A(horiz ? rh : rh), A(LIFT), side, seed + Math.round(x * 7 + y * 13));
+      artDraw(ctx, im, x, y - LIFT);
     }
-
     // round towers: the corners, both sides of every gate, and along the long runs
-    const towerAt = (cx, cy) => {
-      ctx.fillStyle = 'rgba(20,16,30,0.35)'; ctx.beginPath(); ctx.ellipse(cx + 4, cy + 3, 9, 4.5, 0, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = OUT; rr(cx - 7.5, cy - 9, 15, 13, 4); ctx.fill();                       // drum
-      const g = ctx.createLinearGradient(cx - 7, 0, cx + 7, 0);
-      g.addColorStop(0, '#c6c2d0'); g.addColorStop(0.4, '#a6a2b2'); g.addColorStop(1, '#6e6a7a');
-      ctx.fillStyle = g; rr(cx - 6.5, cy - 8, 13, 11, 3.5); ctx.fill();
-      ctx.fillStyle = 'rgba(58,54,72,0.45)';
-      for (let yy = cy - 5; yy < cy + 2; yy += 2.5) ctx.fillRect(cx - 6, yy, 12, 0.5);
-      ctx.fillStyle = '#2a2026'; ctx.fillRect(cx - 1, cy - 5, 2, 3);                          // arrow slit
-      ctx.fillStyle = OUT; ctx.beginPath(); ctx.ellipse(cx, cy - 9, 8, 4.5, 0, 0, Math.PI * 2); ctx.fill();   // top
-      ctx.fillStyle = '#b8b4c4'; ctx.beginPath(); ctx.ellipse(cx, cy - 9, 7, 3.6, 0, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = '#6a6678'; ctx.beginPath(); ctx.ellipse(cx, cy - 9, 4.6, 2.2, 0, 0, Math.PI * 2); ctx.fill();
-      for (let a = 0; a < 8; a++) {                                                               // crenellations round the rim
-        const t = a / 8 * Math.PI * 2, mx = cx + Math.cos(t) * 6.3, my = cy - 9 + Math.sin(t) * 3.1;
-        ctx.fillStyle = OUT; rr(mx - 1.3, my - 1.6, 2.6, 2.6, 0.6); ctx.fill();
-        ctx.fillStyle = Math.sin(t) < 0 || Math.cos(t) < 0 ? '#dcd8e6' : '#a8a4b4'; ctx.fillRect(mx - 0.8, my - 1.1, 1.6, 1.4);
-      }
-    };
-    const towers = [[T.x0 + w / 2, T.y0 + w / 2, 2.3], [T.x1 - w / 2, T.y0 + w / 2, 2.3], [T.x0 + w / 2, T.y1 - w / 2, 2.3], [T.x1 - w / 2, T.y1 - w / 2, 2.3]];
-    for (const g of this.gates) for (const s of [-1, 1]) { const [tx, ty] = this.gatePoint(g, 0, s * (g.half + 11)); towers.push([tx, ty, 2]); }
+    const towers = [[T.x0 + w / 2, T.y0 + w / 2, 30], [T.x1 - w / 2, T.y0 + w / 2, 30], [T.x0 + w / 2, T.y1 - w / 2, 30], [T.x1 - w / 2, T.y1 - w / 2, 30]];
+    for (const g of this.gates) for (const sg of [-1, 1]) { const [tx, ty] = this.gatePoint(g, 0, sg * (g.half + 10)); towers.push([tx, ty, 26]); }
     for (const [x, y, rw, rh] of runs) {
       const len = Math.max(rw, rh), n = Math.floor(len / 170);
-      for (let i = 1; i <= n; i++) towers.push(rw > rh ? [x + rw * i / (n + 1), y + rh / 2, 1.8] : [x + rw / 2, y + rh * i / (n + 1), 1.8]);
+      for (let i = 1; i <= n; i++) towers.push(rw > rh ? [x + rw * i / (n + 1), y + rh / 2, 22] : [x + rw / 2, y + rh * i / (n + 1), 22]);
     }
-    for (const [tx, ty, s] of towers.sort((a, b) => a[1] - b[1])) { ctx.save(); ctx.translate(tx, ty - LIFT * 0.4); ctx.scale(s, s); towerAt(0, 0); ctx.restore(); }
+    for (const [tx, ty, d] of towers.sort((a, b) => a[1] - b[1])) {
+      const im = WallArt.tower(A(d), A(LIFT + 8), seed + Math.round(tx * 3 + ty));
+      const ry = Math.round(A(d) / 2 * 0.6);
+      artDraw(ctx, im, tx - im.width / 2 / ART, ty - (ry + 1) / ART - LIFT - 4);
+    }
   }
+
 }
 const GROUND_NAMES = Object.keys(GROUND);

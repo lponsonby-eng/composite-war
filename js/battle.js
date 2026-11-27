@@ -1496,36 +1496,24 @@ class Battle {
   // ends, splitting and darkening as it takes damage, with a bar showing what is left;
   // once broken, splintered timbers on the cobbles.
   drawGate(ctx, g) {
-    const T = this.terrain, w = T.town.wall, x0 = -w / 2, y0 = -g.half, h = g.half * 2, seed = g.x * 3 + g.y;
-    ctx.save(); ctx.translate(g.x, g.y);                               // drawn as a west gate, turned to face its way
+    const T = this.terrain, w = T.town.wall, seed = Math.round(g.x * 3 + g.y), k = Math.max(0, g.hp / g.maxHp);
+    // the doors (or their wreck) as pixel art, drawn as a west gate and turned to face its way
+    const key = g.open ? 'open' : Math.ceil(k * 6);
+    if (!g.art || g.artKey !== key) {
+      const aw = Math.round(w * ART), ah = Math.round(g.half * 2 * ART);
+      g.art = g.open ? WallArt.rubble(aw, ah, seed) : WallArt.doors(aw, ah, k, seed); g.artKey = key;
+    }
+    ctx.save(); ctx.translate(g.x, g.y);
     ctx.rotate({ w: 0, e: Math.PI, n: Math.PI / 2, s: -Math.PI / 2 }[g.side]);
-    if (g.open) {
-      const r = makeRng(seed);
-      for (let i = 0; i < 9; i++) {
-        ctx.save(); ctx.translate(x0 + r() * w, y0 + r() * h); ctx.rotate(r() * Math.PI);
-        ctx.fillStyle = '#2a1a10'; ctx.fillRect(-6, -1.8, 12, 3.6); ctx.fillStyle = '#7a5430'; ctx.fillRect(-5.5, -1.2, 11, 2.4);
-        ctx.restore();
-      }
-      ctx.restore();
-      return;
-    }
-    const k = Math.max(0, g.hp / g.maxHp);
-    ctx.fillStyle = '#1e1418'; ctx.fillRect(x0 - 2, y0 - 2, w + 4, h + 4);
-    ctx.fillStyle = k > 0.5 ? '#7a5430' : k > 0.2 ? '#634328' : '#4e3420'; ctx.fillRect(x0, y0, w, h);
-    ctx.fillStyle = 'rgba(30,18,10,0.55)';                              // planks
-    for (let y = y0 + 3; y < y0 + h; y += 4) ctx.fillRect(x0, y, w, 1);
-    ctx.fillStyle = '#3a3a46';                                          // iron bands and the seam between the doors
-    ctx.fillRect(x0 + 3, y0, 2.5, h); ctx.fillRect(x0 + w - 5.5, y0, 2.5, h); ctx.fillRect(x0, -1, w, 2);
-    ctx.fillStyle = '#9a9aaa'; for (const yy of [y0 + 5, -6, 5, y0 + h - 6]) { ctx.fillRect(x0 + 3.5, yy, 1.5, 1.5); ctx.fillRect(x0 + w - 5, yy, 1.5, 1.5); }
-    if (k < 0.7) {                                                      // cracks as it weakens
-      ctx.strokeStyle = 'rgba(15,8,6,0.85)'; ctx.lineWidth = 1.2; const r = makeRng(seed + 3);
-      for (let i = 0; i < (k < 0.35 ? 6 : 3); i++) { const yy = y0 + r() * h; ctx.beginPath(); ctx.moveTo(x0, yy); ctx.lineTo(x0 + w * (0.4 + r() * 0.6), yy + (r() - 0.5) * 10); ctx.stroke(); }
-    }
-    if (g.hitT > 0) { ctx.fillStyle = 'rgba(255,240,200,0.35)'; ctx.fillRect(x0, y0, w, h); }
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(g.art, -w / 2, -g.half, w, g.half * 2);
+    if (g.hitT > 0 && !g.open) { ctx.fillStyle = 'rgba(215,214,214,0.35)'; ctx.fillRect(-w / 2, -g.half, w, g.half * 2); }
     ctx.restore();
+    if (g.open) return;
     const up = g.side === 'w' || g.side === 'e' ? g.half : w / 2;
-    if (k < 1) { const bw = 44; hpBar(ctx, g.x - bw / 2, g.y - up - 14, bw, k, '#ffb040'); }
+    if (k < 1) { const bw = 44; hpBar(ctx, g.x - bw / 2, g.y - up - 14, bw, k, '#b09a62'); }
   }
+
 
 
   // One squad's formation as a ghost at (p.x, p.y) facing p.face: a dot per soldier,
