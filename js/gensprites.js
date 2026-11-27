@@ -153,7 +153,10 @@ const Gen = {
       if (!this.cache[key]) this.cache[key] = this.canvas(PixelGen.generate('creatureface', { seed: 1 + (PixelGen.hashSeed('hero:' + gid) % 99991), faction: d.faction, creature: kind }).img, 64, 64, 0, 1);
       return this.cache[key];
     }
-    if (!this.cache[key]) this.cache[key] = this.canvas(PixelGen.generate('heroface', this.heroOpts(gid)).img, 64, 64, 0, 0);
+    if (!this.cache[key]) {                                         // the same person as their battle sheet (see hero)
+      const res = PixelGen.GENERATORS.commanderface ? PixelGen.generate('commanderface', this.commanderOpts(gid)) : PixelGen.generate('heroface', this.heroOpts(gid));
+      this.cache[key] = this.canvas(res.img, 64, 64, 0, 0);
+    }
     const i = Math.max(0, ['neutral', 'fierce', 'smile'].indexOf(mood));
     const ck = key + ':' + i;
     if (!this.cache[ck]) {

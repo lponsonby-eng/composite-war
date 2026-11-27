@@ -1995,7 +1995,154 @@
     return { img: sheet, anim: { fw: 64, fh: 64, fps: 1.5, tracks: [[0, 1, 2].map(i => ({ x: i * 64, y: 0 }))], labels: ['neutral / fierce / smile'] }, name: `portrait-${g.kind}-${g.palName}` };
   }
 
+
+  // ================================================================ COMMANDER PORTRAITS
+  // The 64 x 64 dialogue bust of a commander (same seed and options as the battle sheet, so
+  // the same person): helm, plume, crown, hat or circlet, gilded pauldrons and the army's
+  // arms on the chest, the cape over the shoulders, in three moods (neutral, fierce, smile),
+  // on a dark backdrop in the army's colour inside a gilt frame. Warriors' helms are drawn
+  // open-faced (visor raised) so the face and mood show.
+  function commanderBust(g, expr) {
+    const W = 64, cx = 32, cy = 26, Gr = g.grand, role = Gr.role;
+    const S = ramp(mix(g.skin[2], '#b89a88', 0.15), 6, 0.42), Hh = ramp(g.hair[2], 6, 0.55);
+    const fierce = expr === 'fierce', smile = expr === 'smile';
+    // backdrop: a dark vignette in the army's colour
+    const bg = new Grid(W, W), BGR = tone(mix(Gr.plume[0][2], '#0c0a14', 0.7));
+    bg.each((x, y) => { const d = Math.hypot(x - cx, (y - 24) * 1.1) / 44; return rampAt(BGR, 0.9 - d * 0.95, x, y); });
+    const P = new Painter(W, W);
+    // ---- behind: the plume or the bow/staff over the shoulder, the cape
+    const helmed = role === 'warrior', hat = role === 'marksman', circlet = !helmed && !hat;
+    if (g.weapon === 'staff') { P.part(P.mask().capsule(52, 70, 55, 8, 2.6), WOODR, {}); P.part(P.mask().ellipse(55, 7, 3.4, 3.4), tone('#5ac8f0'), { spec: true, sep: true }); P.part(P.mask().rect(52, 10, 58, 11), Gr.trim, { flat: true, base: 3 }); }
+    if (g.weapon === 'longbow') { const m = P.mask(); for (let t = -1; t <= 1; t += 0.02) m.capsule(53 + 6 * (1 - t * t), 34 + t * 30, 53 + 6 * (1 - (t + 0.02) ** 2), 34 + (t + 0.02) * 30, 2.2); P.part(m, WOODR, {}); P.g.line(53, 4, 53, 64, '#d8d0b8'); }
+    if (g.weapon === 'crossbow') { P.part(P.mask().capsule(48, 66, 54, 30, 3.4), WOODR, { sep: true }); P.part(P.mask().capsule(44, 33, 62, 30, 2), STEEL, { spec: true, sep: true }); }
+    P.part(P.mask().poly([[0, 64], [64, 64], [60, 44], [4, 44]]), Gr.cape, { base: 1, tex: x => (x % 6 === 0 ? -1 : 0) });
+    // ---- shoulders: plate or brigandine with gilt, or a robe with a mantle
+    const bust = P.mask().poly([[3, 64], [61, 64], [58, 51], [47, 45], [17, 45], [6, 51]]);
+    const arms = (x, y) => tRamp(blazon(g.arms, (x - 22) / 20, (y - 46) / 18));
+    if (role === 'warrior') P.part(bust, (x, y) => (x >= 22 && x <= 42 && y >= 48 ? arms(x, y) : STEEL), { spec: true });
+    else if (role === 'marksman') { P.part(bust, g.liv, { tex: quiltTex }); for (let y = 50; y < 64; y += 3) for (let x = 12 + (y % 2) * 2; x < 54; x += 5) P.g.set(x, y, Gr.trim[3]); }
+    else P.part(bust, g.liv, { tex: x => (x % 7 === 0 ? -1 : 0) });
+    P.part(P.mask().rect(26, 34, 38, 47), S, { shade: (x, y) => (y < 40 ? -1 : 0) });                        // neck
+    if (role === 'warrior' || role === 'marksman') {
+      for (const x of [11, 53]) {                                                                            // gilded pauldrons
+        const pm = P.mask().ellipse(x, 52, 11.5, 8.5);
+        P.part(pm, STEEL, { spec: true, sep: true });
+        pm.each((xx, yy) => { if (!pm.has(xx, yy - 1) || !pm.has(xx, yy + 2) || !pm.has(xx + (x < 32 ? -1 : 1), yy)) P.g.set(xx, yy, Gr.trim[2 + ((xx + yy) % 2)]); });
+        for (const dy of [3, 6]) P.g.line(x - 8, 52 + dy, x + 8, 52 + dy - 1, STEEL[1]);
+      }
+      P.part(P.mask().poly([[23, 44], [41, 44], [39, 49], [25, 49]]), STEEL, { spec: true, sep: true });       // gorget
+      P.g.hline(24, 40, 48, Gr.trim[3]);
+    } else {                                                                                                 // a gilt-edged mantle and stole
+      P.part(P.mask().poly([[6, 52], [58, 52], [50, 45], [14, 45]]), Gr.cape, { sep: true });
+      P.g.line(6, 52, 58, 52, Gr.trim[3]);
+      for (const f of [-1, 1]) P.part(P.mask().poly([[cx + 4 * f, 46], [cx + 9 * f, 46], [cx + 8 * f, 64], [cx + 3 * f, 64]]), Gr.trim, { sep: true, flat: true, base: 2 });
+    }
+    for (let i = 0; i < 16; i++) P.g.set(Math.round(16 + i * 1.6), Math.round(50 + i * 0.9), Gr.trim[i % 2 ? 2 : 4]);   // baldric
+    if (Gr.ermine) { const m = P.mask(); for (let i = 0; i < 9; i++) m.ellipse(8 + i * 6, 47 + (i % 2), 5.5, 4); P.part(m, (x, y) => ((x * 3 + y * 7) % 11 === 0 ? ['#1a1820', '#1a1820', '#1a1820', '#1a1820', '#1a1820'] : tone('#eee8dc')), { sep: true }); }
+    // ---- head and face
+    const head = P.mask();
+    for (let y = 12; y <= 40; y++) for (let x = 18; x <= 46; x++) {
+      const dx = (x + 0.5 - cx) / 11.5, dy = (y + 0.5 - cy) / 13.5;
+      if (dx * dx + dy * dy > 1) continue;
+      if (y > 31 && Math.abs(x + 0.5 - cx) > 11.5 - (y - 31) * 0.75) continue;
+      head.add(x, y);
+    }
+    if (!helmed) P.part(P.mask().ellipse(20, 28, 2.4, 4).ellipse(44, 28, 2.4, 4), S, { sep: true });     // ears
+    else P.part(P.mask().rect(17, 30, 47, 46).ellipse(cx, 45, 16, 4), STEEL, { tex: mailTex, base: 1, sep: true });   // mail aventail, behind the face
+    P.part(head, S, { sep: true });
+    for (const [ex, f] of [[26, -1], [38, 1]]) {
+      P.g.hline(ex - 3, ex + 2, 26, '#2a1814');
+      P.g.hline(ex - 2, ex + 1, 27, '#f4f0ea').hline(ex - 2, ex + 1, 28, '#e4dcd4');
+      const iris = ['#3a5a8a', '#4a6a3a', '#5a3a20', '#3a3a4a'][g.hairStyle.length % 4];
+      P.g.set(ex - 1, 27, '#ffffff').set(ex, 27, iris).set(ex - 1, 28, iris).set(ex, 28, mix(iris, '#000000', 0.4));
+      P.g.hline(ex - 2, ex + 1, 29, S[2]);
+      if (fierce) { P.g.hline(ex - 2, ex + 1, 28, S[2]); P.g.hline(ex - 3, ex + 2, 26, '#1a0e0c'); }
+      if (smile) { P.g.hline(ex - 2, ex + 1, 28, S[3]); P.g.hline(ex - 2, ex + 1, 29, S[4]); P.g.set(ex - 3, 27, '#2a1814').set(ex + 2, 27, '#2a1814'); }
+      const inner = f < 0 ? ex + 2 : ex - 3, outer = f < 0 ? ex - 3 : ex + 2;
+      const yIn = fierce ? 25 : smile ? 21 : 23, yOut = fierce ? 21 : smile ? 22 : 23;
+      P.g.line(outer, yOut, inner, yIn, Hh[1]); P.g.line(outer, yOut - 1, inner, yIn - 1, Hh[2]);
+      if (fierce) P.g.line(outer, yOut + 1, inner, yIn + 1, Hh[0]);
+    }
+    P.g.vline(33, 28, 33, S[2]); P.g.set(32, 31, S[4]).set(31, 34, S[1]).set(34, 34, S[1]).set(32, 34, S[2]).set(33, 34, S[2]);
+    P.g.set(23, 33, mix(S[3], '#e07070', 0.35)).set(41, 33, mix(S[2], '#e07070', 0.35));
+    if (g.beard === 'full' || g.beard === 'moustache') {
+      const bm = P.mask();
+      if (g.beard === 'full') { head.each((x, y) => { if (y >= 33 || (y >= 30 && (x <= 23 || x >= 41))) bm.add(x, y); }); bm.poly([[22, 38], [42, 38], [38, 47], [26, 47]]); }
+      bm.poly([[26, 36], [38, 36], [40, 38], [33, 35.5], [31, 35.5], [24, 38]]);
+      for (let x = 30; x <= 34; x++) bm.del(x, 37);
+      P.part(bm, Hh, { tex: (x, y) => ((x * 3 + y) % 5 === 0 ? -1 : 0), sep: true });
+    }
+    const lip = mix(S[1], '#8a2a30', 0.5);
+    if (smile) { P.g.hline(28, 36, 37, '#2a1814'); P.g.set(27, 36, '#2a1814').set(37, 36, '#2a1814'); P.g.hline(29, 35, 38, '#f4ece4'); P.g.hline(30, 34, 39, '#7a2a30'); P.g.hline(30, 34, 40, lip); }
+    else if (fierce) { P.g.hline(28, 36, 37, '#2a1814'); P.g.hline(28, 36, 38, '#f4ece4'); P.g.hline(28, 36, 39, '#2a1814'); P.g.set(27, 38, '#2a1814').set(37, 38, '#2a1814'); P.g.set(32, 24, S[1]).set(32, 25, S[1]); }
+    else { P.g.hline(29, 35, 37, lip); P.g.hline(30, 34, 38, S[3]); }
+    // hair (under hats and circlets; helms cover it)
+    if (!helmed && g.hairStyle !== 'bald') {
+      const hm = P.mask();
+      head.each((x, y) => { if (y < 19 + ((x * 7) % 3) || ((x <= 21 || x >= 43) && y < 31)) hm.add(x, y); });
+      hm.ellipse(cx, 15, 12.5, 5);
+      if (g.hairStyle === 'long') { hm.rect(18, 20, 21, 46); hm.rect(43, 20, 46, 46); }
+      P.part(hm, Hh, { tex: (x, y) => ((x * 3 + y * 5) % 7 === 0 ? 1 : (x + y) % 6 === 0 ? -1 : 0), sep: true, sepSides: (dx, dy) => dy > 0 });
+    }
+    // ---- headgear, crown and plume
+    let crownY = 12, plumeAt = null;
+    if (helmed) {
+      // an open-faced helm: the skull, cheek plates, the visor raised over the brow, mail at the neck
+      const skull = g.helm === 'bascinet' ? P.mask().ellipse(cx, 18, 14, 12).poly([[cx - 3, 8], [cx + 3, 8], [cx, 1]])
+        : g.helm === 'sallet' ? P.mask().ellipse(cx, 18, 14.5, 11).poly([[44, 18], [52, 30], [46, 30]]) : P.mask().rect(cx - 13, 8, cx + 13, 21).ellipse(cx, 9, 13, 4);
+      skull.each((x, y) => { if (y > 20 && x > 20 && x < 44) skull.del(x, y); });
+      skull.rect(17, 20, 21, 38).rect(43, 20, 47, 38);                                                    // cheek plates
+      P.part(skull, STEEL, { spec: true, sep: true });
+      const vis = P.mask().rect(cx - 13, 6, cx + 13, 10);                                                  // visor up
+      P.part(vis, STEEL, { spec: true, sep: true });
+      for (let x = cx - 10; x <= cx + 10; x++) if (x !== cx) P.g.set(x, 8, INK);
+      for (let y = 4; y <= 20; y++) P.g.set(cx, y, y < 11 ? STEEL[4] : STEEL[3]);                           // ridge
+      for (const x of [19, 45]) for (let y = 22; y <= 36; y += 4) P.g.set(x, y, Gr.trim[4]);                // gilt rivets
+      skull.each((x, y) => { if (!skull.has(x, y + 1) && y > 20) P.g.set(x, y, Gr.trim[3]); });
+      crownY = g.helm === 'bascinet' ? 9 : 5; plumeAt = [cx + 2, g.helm === 'bascinet' ? 3 : 4];
+    } else if (hat) {
+      P.part(P.mask().ellipse(cx, 16, 23, 4), g.hatRamp, { sep: true, base: 1 });
+      P.part(P.mask().ellipse(cx, 9, 12, 7).rect(cx - 11, 9, cx + 11, 14), g.hatRamp, { sep: true });
+      P.part(P.mask().rect(cx - 11, 12, cx + 11, 14), GOLD, { flat: true, base: 3 }); P.g.set(cx, 13, '#c83040');
+      crownY = 2; plumeAt = [cx + 6, 9];
+    } else {
+      P.part(P.mask().rect(cx - 12, 19, cx + 12, 21), GOLD, { spec: true, sep: true });
+      P.part(P.mask().ellipse(cx, 20, 2.4, 2.6), tone(g.weapon === 'staff' ? '#5ac8f0' : '#e04060'), { spec: true, sep: true });
+      crownY = 12;
+    }
+    if (Gr.crown) {
+      const cm = P.mask().rect(cx - 12, crownY, cx + 12, crownY + 3);
+      for (const dx of [-11, -5, 0, 5, 11]) cm.poly([[cx + dx - 2, crownY], [cx + dx + 2, crownY], [cx + dx, crownY - (dx === 0 ? 6 : 4)]]);
+      P.part(cm, GOLD, { spec: true, sep: true, base: 3 });
+      for (const [dx, c] of [[-6, '#3060c8'], [0, '#c83040'], [6, '#3060c8']]) P.g.set(cx + dx, crownY + 1, c).set(cx + dx, crownY + 2, mix(c, '#000000', 0.3));
+      if (plumeAt) plumeAt[1] -= 3;
+    }
+    if (plumeAt) {                                                                                         // the plume: a long feather and a white one
+      // it rises from the holder and droops down the far side of the head
+      const [px, py] = plumeAt, curve = [[px, py], [px + 5, py - 2.5], [px + 12, py - 2], [px + 18, py + 2], [px + 22, py + 8], [px + 24, py + 16]];
+      const m1 = P.mask(), m2 = P.mask();
+      for (let i = 0; i + 1 < curve.length; i++) {
+        m1.capsule(curve[i][0], curve[i][1], curve[i + 1][0], curve[i + 1][1], 7.5 - i * 0.9);
+        if (i < 4) m2.capsule(curve[i][0] - 1, curve[i][1] + 3, curve[i + 1][0] - 3, curve[i + 1][1] + 4, 5 - i * 0.8);
+      }
+      P.part(m2, Gr.plume[1], { sep: true, tex: (x, y) => ((x + y) % 3 === 0 ? -1 : 0) });
+      P.part(m1, Gr.plume[0], { sep: true, tex: (x, y) => ((x - y) % 3 === 0 ? 1 : (x + 2 * y) % 5 === 0 ? -1 : 0) });
+      P.part(P.mask().ellipse(px, py + 1, 3, 2.2), Gr.trim, { spec: true, sep: true });
+    }
+    bg.blit(P.done());
+    // a gilt frame
+    for (let i = 0; i < W; i++) { bg.set(i, 0, INK).set(i, W - 1, INK).set(0, i, INK).set(W - 1, i, INK); bg.set(i, 1, Gr.trim[3]).set(1, i, Gr.trim[3]).set(i, W - 2, Gr.trim[1]).set(W - 2, i, Gr.trim[1]); }
+    return bg;
+  }
+  function genCommanderPortrait(o) {
+    const g = commanderGenome(o);
+    const sheet = new Grid(64 * 3, 64);
+    EXPRESSIONS.forEach((e, i) => sheet.blit(commanderBust(g, e), i * 64, 0));
+    return { img: sheet, anim: { fw: 64, fh: 64, fps: 1.5, tracks: [[0, 1, 2].map(i => ({ x: i * 64, y: 0 }))], labels: ['neutral / fierce / smile'] }, name: `commanderface-${g.grand.role}` };
+  }
+
   Object.assign(PG.GENERATORS, {
+    commanderface: { group: 'Medieval 32px', fn: genCommanderPortrait, label: 'General (commander) portrait', size: '64 x 64 x 3 moods', options: { role: ['warrior', 'marksman', 'mage', 'healer'], lord: ['no', 'yes'] } },
     arms:    { group: 'Medieval 32px', fn: genArms,    label: 'Coat of arms', size: '32 x 36', options: { own: ['no', 'yes'] } },
     commander: { group: 'Medieval 32px', fn: genCommander, label: 'General (commander) sheet', size: '40 x 48 frames', options: { role: ['warrior', 'marksman', 'mage', 'healer'], lord: ['no', 'yes'] } },
     soldier: { group: 'Medieval 32px', fn: genSoldier, label: 'Soldier sheet', size: '32 x 40 frames', options: { troop: ['random', ...Object.keys(TROOPS)], robe: ['no', 'yes'], weapon: ['random', 'sword', 'mace', 'axe', 'spear', 'halberd', 'poleaxe', 'bill', 'longbow', 'crossbow', 'staff'], helm: ['random', 'none', 'greathelm', 'bascinet', 'sallet', 'kettle', 'coif', 'hood', 'cap'] } },
