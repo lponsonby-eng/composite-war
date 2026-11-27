@@ -100,7 +100,7 @@ const Art = {
   landmark(type) {
     const L = this.bcat && this.bcat._landmarks && this.bcat._landmarks[type];
     if (L && L.length) {                                   // from the building packs, in the region's tone
-      const key = 'pl:' + type, st = { castle: 'castle', icepeak: 'igloo', ruins: 'tower', shrine: 'village' }[type];
+      const key = 'pl:' + type, st = { castle: 'castle', icepeak: 'igloo', ruins: 'tower', shrine: 'village', deadtree: 'treehut', crystal: 'spire', pyramid: 'adobe' }[type];
       if (!this.cache[key]) { const cv = this.packPicture(L[0], st), b = cv.box; cv.box = { x0: b.x0 * 2, y0: b.y0 * 2, x1: b.x1 * 2, y1: b.y1 * 2, tx: b.tx * 2, ty: b.ty * 2 }; this.cache[key] = cv; }
       return this.cache[key];
     }

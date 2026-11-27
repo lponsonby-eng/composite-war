@@ -16,6 +16,7 @@ Sources (thank you!):
                    (free for games, modify and recolour allowed; not to be resold or redistributed unchanged)
   MutterPixel Studio https://mutterpixel-studio.itch.io/ruined-village-buildings-pixel-art-assets
                    (free for games, may be edited; raw files not to be shared outside a project)
+  Landmarks: Tamal (dead tree), FrakAssets (crystal, CC BY 4.0), SdavGha (pyramid; AI-assisted, cleaned by hand)
 """
 import sys, os, glob, json, re
 from PIL import Image
@@ -45,7 +46,11 @@ PICKS = {
 }
 
 # region landmarks drawn from the packs (the rest keep their own drawings: volcano, dead tree...)
-LANDMARKS = {'castle': DEVS.format(149), 'icepeak': DEVS.format(116), 'ruins': RUIN.format(4), 'shrine': DEVS.format(75)}
+LANDMARKS = {'castle': DEVS.format(149), 'icepeak': DEVS.format(116), 'ruins': RUIN.format(4), 'shrine': DEVS.format(75),
+             # from the second round of free packs (in the gap folder)
+             'deadtree': 'GAP:tamal--dead-tree-pixel-art-128x128/x/upload_19356030/Dead Tree 2/Sprite1.png',
+             'crystal': 'GAP:frakassets--free-glowing-crystal/x/free_glowing_crystal_frakassets/crystal_5_64x64_12f_20d.png@64',
+             'pyramid': 'GAP:sdavgha--pixel-worlds-desert-egypt-props/x/Pixel_Worlds_Desert_Egypt_Props/Egypt/eg5_01_small_pyramid_1x.png'}
 
 def crop(im):
     a = im.getchannel('A').point(lambda v: 255 if v > 40 else 0)
@@ -58,7 +63,7 @@ def half(im):
     out.putalpha(im.getchannel('A').point(lambda v: 255 if v > 40 else 0).resize((w, h), Image.BOX).point(lambda v: 255 if v >= 128 else 0))
     return out
 
-def main(root, out):
+def main(root, out, gap=''):
     os.makedirs(out, exist_ok=True)
     pics, cat = [], {}
     for style, sizes in PICKS.items():
@@ -72,9 +77,18 @@ def main(root, out):
                 if im.width > 90 or im.height > 76: im = crop(half(im))
                 pics.append((style, size, im, os.path.basename(f)))
     for kind, f in LANDMARKS.items():
-        im = crop(Image.open(os.path.join(root, f)).convert('RGBA'))
+        fw = None
+        if '@' in f: f, fw = f.split('@'); fw = int(fw)
+        path = os.path.join(gap, f[4:]) if f.startswith('GAP:') else os.path.join(root, f)
+        if not os.path.exists(path): print('missing landmark', kind); continue
+        im = Image.open(path).convert('RGBA')
+        if fw: im = im.crop((0, 0, fw, im.height))                      # the first frame of a strip
+        if kind == 'pyramid': im = half(im)
+        im = crop(im)
         pics.append(('_landmarks', kind, im, os.path.basename(f)))
     cat['_landmarks'] = {k: [] for k in LANDMARKS}
+    for style, size, im, src, *_ in pics:
+        if style == '_landmarks': pass
     # pack into rows
     W = 1024; x = y = rowh = 0; places = []
     for style, size, im, src in pics:
@@ -90,4 +104,5 @@ def main(root, out):
     print(len(pics), 'buildings,', atlas.size)
 
 if __name__ == '__main__':
-    main(sys.argv[1], sys.argv[2] if len(sys.argv) > 2 else os.path.join(os.path.dirname(__file__), '..', '..', 'assets', 'buildings'))
+    # usage: buildings.py <building packs> [<gap packs>]
+    main(sys.argv[1], os.path.join(os.path.dirname(__file__), '..', '..', 'assets', 'buildings'), sys.argv[2] if len(sys.argv) > 2 else '')

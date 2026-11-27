@@ -20,13 +20,19 @@ const Chars = {
     cleric: 'lm_wizard', shaman: 'lm_wizard', druid: 'lm_wizard', seapriest: 'lm_wizard', sunpriest: 'lm_wizard',
     ninja: 'lm_martial_hero3',
     skeleton: 'lm_skeleton', bonepriest: 'lm_skeleton', flame: 'lm_fire_worm', ghost: 'sv_wraith',
-    frosteye: 'lm_flying_eye', crystal: 'lm_flying_eye', hawk: 'lm_bat', slime: 'lm_slime', thorn: 'lm_mushroom',
+    frosteye: 'lm_flying_eye', crystal: 'lm_flying_eye', hawk: 'pb_hawk', slime: 'lm_slime', thorn: 'lm_mushroom',
     bogshaman: 'lm_goblin', frogman: 'lm_goblin', fishfolk: 'lm_goblin', beast: 'sv_berserker',
+    // cavalry, beasts and engines from the second round of free packs
+    lancer: 'ad_rider', emberider: 'ad_rider', nightmare: 'ad_rider', stagrider: 'ad_rider', waverider: 'ad_rider',
+    camelrider: 'ot_camel', bearrider: 'pb_dire_bear', boarrider: 'tw_boar', yeti: 'pr_yeti', beetle: 'pg_beetle',
+    bulwark: 'el_crab', cannon: 'pd_cannon', firecannon: 'pd_cannon', suncannon: 'pd_cannon', mortar: 'pd_cannon',
+    catapult: 'np_catapult',
   },
   // monsters whose colours are their own (a fire worm stays fiery): recoloured only slightly
   OWN_COLOURS: ['lm_skeleton', 'lm_fire_worm', 'sv_wraith', 'lm_flying_eye', 'lm_bat', 'lm_slime', 'lm_mushroom',
-    'lm_goblin', 'sv_berserker', 'sv_flame_demon', 'sv_flame_demon2', 'lm_rat'],
-  MONSTER_GENERALS: { ignis: 'sv_flame_demon2', morta: 'lm_evil_wizard3', ooze: 'lm_slime', morrow: 'lm_mushroom',
+    'lm_goblin', 'sv_berserker', 'sv_flame_demon', 'sv_flame_demon2', 'lm_rat',
+    'pr_yeti', 'pb_dire_bear', 'pb_hawk', 'pb_wolf', 'pb_scorpion', 'tw_boar', 'el_crab', 'pg_beetle', 'pd_cannon', 'np_catapult'],
+  MONSTER_GENERALS: { brrn: 'pr_yeti', grimbark: 'pg_beetle', shellos: 'el_crab', ignis: 'sv_flame_demon2', morta: 'lm_evil_wizard3', ooze: 'lm_slime', morrow: 'lm_mushroom',
     krug: 'sv_berserker', gill: 'lm_goblin', lumi: 'lm_flying_eye', zephyr: 'lm_bat' },
   HEROES: {
     lord: ['lm_king2', 'lm_king'],

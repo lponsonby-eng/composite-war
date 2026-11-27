@@ -1113,6 +1113,36 @@
     "src": "medieval-buildings-pixel-art-pack (75).png",
     "k": 2
    }
+  ],
+  "deadtree": [
+   {
+    "x": 265,
+    "y": 436,
+    "w": 61,
+    "h": 103,
+    "src": "Sprite1.png",
+    "k": 1
+   }
+  ],
+  "crystal": [
+   {
+    "x": 327,
+    "y": 436,
+    "w": 61,
+    "h": 62,
+    "src": "crystal_5_64x64_12f_20d.png",
+    "k": 1
+   }
+  ],
+  "pyramid": [
+   {
+    "x": 389,
+    "y": 436,
+    "w": 134,
+    "h": 105,
+    "src": "eg5_01_small_pyramid_1x.png",
+    "k": 1
+   }
   ]
  }
 }
