@@ -41,7 +41,7 @@ const BattleUI = {
       if (e.pointerType !== 'touch') b.hover = b.toWorld(...p);
       if (pinch && pts.size === 2) {               // two fingers: pan and zoom
         const [a, c] = [...pts.values()], d = Math.hypot(a[0] - c[0], a[1] - c[1]), mid = [(a[0] + c[0]) / 2, (a[1] + c[1]) / 2];
-        b.cam.z = clamp(pinch.z * d / pinch.d, 0.4, 4);
+        b.cam.z = clamp(pinch.z * d / pinch.d, 0.3, 4 * ART);
         b.cam.x = pinch.cam.x - (mid[0] - pinch.mid[0]) / b.scale; b.cam.y = pinch.cam.y - (mid[1] - pinch.mid[1]) / b.scale;
         return;
       }

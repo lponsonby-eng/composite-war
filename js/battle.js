@@ -15,7 +15,9 @@
 //  Skills are handlers in SKILL_FX (below the class) and can use the squad-level
 //  helpers (squadUnits, putSquad, teleportSquad, push, buffSquad) to build new ones.
 // =============================================================================
-const UNIT_SIZE = { soldier: 22, leader: 28 };   // battle sprites (32 px figures) are drawn this big; generals stand taller than their men
+// Battle sprites (32 px figures) are drawn this big in world pixels: 22 = exactly one art pixel
+// each (see ART), so they stay on the pixel grid. Generals stand out by plume, cape and size of frame.
+const UNIT_SIZE = { soldier: 22, leader: 22 };
 
 class Battle {
   constructor(opts) {
@@ -57,7 +59,7 @@ class Battle {
       this.fogLit = new Float32Array(this.fw * this.fh); this.exploredSoft = new Float32Array(this.fw * this.fh);
       this.fogCanvas = document.createElement('canvas'); this.fogCanvas.width = this.fw; this.fogCanvas.height = this.fh;
       const me = this.home[Math.max(0, this.playerSide)];
-      this.cam = { x: me.x + (this.playerSide === 1 ? -260 : 260), y: me.y, z: 0.95 };
+      this.cam = { x: me.x + (this.playerSide === 1 ? -260 : 260), y: me.y, z: ART / (window.devicePixelRatio || 1) };   // opens at one screen pixel per art pixel (crisp)
       this.bg = this.buildBackground();
       this.updateFog();
       // announce landmark powers at the start
@@ -1250,91 +1252,91 @@ class Battle {
   // ------------------------------------------------------------------ drawing
   buildBackground() {
     const cv = document.createElement('canvas');
-    cv.width = this.W * 2; cv.height = this.H * 2;            // drawn at twice the detail
+    cv.width = Math.ceil(this.W * ART); cv.height = Math.ceil(this.H * ART);   // one pixel per art pixel (see ART)
     const ctx = cv.getContext('2d');
-    ctx.scale(2, 2);
+    ctx.scale(ART, ART);
     let seed = 0; for (const ch of this.opts.spotName) seed = seed * 31 + ch.charCodeAt(0);
     const rng = makeRng(seed);
     const T = Assets.img;
-    // Calm grass: broad soft patches between the two grass tiles' average colours,
-    // with the tile texture laid over faintly (no more tile checkerboard).
-    const avg = im => { const c = document.createElement('canvas'); c.width = c.height = 1; const x = c.getContext('2d');
-      x.drawImage(im, 0, 0, 1, 1); return x.getImageData(0, 0, 1, 1).data; };
-    const ga = avg(T['tile:ground_grass']), gb = avg(T['tile:ground_grass2']);
-    const noise = makeNoise(seed & 0xffff);
-    const lw = Math.ceil(this.W / 4), lh = Math.ceil(this.H / 4);
-    const lo = document.createElement('canvas'); lo.width = lw; lo.height = lh;
-    const lc = lo.getContext('2d'), id = lc.createImageData(lw, lh);
-    for (let y = 0; y < lh; y++) for (let x = 0; x < lw; x++) {
-      const n = noise(x / 22, y / 22) * 0.7 + noise(x / 7 + 40, y / 7) * 0.3;
-      const t = Math.round(Math.max(0, Math.min(1, (n - 0.3) / 0.45)) * 4) / 4 * 0.85;
-      const i = (y * lw + x) * 4;
-      for (let k = 0; k < 3; k++) id.data[i + k] = ga[k] + (gb[k] - ga[k]) * t;
-      id.data[i + 3] = 255;
+    // The ground, painted straight onto the art-pixel grid in three shades of the region's
+    // ground from the palette: broad soft patches, ragged where they meet, and sparse blades
+    // of grass (or snow glints, pebbles...). No repeating tile, so no stripes.
+    const GROUNDS = { frost: ['9babb2', 'c7dcd0', 'ffffff'], sun: ['e6904e', 'fbb954', 'f9c22b'], ember: ['3e3546', '625565', '966c6c'],
+      bog: ['374e4a', '547e64', '676633'], shadow: ['3e3546', '625565', '7f708a'], darkwood: ['165a4c', '374e4a', '239063'] };
+    const shades = (GROUNDS[this.terrain.region] || ['165a4c', '239063', '547e64']).map(h => { const n = parseInt(h, 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; });
+    const noise = makeNoise(seed & 0xffff), gw = cv.width, gh = cv.height, img = new ImageData(gw, gh), gd = img.data;
+    const hash = (x, y) => { const h = Math.imul(x * 374761393 + y * 668265263, 1274126177); return ((h ^ (h >>> 15)) >>> 0) / 4294967296; };
+    for (let y = 0; y < gh; y++) for (let x = 0; x < gw; x++) {
+      const n = noise(x / 70, y / 70) * 0.75 + noise(x / 18 + 40, y / 18) * 0.25 + (hash(x >> 1, y >> 1) - 0.5) * 0.08;
+      let k = n < 0.36 ? 0 : n > 0.62 ? 2 : 1;
+      const r = hash(x, y);
+      if (r < 0.012 && k < 2) { k++; if (y + 1 < gh) { const j = ((y + 1) * gw + x) * 4; gd[j] = shades[k][0]; gd[j + 1] = shades[k][1]; gd[j + 2] = shades[k][2]; gd[j + 3] = 255; } }   // a blade
+      else if (r > 0.994 && k > 0) k--;
+      const i = (y * gw + x) * 4;
+      if (gd[i + 3]) continue;                                        // (a blade already drawn here)
+      gd[i] = shades[k][0]; gd[i + 1] = shades[k][1]; gd[i + 2] = shades[k][2]; gd[i + 3] = 255;
     }
-    lc.putImageData(id, 0, 0);
-    const meadow = typeof Gen !== 'undefined' && Gen.on && PixelGen.generate('field', { seed: (seed >>> 0) % 9973 + 1, field: 'meadow' });
-    if (meadow) {
-      // generated leafy meadow, drawn so its pixels match the unit sprites (3/4 of a world pixel)
-      const tile = Gen.canvas(meadow.img, 64, 64, 0, 1), ts = 48;
-      ctx.imageSmoothingEnabled = false;
-      for (let y = 0; y < this.H; y += ts) for (let x = 0; x < this.W; x += ts) ctx.drawImage(tile, x, y, ts, ts);
-    } else {
-      ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
-      ctx.drawImage(lo, 0, 0, lw * 4, lh * 4);
-      ctx.globalAlpha = 0.16;
-      for (let y = 0; y < this.H; y += 16) for (let x = 0; x < this.W; x += 16) HD.draw(ctx, T['tile:ground_grass'], x, y);
-      ctx.globalAlpha = 1;
-    }
-    const tint = (DATA.regions[this.terrain.region] || {}).battle;
-    if (tint) {                                    // recolour the grass to the region's ground (snow, sand, ash...)
-      ctx.globalCompositeOperation = 'color'; ctx.fillStyle = tint; ctx.fillRect(0, 0, this.W, this.H);
-      ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = this.terrain.region === 'frost' ? 0.8 : 0.55; ctx.fillRect(0, 0, this.W, this.H);
-      ctx.globalAlpha = 1;
-    }
+    ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.putImageData(img, 0, 0); ctx.restore();
+    const meadow = typeof Gen !== 'undefined' && Gen.on;
     const lush = !['frost', 'sun', 'ember'].includes(this.terrain.region);
     for (let i = 0; i < (meadow ? 26 : 90); i++) {
       const x = Math.floor(rng() * (this.W - 16)), y = Math.floor(rng() * (this.H - 16));
       if (!lush || this.terrain.kindAt(x + 8, y + 8) !== GROUND.grass) continue;
       if (meadow) {                                // generated bushes, rocks and stumps
         const kind = ['bush', 'bush', 'rock', 'stump'][Math.floor(rng() * 4)];
-        const p = PixelGen.generate('prop', { seed: 1 + Math.floor(rng() * 40), prop: kind }).img, c = Gen.canvas(p, p.w, p.h, 0, 1);
+        const p = PixelGen.generate('prop', { seed: 1 + Math.floor(rng() * 40), prop: kind }).img, c = Gen.canvas(p, p.w, p.h, 0, 1);   // (bushes, rocks, stumps)
         ctx.imageSmoothingEnabled = false;
-        ctx.drawImage(c, x, y, p.w * 0.75, p.h * 0.75);
+        artDraw(ctx, c, x, y);
       } else HD.draw(ctx, T['tile:' + ['grass_tuft', 'grass_tuft', 'bush'][Math.floor(rng() * 3)]], x, y);
     }
     this.terrain.draw(ctx);
-    return cv;
+    return Palette.canvas(cv, 0);                  // the whole field in the game's palette, on the art grid
   }
 
   // Camera: world point at the centre of the screen and zoom (screen px per world px).
+  // Zoomed in, screen pixels per art pixel (N) are a whole number, so pixel art stays crisp;
+  // zoomed out below 1 it shrinks smoothly (no pixel art survives that anyway).
   fit(canvas) {
     const dpr = window.devicePixelRatio || 1, c = this.cam;
     const minZ = Math.max(canvas.width / this.W, canvas.height / this.H) / dpr;
-    c.z = clamp(c.z, minZ, 3.5);
-    this.scale = c.z * dpr;
+    c.z = clamp(c.z, minZ, 4 * ART);
+    let N = c.z * dpr / ART;
+    if (N >= 1) N = Math.max(1, Math.round(N));
+    if (N * ART < minZ * dpr) N = minZ * dpr / ART;                   // the whole field must still fill the screen
+    this.N = N; this.scale = N * ART;
     const hw = canvas.width / 2 / this.scale, hh = canvas.height / 2 / this.scale;
     c.x = clamp(c.x, hw, this.W - hw); c.y = clamp(c.y, hh, this.H - hh);
-    this.ox = Math.round(canvas.width / 2 - c.x * this.scale);
-    this.oy = Math.round(canvas.height / 2 - c.y * this.scale);
+    const snap = v => N >= 1 ? Math.round(v / N) * N : Math.round(v);   // on whole art pixels
+    this.ox = snap(canvas.width / 2 - c.x * this.scale);
+    this.oy = snap(canvas.height / 2 - c.y * this.scale);
     this.cw = canvas.width; this.ch = canvas.height;
   }
   toWorld(px, py) { return [(px - this.ox) / this.scale, (py - this.oy) / this.scale]; }
   zoomAt(f, px, py) {
     const [wx, wy] = this.toWorld(px, py), dpr = window.devicePixelRatio || 1;
-    this.cam.z = clamp(this.cam.z * f, 0.3, 3.5);
+    const N = this.N || 1;                                             // step a whole art-pixel size at a time when zoomed in
+    if (N >= 1 && f > 1) this.cam.z = (Math.round(N) + 1) * ART / dpr;
+    else if (N > 1.5 && f < 1) this.cam.z = (Math.round(N) - 1) * ART / dpr;
+    else this.cam.z = this.cam.z * f;
+    this.cam.z = clamp(this.cam.z, 0.3, 4 * ART);
     const s = this.cam.z * dpr;
     this.cam.x = wx - (px - this.cw / 2) / s; this.cam.y = wy - (py - this.ch / 2) / s;
   }
 
-  render(ctx, canvas) {
+  // The world is drawn into a buffer at one pixel per art pixel (ART art pixels per world
+  // pixel, so soldiers' 32 px art lands 1:1), then enlarged onto the screen by a whole
+  // number (this.N), so every sprite, wall, road and house shares one pixel grid. Squad
+  // markers, numbers and messages are drawn sharp on the screen on top.
+  render(screen, canvas) {
     this.fit(canvas);
+    const N = this.N, bw = Math.ceil(canvas.width / N), bh = Math.ceil(canvas.height / N);
+    if (!this.buf || this.buf.width !== bw || this.buf.height !== bh) { this.buf = document.createElement('canvas'); this.buf.width = bw; this.buf.height = bh; }
+    let ctx = this.buf.getContext('2d');
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = '#16241a'; ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.setTransform(this.scale, 0, 0, this.scale, this.ox, this.oy);
-    ctx.imageSmoothingEnabled = this.scale < 2;
-    ctx.drawImage(this.bg, 0, 0, this.W, this.H);
+    ctx.fillStyle = '#16241a'; ctx.fillRect(0, 0, bw, bh);
+    ctx.setTransform(ART, 0, 0, ART, this.ox / N, this.oy / N);
     ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(this.bg, 0, 0, this.W, this.H);
     const [vx0, vy0] = this.toWorld(0, 0), [vx1, vy1] = this.toWorld(canvas.width, canvas.height);
     const onScreen = (x, y) => x > vx0 - 30 && x < vx1 + 30 && y > vy0 - 40 && y < vy1 + 30;
 
@@ -1445,7 +1447,6 @@ class Battle {
         ctx.beginPath(); ctx.arc(f.x, f.y, 7 + k * 3, a0 - 0.9, a0 + 0.9); ctx.stroke();
       } else Assets.drawFx(ctx, f.name, f.t, f.x, f.y);
     }
-    for (const t of this.texts) if (this.cellVisible(t.x, t.y)) label(ctx, t.s, t.x, t.y, t.color, 'center', 12);
 
     // fog of war over everything, soft-edged
     if (this.playerSide >= 0 && this.fog) {
@@ -1458,6 +1459,13 @@ class Battle {
       ctx.strokeStyle = '#ffe680'; ctx.lineWidth = 1 / this.cam.z;
       ctx.strokeRect(this.box.x0, this.box.y0, this.box.x1 - this.box.x0, this.box.y1 - this.box.y0);
     }
+    // enlarge the buffer onto the screen; then sharp text, markers and messages on top
+    screen.setTransform(1, 0, 0, 1, 0, 0);
+    screen.imageSmoothingEnabled = N < 1;
+    screen.drawImage(this.buf, 0, 0, bw * N, bh * N);
+    ctx = screen;
+    ctx.setTransform(this.scale, 0, 0, this.scale, this.ox, this.oy);
+    for (const t of this.texts) if (this.cellVisible(t.x, t.y)) label(ctx, t.s, t.x, t.y, t.color, 'center', 12);
     const dpr = window.devicePixelRatio || 1;
     this.drawBanners(ctx, dpr);
     this.drawGroundInfo(ctx, canvas, dpr);

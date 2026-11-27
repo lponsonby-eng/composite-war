@@ -178,7 +178,7 @@ const Gen = {
   canvas(grid, fw, fh, pad, rows, scale = 1) {
     const c = document.createElement('canvas'); c.width = grid.w; c.height = grid.h;
     const x = c.getContext('2d');
-    x.putImageData(new ImageData(grid.toRGBA(), grid.w, grid.h), 0, 0);
+    x.putImageData(new ImageData(Palette.quantize(grid.toRGBA()), grid.w, grid.h), 0, 0);   // in the game's palette
     c.fw = fw; c.fh = fh; c.pad = pad; c.rows = rows; c.scale = scale;   // scale: big creatures are drawn larger
     return c;
   },

@@ -137,6 +137,11 @@ const Assets = {
   },
   // Generated art is drawn with hard pixel edges (no smoothing).
   crisp(ctx, im, sx, sy, sw, sh, dx, dy, dw, dh) {
+    const m = ctx.getTransform();
+    if (!m.b && !m.c && m.a > 0) {                       // land on whole pixels of the target (battles draw at 1 art pixel each)
+      dx = (Math.round(dx * m.a + m.e) - m.e) / m.a; dy = (Math.round(dy * m.d + m.f) - m.f) / m.d;
+      dw = Math.round(dw * m.a) / m.a; dh = Math.round(dh * m.d) / m.d;
+    }
     const prev = ctx.imageSmoothingEnabled;
     ctx.imageSmoothingEnabled = false;
     ctx.drawImage(im, sx, sy, sw, sh, dx, dy, dw, dh);
@@ -171,7 +176,8 @@ const Assets = {
     const fw = src.fw || 16, fh = src.fh || 16;
     Object.assign(cv, { fw: src.fw, fh: src.fh, pad: src.pad, rows: src.rows, corpse: src.corpse, scale: src.scale });
     for (let i = 0; i < W * H; i++) a[i] = p[i * 4 + 3] > 128 ? 1 : 0;
-    const r = parseInt(col.slice(1, 3), 16), g = parseInt(col.slice(3, 5), 16), b = parseInt(col.slice(5, 7), 16);
+    let r = parseInt(col.slice(1, 3), 16), g = parseInt(col.slice(3, 5), 16), b = parseInt(col.slice(5, 7), 16);
+    if (typeof Palette !== 'undefined' && Palette.on) { const q = Palette.table()[(r >> 3) << 10 | (g >> 3) << 5 | b >> 3]; r = q >> 16; g = q >> 8 & 255; b = q & 255; }   // the side's colour, from the palette
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
       if (a[y * W + x]) continue;
       const same = (nx, ny) => nx >= 0 && ny >= 0 && nx < W && ny < H && Math.floor(nx / fw) === Math.floor(x / fw) && Math.floor(ny / fh) === Math.floor(y / fh) && a[ny * W + nx];
