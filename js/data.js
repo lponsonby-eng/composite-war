@@ -52,12 +52,14 @@ window.DATA = {
     // (leading it), scattered by `scatter` x the distance, and hits whoever is within
     // `hitR` (hitRMen in blocks of men) of where it comes down, so troops on the move
     // and loose files dodge some of them, and long shots miss more. speed: px per second.
-    missile: { arrow: 150, bolt: 130, artillery: 110, skill: 170, scatter: 0.05, hitR: 11, hitRMen: 6.5, lead: 0.8 },
+    missile: { arrow: 150, bolt: 130, artillery: 110, skill: 170, scatter: 0.05, hitR: 11, hitRMen: 10, lead: 0.8 },
     // Town gates are shut in a siege and must be battered down: hp (x menMul in big live
     // battles), and how hard each kind of unit hits them (artillery smashes, arrows barely scratch).
     gate: { hp: 6000, menMul: 5, melee: 1, artillery: 2, shooter: 0.1, mage: 0.4 },
     speedMul: 1.3,               // marching pace on the big field
-    spacing: 9.5,                // pixels between men in a block (ranks and files)
+    spacing: 13,                 // pixels between men in a block (ranks and files), so each man stands apart
+    spacingY: 1.5,               // ...and this much more up and down the screen, as the figures are tall and narrow
+    spacingAuto: 9.5,            // auto-resolved battles (nothing is drawn) keep the tight spacing they were balanced with
     squadGap: 40,                // gap between neighbouring blocks in a group formation
     personal: 14,                // soldiers push apart closer than this (1 man per soldier)...
     personalMen: 7.5,            // ...and in blocks of men

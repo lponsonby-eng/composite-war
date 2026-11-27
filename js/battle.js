@@ -34,6 +34,9 @@ class Battle {
     this.done = false; this.banner = null;
     this.xp = {};                            // gid -> XP earned from kills this battle
     this.terrain = new Terrain(opts.spotId, this.W, this.H);
+    // spacing between men: the wide, tall-figure spacing only matters to the eye, so auto-resolved
+    // battles (nothing drawn) keep the tight spacing their balance was tuned with
+    this.spacing = this.men > 1 ? B.spacing : B.spacingAuto; this.spacingY = this.men > 1 ? B.spacingY : 1;
     if (this.terrain.walls) for (const g of this.terrain.gates)          // gates are tougher in big battles (more men batter them)
       g.hp = g.maxHp = B.gate.hp * (this.men > 1 ? B.gate.menMul : 1) * DATA.sites[this.terrain.site].gateHp;
     this.boosts = opts.boosts || [null, null];   // landmark powers for each side: { unit, k, L } or null
@@ -41,6 +44,8 @@ class Battle {
     this.placeSquads(opts.defenders, 1);
     // where each side expects to find the enemy before it has seen them
     this.home = [0, 1].map(s => centroid(this.squads.filter(q => q.side === s).map(q => q.leader)));
+    this.lastSeen = [null, null];
+    this.sizeUp();                           // who sees whom from the start (the battle opens paused: show the enemy)
     this.lastSeen = [null, null];
     this.paused = !this.headless && this.playerSide >= 0;     // the player starts paused to give orders
     this.sel = new Set();                                      // selected squads (player side)
@@ -75,12 +80,15 @@ class Battle {
     const front = made.filter(q => q.row === 'front'), back = made.filter(q => q.row === 'back');
     const walled = side === 1 && T.walls;
     if (walled) { this.placeInTown(front, back); return; }
-    const rows = [[front, 360], [back, 265]].filter(r => r[0].length);
+    // the back row stands far enough behind the front row that the blocks don't overlap
+    const S = this.spacing, dep = (q, n) => n ? 12 + this.blockShape(n, q.files).depth * S : 0;
+    const rear = Math.max(0, ...front.map(q => dep(q, q.nBack))), ahead = Math.max(0, ...back.map(q => dep(q, q.nFront)));
+    const rows = [[front, 360], [back, Math.min(265, 360 - rear - ahead - 20)]].filter(r => r[0].length);
     // where every squad would stand for a given sideways shift / forward step
     const layout = (shift, step) => {
       const out = [];
       for (const [list, depth] of rows) {
-        const ws = list.map(q => this.squadWidth(q)), total = ws.reduce((a, b) => a + b, 0);
+        const ws = list.map(q => this.squadWidth(q) * this.spacingY), total = ws.reduce((a, b) => a + b, 0);
         const g = Math.max(10, Math.min(gap, (H - 140 - total) / Math.max(1, list.length - 1)));
         let y = H / 2 + shift - (total + g * (list.length - 1)) / 2;
         list.forEach((q, i) => {
@@ -109,27 +117,64 @@ class Battle {
   // remembers its post (computer defenders go back to it once the town is clear).
   placeInTown(front, back) {
     const T = this.terrain, t = T.town, w = t.wall, ix0 = t.x0 + w, iy0 = t.y0 + w, ix1 = t.x1 - w, iy1 = t.y1 - w;
+    const S = this.spacing;
     const gates = T.gates.slice().sort((a, b) => 'wnse'.indexOf(a.side) - 'wnse'.indexOf(b.side));
+    // posts on the wall-walk beside each gate: the block's frontage runs along the wall, from
+    // just past the gateway to short of the corner, so each wall holds one block a side
     const walls = [];
-    for (const g of gates) for (const s of [-1, 1]) walls.push({ p: T.gatePoint(g, -(w / 2 + 34), s * (g.half + 78)), face: [g.nx, g.ny] });
-    walls.push({ p: [ix0 + 120, iy0 + 34], face: [0, -1] }, { p: [ix0 + 120, iy1 - 34], face: [0, 1] },
-      { p: [ix0 + 34, iy0 + 110], face: [-1, 0] }, { p: [ix0 + 34, iy1 - 110], face: [-1, 0] });
-    const gatesIn = gates.map(g => ({ p: T.gatePoint(g, -(w / 2 + 120), 0), face: [g.nx, g.ny] }));
-    const used = [];
-    const free = (x, y, r) => !used.some(([ux, uy]) => Math.hypot(ux - x, uy - y) < r);
-    const square = k => ({ p: [t.cx - 40 + (k % 3) * 110 - 110, t.cy + Math.floor(k / 3) * 90 - 40], face: [-1, 0] });
-    let k = 0;
+    for (const g of gates) for (const s of [-1, 1]) {
+      const len = (g.nx ? (iy1 - iy0) : (ix1 - ix0)) / 2 - g.half - 50;                 // room along the wall
+      walls.push({ g, s, len, face: [g.nx, g.ny] });
+    }
+    for (const [x, y, f, len] of [[ix0 + 34, (iy0 + iy1) / 2, [-1, 0], (iy1 - iy0) - 60], [(ix0 + ix1) / 2, iy0 + 34, [0, -1], ix1 - ix0 - 60], [(ix0 + ix1) / 2, iy1 - 34, [0, 1], ix1 - ix0 - 60]])
+      walls.push({ p: [x, y], len, face: f });
+    // anywhere else inside: a fine grid of spots, tried nearest first to where the block is wanted
+    const grid = [];
+    for (let y = iy0 + 40; y <= iy1 - 40; y += 20) for (let x = ix0 + 40; x <= ix1 - 40; x += 20) grid.push([x, y]);
+    const near = (x, y, face) => grid.slice().sort((a, b) => Math.hypot(a[0] - x, a[1] - y) - Math.hypot(b[0] - x, b[1] - y)).map(p => ({ p, face, len: 170 }));
+    const used = [];                                                     // [x0, y0, x1, y1] of each placed block
+    // the block's men stand from `behind` the general to `ahead` of him (all in front when it has no backline)
+    const reach = q => { const d = n => n ? 12 + this.blockShape(n, q.files).depth * S : 0; return [d(q.nFront), d(q.nBack)]; };
+    // the box a block fills with its centre at (x, y), and where its general then stands
+    const boxOf = (q, x, y, face) => {
+      const [ahead, behind] = reach(q), k = this.spacingY;
+      const hw = this.stretch(this.squadWidth(q), -face[1], face[0]) / 2 + 8, hd = (ahead + behind) / 2 * Math.hypot(face[0], face[1] * k) + 8;
+      const ex = Math.abs(face[0]) > 0.5 ? hd : hw, ey = Math.abs(face[0]) > 0.5 ? hw : hd;
+      const off = (ahead - behind) / 2;
+      return { box: [x - ex, y - ey, x + ex, y + ey], lead: [x - face[0] * off, y - face[1] * off * k] };
+    };
+    const overlap = r => used.reduce((a, u) => a + Math.max(0, Math.min(r[2], u[2]) - Math.max(r[0], u[0])) * Math.max(0, Math.min(r[3], u[3]) - Math.max(r[1], u[1])), 0);
+    const fit = (q, c) => {                                              // ranks thin enough for the post, then where it stands
+      const k = Math.hypot(-c.face[1], c.face[0] * this.spacingY);
+      q.files = Math.max(3, Math.min(this.blockShape(this.squadN(q)).files, Math.floor(c.len / (S * k))));
+      if (!c.g) return c.p;
+      const half = this.stretch(this.squadWidth(q), -c.face[1], c.face[0]) / 2;
+      const [ahead, behind] = reach(q);
+      return T.gatePoint(c.g, -(w / 2 + 10 + (ahead + behind) / 2), c.s * (c.g.half + 14 + half));
+    };
     const put = (q, list) => {
-      let post = list.find(c => free(c.p[0], c.p[1], 120));
-      if (!post) post = square(k++);
-      used.push(post.p);
-      q.post = { x: post.p[0], y: post.p[1], face: post.face };
-      this.putSquad(q, post.p[0], post.p[1], post.face);
+      let best = null, bo = Infinity;                                    // the first clear spot, or else the least crowded
+      for (const c of list) {
+        const at = fit(q, c), { box, lead } = boxOf(q, at[0], at[1], c.face);
+        if (box[0] < ix0 - 2 || box[2] > ix1 + 2 || box[1] < iy0 - 2 || box[3] > iy1 + 2) continue;
+        const o = overlap(box);
+        if (o < bo) { bo = o; best = { lead, face: c.face, box, files: q.files }; if (!o) break; }
+      }
+      if (!best) best = { lead: [t.cx, t.cy], face: [-1, 0], box: null, files: 0 };
+      q.files = best.files; if (best.box) used.push(best.box);
+      const p = best.lead, face = best.face;
+      q.post = { x: p[0], y: p[1], face };
+      this.putSquad(q, p[0], p[1], face);
       this.squads.push(q);
     };
-    for (const q of back) put(q, walls);
-    for (const q of front) put(q, gatesIn);
+    for (const q of back) put(q, walls.concat(near(ix0 + 60, (iy0 + iy1) / 2, [-1, 0])));
+    front.forEach((q, i) => {                                            // one just inside each gate, facing it; the rest back in the square
+      if (i >= gates.length) return put(q, near(t.cx + 70, t.cy, [-1, 0]));
+      const g = gates[i], [x, y] = T.gatePoint(g, -(w / 2 + 150), 0);
+      put(q, near(x, y, [g.nx, g.ny]));
+    });
   }
+
 
   // A general's squad: the hero and their men (placed later by putSquad). In a live
   // battle each campaign soldier takes the field as `this.men` men.
@@ -199,9 +244,9 @@ class Battle {
     return { depth, files: Math.ceil(n / depth) };
   }
   squadN(sq) { return Math.max(1, sq.nFront || 0, sq.nBack || 0); }
-  squadWidth(sq, files = sq.files) { return this.blockShape(this.squadN(sq), files).files * DATA.battle.spacing; }
+  squadWidth(sq, files = sq.files) { return this.blockShape(this.squadN(sq), files).files * this.spacing; }
   squadDepth(sq, files = sq.files) {
-    const S = DATA.battle.spacing, d = n => n ? this.blockShape(n, files).depth : 0;
+    const S = this.spacing, d = n => n ? this.blockShape(n, files).depth : 0;
     return (d(sq.nFront) + d(sq.nBack)) * S + 24;
   }
 
@@ -211,14 +256,17 @@ class Battle {
   slot(sq, k, face = sq.face, files = sq.files) {
     const back = sq.backIdx[k] != null;
     const i = (back ? sq.backIdx[k] : sq.frontIdx[k]) ?? 0;
-    const n = Math.max(1, back ? sq.nBack : (sq.nFront || sq.nBack)), S = DATA.battle.spacing;
+    const n = Math.max(1, back ? sq.nBack : (sq.nFront || sq.nBack)), S = this.spacing;
     const { depth, files: fl } = this.blockShape(n, files);
     const rank = i % depth, file = Math.floor(i / depth);
     const jit = ((k * 37) % 5 - 2) * 0.5;
     const f = back ? -(12 + rank * S) : 12 + (depth - 1 - rank) * S, l = (file - (fl - 1) / 2) * S + (rank % 2) * S * 0.5 + jit;
     const [fx, fy] = face;
-    return [fx * f - fy * l, fy * f + fx * l];
+    return [fx * f - fy * l, (fy * f + fx * l) * this.spacingY];
   }
+  // How long a block's frontage or depth of `len` is along direction (dx, dy) on the field
+  // (men stand spacingY times further apart up and down the screen, so tall figures don't hide each other).
+  stretch(len, dx, dy) { return len * Math.hypot(dx, dy * this.spacingY); }
 
   // Number each squad's living soldiers within the front and back ranks (closing gaps as they fall).
   rank(sq) {
@@ -281,14 +329,14 @@ class Battle {
     const files = new Map();
     if (width > 20) {                                        // share the drawn frontage out
       const widest = Math.max(...rows.map(r => r.length)), each = (width - gap * (widest - 1)) / widest;
-      for (const q of squads) files.set(q, clamp(Math.round(each / B.spacing), 2, 60));
+      for (const q of squads) files.set(q, clamp(Math.round(each / this.stretch(this.spacing, px, py)), 2, 60));
     }
     const fOf = q => files.get(q) || q.files;
     const out = [];
     let back = 0, prevDepth = 0;
     rows.forEach((row, r) => {
-      const ws = row.map(q => this.squadWidth(q, fOf(q))), total = ws.reduce((a, b) => a + b, 0) + gap * (row.length - 1);
-      const depth = Math.max(...row.map(q => this.squadDepth(q, fOf(q))));
+      const ws = row.map(q => this.stretch(this.squadWidth(q, fOf(q)), px, py)), total = ws.reduce((a, b) => a + b, 0) + gap * (row.length - 1);
+      const depth = Math.max(...row.map(q => this.stretch(this.squadDepth(q, fOf(q)), dx, dy)));
       if (r) back += prevDepth / 2 + depth / 2 + gap * 0.5;
       prevDepth = depth;
       let lat = -total / 2;
@@ -1474,16 +1522,17 @@ class Battle {
     const q = p.q, files = p.files || q.files, col = DATA.factions[this.factions[q.side]].color;
     ctx.globalAlpha = alpha;
     ctx.fillStyle = 'rgba(255,240,170,0.9)';
-    const dot = Math.max(3, DATA.battle.spacing * 0.55);
+    const dot = Math.max(3, this.spacing * 0.55);
     for (const u of q.members) if (u.alive && !u.routing) { const [ox, oy] = this.slot(q, u.slotK, p.face, files); ctx.fillRect(p.x + ox - dot / 2 - 1, p.y + oy - dot / 2 - 1, dot + 2, dot + 2); }
     ctx.fillStyle = col;
     for (const u of q.members) if (u.alive && !u.routing) { const [ox, oy] = this.slot(q, u.slotK, p.face, files); ctx.fillRect(p.x + ox - dot / 2, p.y + oy - dot / 2, dot, dot); }
     ctx.fillStyle = '#ffe680'; ctx.fillRect(p.x - 2.5, p.y - 2.5, 5, 5);
-    const [fx, fy] = p.face, w = this.squadWidth(q, files) / 2, tip = this.blockShape(Math.max(1, q.nFront), files).depth * DATA.battle.spacing + 22;
+    const [fx, fy] = p.face, w = this.squadWidth(q, files) / 2, tip = this.blockShape(Math.max(1, q.nFront), files).depth * this.spacing + 22;
     ctx.strokeStyle = '#ffe680'; ctx.lineWidth = 1.5;
+    const k = this.spacingY, Y = v => p.y + v * k;                // stretched up and down like the block itself
     ctx.beginPath();
-    ctx.moveTo(p.x + fx * tip - fy * 7, p.y + fy * tip + fx * 7); ctx.lineTo(p.x + fx * (tip + 9), p.y + fy * (tip + 9)); ctx.lineTo(p.x + fx * tip + fy * 7, p.y + fy * tip - fx * 7);
-    ctx.moveTo(p.x - fy * w + fx * (tip - 6), p.y + fx * w + fy * (tip - 6)); ctx.lineTo(p.x + fy * w + fx * (tip - 6), p.y - fx * w + fy * (tip - 6));
+    ctx.moveTo(p.x + fx * tip - fy * 7, Y(fy * tip + fx * 7)); ctx.lineTo(p.x + fx * (tip + 9), Y(fy * (tip + 9))); ctx.lineTo(p.x + fx * tip + fy * 7, Y(fy * tip - fx * 7));
+    ctx.moveTo(p.x - fy * w + fx * (tip - 6), Y(fx * w + fy * (tip - 6))); ctx.lineTo(p.x + fy * w + fx * (tip - 6), Y(-fx * w + fy * (tip - 6)));
     ctx.stroke();
     ctx.globalAlpha = 1;
   }
