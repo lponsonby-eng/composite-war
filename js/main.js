@@ -10,6 +10,7 @@
   try { await document.fonts.load('8px PixelFont'); } catch (e) {}
   await Assets.load();
   if (typeof Chars !== 'undefined') await Chars.load();   // animated characters from the free sprite packs
+  await Art.loadBuildings();                              // buildings from the free building packs
   // effects, tiles and the older sprites from image files: into the palette too
   if (typeof Palette !== 'undefined') for (const [k, im] of Object.entries(Assets.img)) {
     if (!/^(fx|tile|c\d|m\d)/.test(k) || !im || !im.width) continue;

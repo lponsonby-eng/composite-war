@@ -25,7 +25,58 @@ const Art = {
   // With the Pixelgen building generator loaded (tools/pixelgen/buildings.js), buildings are its
   // 96 x 80 pictures: twice this size, so drawing them at 48 x 40 gives double detail.
   // variant: any string or number (a town's id): each gives that town its own version.
+  // Buildings from the free building packs (assets/buildings, see tools/sprites/buildings.py):
+  // each region's own set, recoloured to its tone (ROOF) and to the palette, on a 96 x 80
+  // canvas with the building standing on (48, 76), like the generated ones.
+  bcat: null, batlas: null,
+  async loadBuildings() {
+    try {
+      const r = await fetch('assets/buildings/catalog.json'); if (!r.ok) return;
+      const cat = await r.json(), im = new Image();
+      await new Promise(res => { im.onload = res; im.onerror = res; im.src = 'assets/buildings/atlas.png'; });
+      if (im.width) { this.bcat = cat; this.batlas = im; }
+    } catch (e) {}
+  },
+  // region tone: roof hue (degrees, or null to keep), saturation and lightness changes
+  ROOF: { castle: [215, 0.75, -0.02], village: [null, 0.7, -0.03], igloo: [210, 0.25, 0.12], treehut: [110, 0.6, -0.08],
+    forge: [8, 0.7, -0.1], tower: [275, 0.45, -0.06], stilthut: [65, 0.55, -0.06], spire: [175, 0.6, 0], adobe: [32, 0.6, 0.04] },
+  packBuilding(style, size, variant) {
+    const C = this.bcat[style] || this.bcat.village;
+    const list = (C[size] && C[size].length ? C[size] : C[size === 3 ? 0 : Math.max(0, size - 1)]) || C[0];
+    if (!list || !list.length) return null;
+    let h = 7; for (const ch of String(variant)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+    return this.packPicture(list[h % list.length], style);
+  },
+  // One pack picture at k art pixels per pixel, recoloured to `style`'s tone, on a canvas at least
+  // 96 x 80 standing on (width / 2, height - 4).
+  packPicture(e, style) {
+    const k = e.k || 1, bw = e.w * k, bh = e.h * k, W = Math.max(96, bw + 4), H = Math.max(80, bh + 4);
+    const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+    const c = cv.getContext('2d'); c.imageSmoothingEnabled = false;
+    const ox = Math.round(W / 2 - bw / 2), oy = H - 3 - bh;
+    c.drawImage(this.batlas, e.x, e.y, e.w, e.h, ox, oy, bw, bh);
+    const img = c.getImageData(ox, oy, bw, bh), p = img.data, [hue, sat, lit] = this.ROOF[style] || this.ROOF.village;
+    for (let i = 0; i < p.length; i += 4) {
+      if (!p[i + 3]) continue;
+      let [H, S, L] = rgbHsl(p[i], p[i + 1], p[i + 2]);
+      if (hue != null && S > 0.28 && !(H > 0.05 && H < 0.13 && L > 0.55)) H = hue / 360;     // roofs, awnings, banners take the region's hue
+      S *= sat; L = Math.max(0, Math.min(1, L + lit));
+      const [r, g, b] = hslRgb(H, S, L); p[i] = r; p[i + 1] = g; p[i + 2] = b;
+    }
+    c.putImageData(img, ox, oy);
+    if (typeof Palette !== 'undefined') Palette.canvas(cv);
+    const b = bbox(c, W, H);
+    cv.box = { x0: b.x0 / 2, y0: b.y0 / 2, x1: b.x1 / 2, y1: b.y1 / 2, tx: b.tx / 2, ty: b.ty / 2 };
+    cv.gen = true;
+    return cv;
+  },
+
   building(style, size, variant = 1) {
+    if (this.bcat) {
+      const key = `pb:${style}:${size}:${variant}`;
+      if (!this.cache[key]) this.cache[key] = this.packBuilding(style, size, variant);
+      if (this.cache[key]) return this.cache[key];
+    }
     if (typeof PixelGen !== 'undefined' && PixelGen.GENERATORS.building) {
       const key = `gb:${style}:${size}:${variant}`;
       if (this.cache[key]) return this.cache[key];
@@ -47,6 +98,12 @@ const Art = {
   // ------------------------------------------------------------------ landmarks
   // Canvas is 80 x 72; the landmark stands on (40, 70).
   landmark(type) {
+    const L = this.bcat && this.bcat._landmarks && this.bcat._landmarks[type];
+    if (L && L.length) {                                   // from the building packs, in the region's tone
+      const key = 'pl:' + type, st = { castle: 'castle', icepeak: 'igloo', ruins: 'tower', shrine: 'village' }[type];
+      if (!this.cache[key]) { const cv = this.packPicture(L[0], st), b = cv.box; cv.box = { x0: b.x0 * 2, y0: b.y0 * 2, x1: b.x1 * 2, y1: b.y1 * 2, tx: b.tx * 2, ty: b.ty * 2 }; this.cache[key] = cv; }
+      return this.cache[key];
+    }
     return this.make('l:' + type, 80, 72, c => (LANDMARKS[type] || LANDMARKS.shrine)(c, 40, 70));
   },
 
