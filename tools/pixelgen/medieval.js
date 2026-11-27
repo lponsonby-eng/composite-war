@@ -26,10 +26,23 @@
   const PG = typeof module !== 'undefined' && module.exports ? require('./pixelgen.js') : root.PixelGen;
   const { R, Grid, ramp, mix, pack, band, rampAt, dither, hexRgb, rgbHex, hslToRgb, tileNoise, fbm, pickSkin, HAIR, FACTIONS } = PG;
 
-  const INK = '#1a1210';                                          // outline: warm near-black
-  const STEEL = ['#16181e', '#3e4450', '#7c8696', '#c0c8d4', '#ffffff'];   // high contrast: dark shadows, white glints
-  const LEATHER = ['#2a1a12', '#4a2e1e', '#6e4a30', '#946a44', '#b88e62'];
-  const WOODR = ['#2e1c10', '#563620', '#7e5530', '#a47a48', '#c8a06a'];
+  // Tone: cool, deep shadows (hue drawn toward blue-violet), soft warm-white highlights and
+  // a dark navy outline, like painted plate in the reference art.
+  const INK = '#151826';                                          // outline: dark navy
+  const STEEL = ['#1d2234', '#48526c', '#8590a6', '#c3cbd8', '#f2f5fa'];   // cool plate: slate shadows, near-white glints
+  function tone(base) {
+    const [h, s, l] = PG.rgbToHsl(...hexRgb(base));
+    const toward = (t, k) => { const d = ((t - h + 1.5) % 1) - 0.5; return h + d * k; };
+    return [-0.34, -0.17, 0, 0.13, 0.25].map(d => {
+      const k = d < 0 ? -d / 0.34 : d / 0.25;
+      const hh = d < 0 ? toward(0.68, k * 0.22) : toward(0.12, k * 0.08);
+      const ss = Math.max(0, Math.min(1, s * (d < 0 ? 1 - k * 0.1 : 1 - k * 0.3)));
+      const ll = Math.max(0.03, Math.min(0.97, l + d * (d < 0 ? 1.1 : 0.9)));
+      return rgbHex(...hslToRgb(((hh % 1) + 1) % 1, ss, ll));
+    });
+  }
+  const LEATHER = tone('#6a4a32');
+  const WOODR = tone('#7e5530');
   const BLOOD = ['#3a0a0c', '#5e1014', '#7e1a1a', '#9a2a22'];
 
   // ---------------------------------------------------------------- heraldry
@@ -116,7 +129,7 @@
     if (a.charge === 'crescent') { for (let y = -s; y <= s; y++) for (let x = -s; x <= s; x++) if (x * x + y * y <= s * s + 0.5 && x * x + (y + s * 0.6) ** 2 > (s * 0.8) ** 2) put(x, y, x < 0 ? 3 : 2); }
   }
   const tinctRamp = {};
-  const tRamp = t => tinctRamp[t] || (tinctRamp[t] = ramp(TINCT[t], 5, 0.5));
+  const tRamp = t => tinctRamp[t] || (tinctRamp[t] = tone(TINCT[t]));
 
   // ---------------------------------------------------------------- masks and the part painter
   class Mask {
@@ -258,18 +271,18 @@
       body: T.body,
       shield: r.chance(T.shield),
       weapon: o.weapon && o.weapon !== 'random' ? o.weapon : r.pick(T.weapons),
-      skin: ramp(r.pick(PG.SKIN.slice(0, 6)), 5, 0.45),                 // human skin tones only
+      skin: tone(r.pick(PG.SKIN.slice(0, 6))),                          // human skin tones only
       hair: null,
       hairStyle: r.pick(['short', 'long', 'long', 'bald', 'short']),
       beard: r.pick(['none', 'full', 'full', 'moustache', 'stubble', 'none']),
-      drab: ramp(r.pick(DRAB), 5, 0.5), hose: ramp(r.pick(['#4a3a30', '#3a3a4a', '#5a4030', '#6a2a2a', '#2a3a2a']), 5, 0.45),
+      drab: tone(r.pick(DRAB)), hose: tone(r.pick(['#5a4636', '#46465a', '#6a4c36', '#7a3434', '#36483a'])),
       plume: r.chance(0.3),
     };
     // hair must stand apart from the skin (a blond beard on pale skin reads as a blob)
     const skinL = PG.rgbToHsl(...hexRgb(G.skin[2]))[2];
     const hairs = ['#2a1c14', '#3a2418', '#5a3418', '#6a4020', '#8a5a28', '#a83020', '#c89038', '#e8e4dc', '#8a7a6a', '#181820'];
     const ok = hairs.filter(h => Math.abs(PG.rgbToHsl(...hexRgb(h))[2] - skinL) > 0.22);
-    G.hair = ramp(r.pick(ok.length ? ok : hairs), 5, 0.5);
+    G.hair = tone(r.pick(ok.length ? ok : hairs));
     if (o.robe === 'yes') {                                  // a robed caster in the army's colours
       G.over = { robe: true, torso: (x) => (x >= 15 && x <= 17 ? livMetal : liv), arms: liv, hands: G.skin, feet: LEATHER, belt: livMetal };
       G.shield = false; G.beard = r.pick(['none', 'full', 'none']);
@@ -536,10 +549,292 @@
     return P.done();
   }
 
+
+  // ================================================================ FOOT SOLDIERS
+  // The rank and file, drawn with fuller bodies than the old frame (still used by heroes
+  // and riders): legs about a third of the height, thick enough to touch at the thigh,
+  // with knees and boots or sabatons; a chest tapering to the waist with a fauld or skirt
+  // over the hips; shoulders broader than the waist. Each troop has its own silhouette
+  // so a block reads at a glance: knights in plate with shield and surcoat, men-at-arms
+  // in plate and mail with polearms, spearmen in padded coats with tall spears, archers
+  // in jacks with a bow as tall as themselves and a quiver, levies in plain tunics.
+  // kitOf: what this soldier wears, worked out once from the genome.
+  function kitOf(g) {
+    const plate = g.body === 'plate' || g.body === 'plateMail';
+    const K = {
+      plate,
+      leg: plate ? STEEL : g.body === 'tunic' ? g.drab : g.hose,
+      boots: !plate,
+      arm: plate || g.body === 'mailTabard' ? STEEL : g.body === 'tunic' ? g.drab : g.liv,
+      armOpts: g.body === 'plateMail' || g.body === 'mailTabard' ? { tex: mailTex, base: 1 } : plate ? { spec: true } : g.body === 'tunic' ? {} : { tex: quiltTex },
+      hand: plate ? STEEL : g.body === 'gambeson' ? LEATHER : g.skin,
+      robe: !!(g.over && g.over.robe),
+      // what covers the body and how far down it hangs
+      coat: g.body === 'plate' ? 'surcoat' : g.body === 'plateMail' ? 'brigandine' : g.body === 'mailTabard' ? 'tabard'
+        : g.body === 'gambeson' ? 'gambeson' : g.body === 'jack' ? 'jack' : 'tunic',
+    };
+    K.hem = K.robe ? 37 : { surcoat: 29, tabard: 29, brigandine: 27, gambeson: 29, jack: 28, tunic: 29 }[K.coat];
+    K.quiver = g.weapon === 'longbow' || g.weapon === 'crossbow';
+    return K;
+  }
+  const LONG = ['spear', 'halberd', 'poleaxe', 'bill', 'staff'];
+
+  // One 32 x 40 frame of a foot soldier. dir: 0 front, 1 back, 2 side (facing left).
+  function footFrame(g, dir, pose, step) {
+    const P = new Painter(32, 40);
+    const K = kitOf(g);
+    const atk = pose === 'attack';
+    const b = pose === 'walk' && step % 2 === 1 ? -1 : 0;           // the body rises between steps
+    if (dir === 2) return footSide(g, P, K, pose, step, b);
+    const back = dir === 1;
+    const lift = pose === 'walk' ? [0, 1, 0, 2][step] : 0;          // 1: viewer's-left leg up, 2: the other
+    const swing = pose === 'walk' ? [0, 1, 0, -1][step] : 0;
+    const heraldFn = (x0, y0, w, h) => (x, y) => tRamp(blazon(g.arms, (x - x0) / w, (y - y0) / h));
+    const coatFn = K.robe ? (x => (x >= 15 && x <= 17 ? g.livMetal : g.liv))
+      : K.coat === 'surcoat' || K.coat === 'tabard' ? heraldFn(10.5, 15 + b, 11, 15)
+      : K.coat === 'tunic' ? () => g.drab : K.coat === 'jack' ? () => mixRamp(g.liv, LEATHER) : () => g.liv;
+    const coatOpts = K.coat === 'gambeson' || K.coat === 'jack' ? { tex: quiltTex } : {};
+
+    // a quiver on the back (seen over the shoulder from the front)
+    if (K.quiver && !back) {
+      P.part(P.mask().rect(21, 9 + b, 23, 15 + b), LEATHER, { base: 1 });
+      for (const [x, c] of [[21, '#e8e0c8'], [22, '#b83a2a'], [23, '#e8e0c8']]) P.g.set(x, 8 + b, c);
+    }
+    // legs: thigh and shin, touching at the top; plate legs get knee cops, the rest boots
+    for (const s of [-1, 1]) {
+      const up = (lift === 1 && s === -1) || (lift === 2 && s === 1) ? 1.5 : 0;
+      const hx = 16 + s * 2.5, kx = 16 + s * 3, ax = 16 + s * 3.2, ky = 30 + b * 0.5 - up, ay = 35 - up;
+      if (!K.robe) {
+        P.part(P.mask().capsule(hx, 23.5 + b, kx, ky, 5), K.leg, K.plate ? { spec: true, sep: true } : { sep: true });
+        P.part(P.mask().capsule(kx, ky, ax, ay, 4.2), K.leg, K.plate ? { spec: true, sep: true } : { sep: true });
+        if (K.plate) P.part(P.mask().ellipse(kx, ky, 1.9, 1.5), STEEL, { spec: true, sep: true });           // knee cop
+        else P.part(P.mask().capsule(kx, ky + 2.5, ax, ay, 4.4), LEATHER, { sep: true, sepSides: (dx, dy) => dy < 0 });   // boot
+      }
+      // foot: turned a little outward
+      P.part(P.mask().poly([[ax - 2.4 + s * 0.6, ay], [ax + 2.4 + s * 0.6, ay], [ax + 2.8 + s * 1.2, ay + 2.4], [ax - 2.2 + s * 1.2, ay + 2.4]]),
+        K.plate ? STEEL : LEATHER, { base: 1, sep: true });
+    }
+    // hips: a skirt, fauld or robe hanging from the waist
+    const hem = K.hem;
+    const skirt = K.robe ? P.mask().poly([[11, 22 + b], [21, 22 + b], [24, 37], [8, 37]])
+      : P.mask().poly([[11, 22 + b], [21, 22 + b], [22.5, hem + b], [9.5, hem + b]]);
+    if (K.coat === 'brigandine') {                                     // steel fauld bands under a short coat
+      P.part(P.mask().poly([[11, 22 + b], [21, 22 + b], [22, 27 + b], [10, 27 + b]]), STEEL, { spec: true, sep: true });
+      for (let x = 10; x <= 22; x++) P.g.set(x, 24 + b, STEEL[1]), P.g.set(x, 26 + b, STEEL[0]);
+    } else P.part(skirt, coatFn, Object.assign({ sep: true, sepSides: (dx, dy) => dy < 0 }, coatOpts));
+    // torso: a full chest tapering to the waist
+    const torso = P.mask().poly([[10, 13.5 + b], [22, 13.5 + b], [21.5, 18.5 + b], [20.5, 23 + b], [11.5, 23 + b], [10.5, 18.5 + b]]);
+    if (K.coat === 'surcoat' && !back) {
+      P.part(torso, STEEL, { spec: true });                             // breastplate showing at the top
+      P.part(P.mask().poly([[11, 16.5 + b], [21, 16.5 + b], [20.5, 23 + b], [11.5, 23 + b]]), coatFn, { sep: true });
+    } else P.part(torso, coatFn, coatOpts);
+    if (K.coat === 'brigandine') {                                     // rivets on the coat
+      for (let y = 16; y <= 21; y += 2) for (let x = 12 + (y % 4 ? 1 : 0); x <= 20; x += 3) P.g.set(x, y + b, g.livMetal[3]);
+    }
+    if (!K.robe) P.part(P.mask().rect(11, 22 + b, 21, 22 + b), K.coat === 'surcoat' ? g.livMetal : LEATHER, { flat: true, base: 1 });   // belt
+    if (K.coat === 'surcoat' || K.coat === 'tabard') P.g.set(16, 22 + b, g.livMetal[4]);                  // buckle
+    // arms: upper arm and forearm with a bend at the elbow; pauldrons on plate
+    const armAtk = atk && !back;
+    const L1 = [9.5, 15.5 + b], L2 = [8.6 - swing * 0.4, 20.5 + b], L3 = [9.2 - swing * 0.7, 25 + b];
+    const R1 = [22.5, 15.5 + b], R2 = armAtk ? [24.5, 11 + b] : [23.4 + swing * 0.4, 20.5 + b], R3 = armAtk ? [25, 7.5 + b] : [23 + swing * 0.7, 25 + b];
+    for (const [a, c] of [[L1, L2], [L2, L3], [R1, R2], [R2, R3]]) P.part(P.mask().capsule(a[0], a[1], c[0], c[1], 3.8), K.arm, Object.assign({ sep: true }, K.armOpts));
+    if (K.plate) for (const [x, y] of [L2, R2]) P.part(P.mask().ellipse(x, y, 1.6, 1.3), STEEL, { spec: true, sep: true });   // couters
+    if (K.plate || K.coat === 'tabard') for (const x of [9.5, 22.5]) P.part(P.mask().ellipse(x, 14.5 + b, 3.4, 2.6), STEEL, { spec: true, sep: true });
+    else if (K.coat === 'gambeson' || K.coat === 'jack') for (const x of [10, 22]) P.part(P.mask().ellipse(x, 14.5 + b, 2.6, 2), K.coat === 'jack' ? LEATHER : g.liv, { sep: true });
+    P.part(P.mask().ellipse(L3[0], L3[1] + 1, 1.7, 1.5), K.hand, { sep: true });
+    footHead(g, P, 16, 8 + b, back);
+    // shield on the viewer's left, held across the arm: a smaller heater with a dark rim
+    if (g.shield) {
+      const sm = heaterMask(P.mask(), 3, 16 + b, 11, 14);
+      P.part(sm, heraldFn(3, 16 + b, 11, 14), { sep: true, base: 2, flat: true, shade: (x, y) => (x <= 5 && y < 24 + b ? 1 : x >= 12 ? -1 : 0) });
+      sm.each((x, y) => { if (!sm.has(x - 1, y) || !sm.has(x + 1, y) || !sm.has(x, y - 1) || !sm.has(x, y + 1)) P.g.set(x, y, x < 8 && y < 24 + b ? STEEL[2] : STEEL[0]); });
+      P.g.set(4, 16 + b, STEEL[4]); P.g.set(5, 16 + b, STEEL[3]);
+      if (back) { sm.each((x, y) => { if (sm.has(x - 1, y) && sm.has(x + 1, y) && sm.has(x, y - 1) && sm.has(x, y + 1)) P.g.set(x, y, (x + y) % 5 ? WOODR[2] : WOODR[1]); }); P.part(P.mask().rect(5, 21 + b, 12, 21 + b), LEATHER, { flat: true }); }
+    }
+    // weapon in the other hand: blades held point-down at the side, poles upright
+    const rh = R3;
+    if (g.weapon === 'longbow') drawWeapon(P, 'longbow', rh[0] + 2, rh[1] - (armAtk ? -8 : 4), -90, { draw: armAtk, sep: true });
+    else if (g.weapon === 'crossbow') drawWeapon(P, 'crossbow', rh[0] - 3, rh[1] - 1, armAtk ? -100 : -20, { sep: true });
+    else if (g.weapon !== 'none') {
+      const long = LONG.includes(g.weapon);
+      drawWeapon(P, g.weapon, rh[0], rh[1], armAtk ? (long ? -60 : -150) : long ? -88 : 70, { sep: true });
+    }
+    P.part(P.mask().ellipse(rh[0], rh[1], 1.7, 1.5), K.hand, { sep: false });
+    const img = P.done();
+    return back ? img.flipX() : img;
+  }
+
+  // Side view, facing left: the near (left) side shows the shield's arms or the bow;
+  // the weapon arm is on the far side.
+  function footSide(g, P, K, pose, step, b) {
+    const atk = pose === 'attack';
+    const st = pose === 'walk' ? [2.6, 0, -2.6, 0][step] : atk ? 3 : 0.8;
+    const S = g.skin, H = g.hair, cy = 8 + b;
+    const long = LONG.includes(g.weapon);
+    const legOpts = s => K.plate ? { spec: true, sep: s } : { sep: s };
+    const leg = (dx, near) => {                                          // dx: how far forward (negative) the foot is
+      const kx = 16 + dx * 0.5, ax = 16 + dx, base = near ? 2 : 1;
+      P.part(P.mask().capsule(16, 23.5 + b, kx, 30 + b * 0.5, 5), K.leg, Object.assign({ base }, legOpts(near)));
+      P.part(P.mask().capsule(kx, 30 + b * 0.5, ax, 35, 4.2), K.leg, Object.assign({ base }, legOpts(near)));
+      if (K.plate) P.part(P.mask().ellipse(kx - 1, 30 + b * 0.5, 1.4, 1.5), STEEL, { spec: true });
+      else P.part(P.mask().capsule(kx, 32.5, ax, 35, 4.4), LEATHER, { base, sep: true, sepSides: (ddx, dy) => dy < 0 });
+      P.part(P.mask().poly([[ax - 4, 35.2], [ax + 2, 35.2], [ax + 2, 37.4], [ax - 4.4, 37.4]]), K.plate ? STEEL : LEATHER, { base: base - 1 + 1, sep: near });
+    };
+    // far side first: the weapon arm and its weapon, the far leg
+    const fh = atk ? [9, 18 + b] : [18.5 - st * 0.3, 24 + b];
+    if (g.weapon !== 'none' && g.weapon !== 'longbow') {
+      if (g.weapon === 'crossbow') drawWeapon(P, 'crossbow', fh[0] - 2, fh[1] - (atk ? 4 : 1), atk ? 180 : -150, {});
+      else drawWeapon(P, g.weapon, fh[0], fh[1], atk ? (long ? 180 : 200) : long ? -96 : 125, {});
+    }
+    P.part(P.mask().capsule(17.5, 15.5 + b, (17.5 + fh[0]) / 2 + 1, (15.5 + b + fh[1]) / 2 + 1, 3.6).capsule((17.5 + fh[0]) / 2 + 1, (15.5 + b + fh[1]) / 2 + 1, fh[0], fh[1], 3.4), K.arm, Object.assign({}, K.armOpts, { base: 1 }));
+    P.part(P.mask().ellipse(fh[0], fh[1], 1.6, 1.5), K.hand, { base: 1 });
+    if (!K.robe) leg(st, false);
+    else P.part(P.mask().rect(15 + st, 35.5, 18 + st, 37), LEATHER, { base: 0 });
+    // body: chest forward (to the left), a straight back
+    const torso = P.mask().poly([[12.5, 13.5 + b], [19, 13.5 + b], [19.5, 18 + b], [18.5, 23 + b], [13.5, 23 + b], [12, 18 + b]]);
+    const hem = K.hem, robe = K.robe;
+    const skirt = P.mask().poly([[13, 22 + b], [19, 22 + b], [20 + (hem - 29) * 0.35 - st * (robe ? 0.3 : 0), hem + (robe ? 0 : b)], [11.5 - (hem - 29) * 0.35 - st * (robe ? 0.3 : 0), hem + (robe ? 0 : b)]]);
+    const fn = robe ? g.liv : K.coat === 'surcoat' || K.coat === 'tabard' ? ((x, y) => tRamp(blazon(g.arms, 0.25 + (x - 12) / 14, (y - 15 - b) / 15)))
+      : K.coat === 'tunic' ? g.drab : K.coat === 'jack' ? mixRamp(g.liv, LEATHER) : g.liv;
+    const fOpts = K.coat === 'gambeson' || K.coat === 'jack' ? { tex: quiltTex } : {};
+    if (!robe) leg(-st, true);
+    else P.part(P.mask().rect(11 - st, 35.5, 15 - st, 37), LEATHER, { base: 1 });
+    if (K.coat === 'brigandine') {
+      P.part(P.mask().poly([[13, 22 + b], [19, 22 + b], [20, 27 + b], [12, 27 + b]]), STEEL, { spec: true, sep: true, sepSides: (dx, dy) => dy < 0 });
+      for (let x = 12; x <= 20; x++) P.g.set(x, 24 + b, STEEL[1]);
+    } else P.part(skirt, fn, Object.assign({ sep: true, sepSides: (dx, dy) => dy < 0 }, fOpts));
+    P.part(torso, K.coat === 'surcoat' ? STEEL : fn, K.coat === 'surcoat' ? { spec: true } : fOpts);
+    if (K.coat === 'surcoat') P.part(P.mask().poly([[12.5, 16.5 + b], [19, 16.5 + b], [18.5, 23 + b], [13.5, 23 + b]]), fn, {});
+    if (!robe) P.part(P.mask().rect(13, 22 + b, 19, 22 + b), K.coat === 'surcoat' ? g.livMetal : LEATHER, { flat: true, base: 1 });
+    if (K.quiver) { P.part(P.mask().rect(19, 13 + b, 21, 21 + b), LEATHER, { base: 1, sep: true }); P.g.set(19, 12 + b, '#e8e0c8').set(20, 11 + b, '#b83a2a').set(21, 12 + b, '#e8e0c8'); }
+    // head and neck (smaller than a hero's, as in footHead)
+    P.part(P.mask().rect(14, 11 + b, 17, 13 + b), S, { base: 1 });
+    const head = P.mask().ellipse(15.5, cy, 3.7, 4.4);
+    P.part(head, S, {});
+    P.g.set(11, cy + 1, S[2]);                                                                       // nose
+    if (g.hairStyle !== 'bald') {
+      const hm = P.mask(); head.each((x, y) => { if (y <= cy - 2 || x >= 16) hm.add(x, y); });
+      if (g.hairStyle === 'long') hm.rect(17, cy, 18, cy + 5);
+      P.part(hm, H, { tex: (x, y) => ((x * 5 + y * 3) % 7 === 0 ? 1 : 0) });
+    }
+    P.g.set(12, cy - 1, H[1]).set(13, cy - 1, H[1]).set(13, cy, '#1a1420').set(12, cy + 3, mix(S[1], '#8a2a2a', 0.45));
+    if (g.beard === 'full') { const bm = P.mask(); head.each((x, y) => { if (y >= cy + 2 && x <= 16) bm.add(x, y); }); bm.rect(12, cy + 4, 15, cy + 5); P.part(bm, H, {}); }
+    if (g.beard === 'moustache') P.g.set(12, cy + 2, H[1]).set(13, cy + 2, H[1]);
+    const steel = { spec: true, sep: true };
+    switch (g.helm) {
+      case 'greathelm': { const m = P.mask().rect(11.5, cy - 3, 19.5, cy + 4).ellipse(15.5, cy - 3, 4.2, 2.6); m.del(12, cy + 4); P.part(m, STEEL, steel); for (let x = 11; x <= 14; x++) P.g.set(x, cy - 1, INK); P.g.set(12, cy + 2, INK); break; }
+      case 'bascinet': { const m = P.mask().ellipse(15.5, cy - 1.5, 4.1, 3.8); m.add(17, cy - 5).add(18, cy - 5); m.each((x, y) => { if (y >= cy - 1 && x < 15) m.del(x, y); }); P.part(m, STEEL, steel); P.part(P.mask().rect(14, cy + 3, 19, cy + 5).rect(17, cy - 1, 19, cy + 3), STEEL, { tex: mailTex, base: 1, sep: true }); break; }
+      case 'sallet': { const m = P.mask().ellipse(15.8, cy - 1.5, 4.3, 3.8); m.rect(16, cy - 1, 21, cy); m.each((x, y) => { if (y > cy - 1 && x < 16) m.del(x, y); }); P.part(m, STEEL, steel); break; }
+      case 'kettle': { const m = P.mask().ellipse(15.5, cy - 2.5, 3.6, 3); m.rect(10, cy - 1, 21, cy - 1); P.part(m, STEEL, steel); break; }
+      case 'coif': case 'hood': { const m = P.mask().ellipse(15.8, cy, 4.4, 5); m.rect(14, cy + 3, 19, cy + 5); m.each((x, y) => { if (x <= 14 && y >= cy - 2 && y <= cy + 3) m.del(x, y); }); P.part(m, g.helm === 'coif' ? STEEL : g.liv, g.helm === 'coif' ? { tex: mailTex, base: 1, sep: true } : { sep: true }); break; }
+      case 'cap': { const m = P.mask().ellipse(15.8, cy - 2.6, 4.1, 2.4); P.part(m, g.drab, { sep: true }); break; }
+    }
+    if (g.plume && (g.helm === 'greathelm' || g.helm === 'bascinet' || g.helm === 'sallet')) P.part(P.mask().capsule(16, cy - 5, 19, cy - 8, 2.2).capsule(19, cy - 8, 21, cy - 7, 1.8), tRamp(g.arms.A), { sep: true });
+    // near side: pauldron, the shield arm, and the shield showing its arms (or the bow)
+    if (K.plate || K.coat === 'tabard') P.part(P.mask().ellipse(15.5, 15 + b, 3, 2.4), STEEL, { spec: true, sep: true });
+    const nh = atk && g.weapon === 'longbow' ? [8, 18 + b] : [13 - st * 0.3, 22.5 + b];
+    P.part(P.mask().capsule(15, 15.5 + b, 14.5 - st * 0.2, 19.5 + b, 3.8).capsule(14.5 - st * 0.2, 19.5 + b, nh[0], nh[1], 3.5), K.arm, Object.assign({ sep: true }, K.armOpts));
+    if (g.shield) {
+      const sm = P.mask().poly([[7.5, 15.5 + b], [14, 15.5 + b], [14, 23.5 + b], [11, 29 + b], [7.5, 23.5 + b]]);
+      P.part(sm, (x, y) => tRamp(blazon(g.arms, 0.15 + (x - 7.5) / 9, (y - 15.5 - b) / 14)), { sep: true, flat: true, shade: (x, y) => (x <= 8 ? 1 : x >= 13 ? -1 : 0) });
+      sm.each((x, y) => { if (!sm.has(x - 1, y) || !sm.has(x + 1, y) || !sm.has(x, y - 1)) P.g.set(x, y, y < 18 + b ? STEEL[2] : STEEL[0]); });
+      P.g.set(8, 15 + b, STEEL[4]);
+    } else if (g.weapon === 'longbow') drawWeapon(P, 'longbow', atk ? 7 : nh[0] - 1, atk ? 18 + b : nh[1] - 4, -90, { flip: true, sep: true });
+    P.part(P.mask().ellipse(nh[0], nh[1], 1.6, 1.5), K.hand, {});
+    return P.done();
+  }
+
+  // A foot soldier's head, smaller than the heroes' (so the body reads as about four
+  // heads tall), facing the viewer (or away). Helms are rounded and close-fitting:
+  // the great helm is a rounded barrel with a visor slit, breaths and a centre ridge.
+  function footHead(g, P, cx, cy, back) {
+    const S = g.skin, H = g.hair;
+    P.part(P.mask().rect(cx - 2, cy + 3, cx + 2, cy + 5), S, { base: 1 });                     // neck
+    const head = P.mask().ellipse(cx, cy, 3.9, 4.4);
+    P.part(head, S, { shade: (x, y) => (x >= cx + 2 ? -1 : 0) });
+    if (g.hairStyle !== 'bald' || back) {
+      const hair = P.mask();
+      head.each((x, y) => { if (back ? y <= cy + 3 : (y <= cy - 2 || ((x <= cx - 3 || x >= cx + 3) && y <= cy + (g.hairStyle === 'long' ? 4 : 0)))) hair.add(x, y); });
+      if (g.hairStyle !== 'bald') hair.rect(cx - 2, cy - 5, cx + 2, cy - 5);
+      if (g.hairStyle === 'long') { hair.rect(cx - 4, cy - 1, cx - 3, cy + 5); hair.rect(cx + 3, cy - 1, cx + 4, cy + 5); if (back) hair.rect(cx - 3, cy + 3, cx + 3, cy + 5); }
+      if (g.hairStyle !== 'bald') P.part(hair, H, { tex: (x, y) => ((x * 5 + y * 3) % 7 === 0 ? 1 : 0) });
+    }
+    if (!back) {
+      // brows, eyes, nose shadow, mouth; cheek shadow on the right
+      head.each((x, y) => { const v = P.g.get(x, y); if (v === pack(S[2]) || v === pack(S[3])) { if (x >= cx + 2 && y >= cy) P.g.set(x, y, S[1]); if (y <= cy - 2 && x <= cx) P.g.set(x, y, S[3]); } });
+      P.g.set(cx - 2, cy - 1, H[0]).set(cx - 1, cy - 1, H[1]).set(cx + 1, cy - 1, H[1]).set(cx + 2, cy - 1, H[0]);
+      P.g.set(cx - 2, cy, '#1a1420').set(cx + 2, cy, '#1a1420').set(cx - 1, cy, S[2]).set(cx + 1, cy, S[1]);
+      P.g.set(cx, cy + 1, S[1]).set(cx + 1, cy + 1, S[0]);
+      P.g.set(cx - 1, cy + 3, mix(S[1], '#8a2a2a', 0.45)).set(cx, cy + 3, mix(S[1], '#8a2a2a', 0.45));
+      if (g.beard === 'full') { const bm = P.mask(); head.each((x, y) => { if (y >= cy + 2 && !(y === cy + 3 && Math.abs(x - cx + 0.5) < 1.5)) bm.add(x, y); }); bm.rect(cx - 2, cy + 5, cx + 2, cy + 5); P.part(bm, H, { tex: (x, y) => ((x + y) % 3 === 0 ? -1 : 0) }); }
+      if (g.beard === 'moustache') P.g.set(cx - 2, cy + 2, H[1]).set(cx - 1, cy + 2, H[1]).set(cx + 1, cy + 2, H[1]).set(cx + 2, cy + 2, H[1]);
+      if (g.beard === 'stubble') head.each((x, y) => { if (y >= cy + 2 && (x + y) % 2 === 0 && !(y === cy + 3 && Math.abs(x - cx + 0.5) < 1.5)) P.g.set(x, y, mix(S[1], H[1], 0.5)); });
+    }
+    const steel = { spec: true, sep: true };
+    switch (g.helm) {
+      case 'greathelm': {                                    // rounded barrel helm
+        const m = P.mask().rect(cx - 4, cy - 3, cx + 4, cy + 4).ellipse(cx, cy - 3, 4.4, 2.6);
+        m.del(cx - 4, cy + 4).del(cx + 4, cy + 4);
+        P.part(m, STEEL, steel);
+        if (!back) {
+          for (let x = cx - 3; x <= cx + 3; x++) if (x !== cx) P.g.set(x, cy - 1, INK);              // visor slit
+          P.g.set(cx - 3, cy - 1, STEEL[0]);
+          for (const [x, y] of [[cx + 2, cy + 1], [cx + 2, cy + 3], [cx + 3, cy + 2]]) P.g.set(x, y, INK);   // breaths
+          for (let y = cy - 4; y <= cy + 4; y++) P.g.set(cx, y, y === cy - 1 ? STEEL[2] : STEEL[3]);        // centre ridge
+          P.g.set(cx - 2, cy - 4, STEEL[4]);
+        } else for (let y = cy - 4; y <= cy + 4; y++) P.g.set(cx, y, STEEL[2]);
+        break;
+      }
+      case 'bascinet': {
+        const m = P.mask().ellipse(cx, cy - 1.5, 4.1, 3.8); m.add(cx, cy - 6).add(cx, cy - 5);
+        if (!back) m.each((x, y) => { if (y >= cy - 1) m.del(x, y); });
+        P.part(m, STEEL, steel);
+        const av = P.mask();                                  // mail aventail round the face
+        for (let y = cy - 1; y <= cy + 5; y++) for (let x = cx - 5; x <= cx + 5; x++) {
+          const face = !back && Math.abs(x - cx) <= 3 && y <= cy + 3;
+          if (!face && (y >= cy + 3 || Math.abs(x - cx) >= 3) && Math.hypot((x - cx) / 5.2, (y - cy - 1) / 5) <= 1.05) av.add(x, y);
+        }
+        P.part(av, STEEL, { tex: mailTex, base: 1, sep: true });
+        break;
+      }
+      case 'sallet': {
+        const m = P.mask().ellipse(cx, cy - 1.5, 4.3, 3.8); m.rect(cx - 5, cy - 1, cx + 5, cy - 1);
+        if (!back) m.each((x, y) => { if (y > cy - 1) m.del(x, y); });
+        else m.rect(cx - 3, cy - 1, cx + 3, cy + 2);
+        P.part(m, STEEL, steel);
+        if (!back) for (let x = cx - 3; x <= cx + 3; x++) P.g.set(x, cy - 1, x === cx ? STEEL[2] : INK);
+        break;
+      }
+      case 'kettle': {
+        const m = P.mask().ellipse(cx, cy - 2.5, 3.8, 3); m.rect(cx - 6, cy - 1, cx + 6, cy - 1); m.rect(cx - 5, cy - 2, cx + 5, cy - 2);
+        P.part(m, STEEL, steel);
+        break;
+      }
+      case 'coif': case 'hood': {
+        const mailHood = g.helm === 'coif';
+        const m = P.mask().ellipse(cx, cy, 4.7, 5); m.rect(cx - 4, cy + 3, cx + 4, cy + 5);
+        if (!back) m.each((x, y) => { if (Math.abs(x - cx) <= 2.6 && y >= cy - 2 && y <= cy + 3) m.del(x, y); });
+        P.part(m, mailHood ? STEEL : g.liv, mailHood ? { tex: mailTex, base: 1, sep: true } : { sep: true });
+        if (!mailHood && back) P.part(P.mask().capsule(cx, cy + 4, cx + 1, cy + 8, 2), g.liv, {});
+        break;
+      }
+      case 'cap': {
+        const m = P.mask().ellipse(cx, cy - 2.6, 4.1, 2.4); m.rect(cx - 4, cy - 2, cx + 4, cy - 2);
+        P.part(m, g.drab, { sep: true });
+        break;
+      }
+    }
+    if (g.plume && (g.helm === 'greathelm' || g.helm === 'bascinet' || g.helm === 'sallet'))
+      P.part(P.mask().capsule(cx, cy - 5, cx + 3, cy - 8, 2.2).capsule(cx + 3, cy - 8, cx + 6, cy - 7, 1.8), tRamp(g.arms.A), { sep: true });
+  }
+
+  // A ramp halfway between two others (a leather jack dyed in the livery).
+  function mixRamp(a, c) { return a.map((x, i) => mix(x, c[i], 0.55)); }
+
   // A fallen soldier: the front frame laid on its side over a pool of blood.
   function corpse(g, seed, flip) {
     const r = R.make(seed, 'corpse' + flip);
-    const up = soldierFrame(Object.assign({}, g, { weapon: 'none', shield: g.shield && r.chance(0.5) }), 0, 'walk', 0);
+    const up = footFrame(Object.assign({}, g, { weapon: 'none', shield: g.shield && r.chance(0.5) }), 0, 'walk', 0);
     const out = new Grid(40, 32);
     // pool of blood first
     const cx = (flip ? 25 : 15) + r.range(-3, 3), cy = 21, rx = r.range(14, 18), ry = r.range(7, 9);
@@ -568,7 +863,7 @@
     const sheet = new Grid(128, 232);
     for (let row = 0; row < 5; row++) for (let col = 0; col < 4; col++) {
       const pose = row === 4 ? 'attack' : 'walk';
-      const fr = col === 3 ? soldierFrame(g, 2, pose, row).flipX() : soldierFrame(g, col, pose, row);
+      const fr = col === 3 ? footFrame(g, 2, pose, row).flipX() : footFrame(g, col, pose, row);
       sheet.blit(fr, col * 32, row * 40);
     }
     sheet.blit(corpse(g, o.seed, false), 0, 200);
@@ -1579,5 +1874,5 @@
   PG.medieval = { rollArms, blazon, TINCT,
     // drawing kit for add-on sets (creatures.js)
     Painter, Mask, Grid, INK, STEEL, LEATHER, WOODR, BLOOD, BONER, GOLDR, FUR, STRAW, mailTex, quiltTex,
-    soldierGenome, soldierFrame, drawWeapon, drawHeroWeapon, HERO_WEAPONS, corpse, heaterMask, tRamp, MOUNTS };
+    soldierGenome, soldierFrame, footFrame, tone, drawWeapon, drawHeroWeapon, HERO_WEAPONS, corpse, heaterMask, tRamp, MOUNTS };
 })(typeof window !== 'undefined' ? window : globalThis);
