@@ -116,7 +116,7 @@ const Heraldry = {
     const W = S.w + 2, H = S.h + 4;
     const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
     const c = cv.getContext('2d');
-    const trim = mine ? '#ffd84a' : st.trim, trimLo = darken(trim, 0.35);
+    const trim = mine ? '#d0c090' : st.trim, trimLo = darken(trim, 0.35);
     const tail = tier === 3 ? 5 : 4, mid = (S.w - 1) / 2;
     const inCloth = (x, y) => {
       if (x < 0 || y < 0 || x >= S.w || y >= S.h) return false;
@@ -235,10 +235,10 @@ const Heraldry = {
     ctx.fillStyle = '#120a18'; ctx.fillRect(x - 1, y - 1, 3, pole + 2);
     ctx.fillStyle = '#7a5a36'; ctx.fillRect(x, y, 1, pole);
     ctx.fillStyle = '#120a18'; ctx.fillRect(bx - 1, by - 1, IW + 2, 3);
-    ctx.fillStyle = o.mine ? '#ffd84a' : '#a88a5a'; ctx.fillRect(bx, by, IW, 1);
+    ctx.fillStyle = o.mine ? '#d0c090' : '#a88a5a'; ctx.fillRect(bx, by, IW, 1);
     if (tier === 3 || o.mine) {                                     // crown finial
       ctx.fillStyle = '#120a18'; ctx.fillRect(x - 3, y - 5, 7, 5);
-      ctx.fillStyle = o.mine ? '#ffd84a' : '#d8d8e0';
+      ctx.fillStyle = o.mine ? '#d0c090' : '#d8d8e0';
       ctx.fillRect(x - 2, y - 2, 5, 2); ctx.fillRect(x - 2, y - 4, 1, 2); ctx.fillRect(x, y - 4, 1, 2); ctx.fillRect(x + 2, y - 4, 1, 2);
     } else { ctx.fillStyle = '#120a18'; ctx.fillRect(x - 2, y - 3, 5, 4); ctx.fillStyle = '#d8d8e0'; ctx.fillRect(x - 1, y - 2, 3, 2); }
 

@@ -75,6 +75,10 @@ const Gen = {
 
   // Key of a unit type's generated sheet in Assets.img, or null to keep the old sprite.
   unit(id) {
+    if (typeof Chars !== 'undefined' && Chars.ready && Chars.UNITS[id]) {          // a hand-made animated character
+      const k = Chars.sheet(Chars.UNITS[id], this.unitFaction(id));
+      if (k) return k;
+    }
     if (!this.on || !this.UNITS[id]) return null;
     const key = 'gen:u:' + id;
     if (!Assets.img[key]) {
@@ -126,6 +130,10 @@ const Gen = {
     const d = DATA.generals[gid];
     if (!this.on || !d) return null;
     const key = 'gen:h:' + gid;
+    if (typeof Chars !== 'undefined' && Chars.ready) {                              // a hand-made animated character
+      const cid = Chars.generalFor(gid), k = cid && Chars.sheet(cid, d.faction && DATA.factions[d.faction] ? d.faction : 'neutral');
+      if (k) return k;
+    }
     if (d.mface) {                                                  // a monster general: their creature, as a general
       const kind = this.MONSTER_GENERALS[gid] || (this.UNITS[d.leads] || {}).creature;
       if (!kind || !this.hasCreatures) return null;
@@ -147,6 +155,10 @@ const Gen = {
     const d = DATA.generals[gid];
     if (!this.on || !d) return null;
     const key = 'gen:p:' + gid;
+    if (typeof Chars !== 'undefined' && Chars.ready) {                              // the face of their animated character
+      const cid = Chars.generalFor(gid);
+      if (cid && Chars.has(cid)) return this.cache[key] || (this.cache[key] = Chars.portrait(cid, d.faction && DATA.factions[d.faction] ? d.faction : 'neutral'));
+    }
     if (d.mface) {                                                  // monster generals have one face for every mood
       const kind = this.MONSTER_GENERALS[gid] || (this.UNITS[d.leads] || {}).creature;
       if (!kind || !this.hasCreatures) return null;
