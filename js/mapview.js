@@ -766,7 +766,7 @@ const MapView = {
     const im = Art.building(style, size, id);                       // each town its own variant
     // one art pixel per map pixel; the picture's box, tx, ty are in the old 48 x 40 units (generated pictures are twice that)
     const sc = im.gen ? 2 : 1;
-    const bx = Math.round(s.x - 24 * sc), by = Math.round(s.y - 3 - 38 * sc);   // the building stands at (24, 38) in old units
+    const bx = Math.round(s.x - (im.gen ? im.width / 2 : 24)), by = Math.round(s.y - 3 - (im.gen ? im.height - 4 : 38));   // standing on (width / 2, height - 4)
     mapDraw(ctx, im, bx, by);
     // flag pole planted on the roof's highest point
     const poleX = Math.round(bx + (im.box.tx + 0.5) * sc), poleBase = Math.round(by + im.box.ty * sc + 2);
@@ -783,20 +783,20 @@ const MapView = {
       circPath(ctx, bx + (im.box.x1 - 6) * sc + k * 4, by + (im.box.y0 + 8) * sc - k * 12, (1.5 + k * 3) * sc);
     }
 
-    // generals standing in front of the building: drawn 22 px, outlined in their side's
-    // colour (white for the Free Towns); generals who have moved this turn are faded
-    const GS = 32, gap = 20, MAXG = 2;                               // 32: one art pixel per map pixel; two at most, the rest counted
+    // the lead general stands at the town's left front corner, so the buildings show; the rest
+    // are counted (+N). Outlined in their side's colour (white for the Free Towns); faded once moved
+    const GS = 32, gap = 20, MAXG = 1;                               // 32: one art pixel per map pixel
     const outlineOf = f => !f || DATA.factions[f].neutral ? '#ffffff' : DATA.factions[f].color;
     const gens = game.generalsAt(id);
     const shown = gens.slice(0, MAXG);
-    const startX = s.x - ((shown.length - 1) * gap) / 2;
+    const half = im.gen ? (im.box.x1 - im.box.x0 + 1) : 24, startX = s.x - Math.max(20, half - 2);
     shown.forEach((g, i) => {
       const done = g.acted && owner === game.player;
       Assets.drawUnit(ctx, Assets.outlined(Assets.genSprite(g.id), outlineOf(g.faction)), 0, 0, false,
-        startX + i * gap - GS / 2, s.y + 16 - GS, done ? 0.5 : 1, GS, { t: this.time + i * 0.7 + s.x * 0.01 });
+        startX + i * gap - GS / 2, s.y + 14 - GS, done ? 0.5 : 1, GS, { t: this.time + i * 0.7 + s.x * 0.01, left: false });
     });
     if (gens.length > MAXG) {                                // how many more are here
-      const bx = Math.round(startX + (shown.length - 1) * gap + 12), by = Math.round(s.y - 4);
+      const bx = Math.round(startX + 6), by = Math.round(s.y + 4);
       ctx.fillStyle = '#1a1020'; ctx.beginPath(); ctx.roundRect ? ctx.roundRect(bx - 1, by - 1, 15, 10, 3) : ctx.rect(bx - 1, by - 1, 15, 10); ctx.fill();
       ctx.fillStyle = color; ctx.beginPath(); ctx.roundRect ? ctx.roundRect(bx, by, 13, 8, 2.5) : ctx.rect(bx, by, 13, 8); ctx.fill();
       label(ctx, '+' + (gens.length - MAXG), bx + 6.5, by + 7, '#ffffff', 'center', 8);
@@ -805,9 +805,9 @@ const MapView = {
     // wandering generals stand beside the building with a gold outline and a gold coin
     const free = game.wanderersAt ? game.wanderersAt(id) : [];
     free.slice(0, 2).forEach((g, i) => {
-      const WS = 32, wx = s.x - 28 - i * 15, wy = s.y + 2 - WS;                       // to the left; the right is for the +N badge
+      const WS = 32, wx = s.x + Math.max(20, half - 2) + i * 15, wy = s.y + 14 - WS;   // at the right front corner
       const bob = Math.floor(this.time * 2 + i) % 2;
-      Assets.drawUnit(ctx, Assets.outlined(Assets.genSprite(g.id), '#d0c090'), 0, 0, false, wx - WS / 2, wy, 1, WS, { t: this.time + i });
+      Assets.drawUnit(ctx, Assets.outlined(Assets.genSprite(g.id), '#d0c090'), 0, 0, false, wx - WS / 2, wy, 1, WS, { t: this.time + i, left: true });
       const cx = wx + 7, cy = wy - 2 - bob;
       ctx.fillStyle = '#1a1020'; ctx.beginPath(); ctx.arc(cx, cy, 4.5, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = '#d0c090'; ctx.beginPath(); ctx.arc(cx, cy, 3.5, 0, Math.PI * 2); ctx.fill();

@@ -147,6 +147,16 @@ of their death on the field. Who looks like whom: `Chars.UNITS`, `Chars.HEROES` 
 kings) and `Chars.MONSTER_GENERALS`. Portraits are a close-up of the same character. Cavalry, artillery and a few
 beasts keep their generated look.
 
+## Buildings from free packs
+Towns on the map, houses inside battle towns and four landmarks are drawn from free building packs (Devs in
+Exile, Pixel-Deck, MutterPixel Studio; see `assets/buildings/CREDITS.md`). `tools/sprites/buildings.py` picks each
+region's set (castles and timber houses for Aster, village houses for the Heartlands, stone towers for Frostmark,
+cabins for the Thornwood, smithies and red forts for the Ember Clan, ruins for the Shadow Order, fishing huts for
+the Horde, domed halls for the Azure Tide, tents and domes for the Sun) and packs them into one atlas. In the game
+(`Art.building`, `Art.ROOF`) each region's buildings take its roof colour and tone and are snapped to the palette;
+the smaller Devs in Exile buildings are shown at 2x. On the map the lead general stands at the town's left front
+corner (the rest counted as +N) so the buildings show.
+
 ## Pixel art: one grid, one palette
 - **One pixel grid in battle.** The battlefield is drawn into a buffer at one pixel per *art pixel* (`ART` in
   `js/terrain.js`: soldiers' 32 px art is 22 world px tall, so 32/22 art pixels per world pixel), then enlarged to the
