@@ -244,9 +244,10 @@ const MapView = {
       }
       ground[i] = ci;
     }
-    const cv = HD.upData(new Uint8ClampedArray(ground.buffer), gw, gh, 2, false);   // 4x of a 2-px cell = 2x world
+    // one Scale2x pass: the 2-px cells become the map's 1-px art grid, with rounded coasts kept as hard pixels
+    const cv = HD.upData(new Uint8ClampedArray(ground.buffer), gw, gh, 1, false);
     const ctx = cv.getContext('2d');
-    ctx.setTransform(2, 0, 0, 2, 0, 0);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     this.elev = { elev, gw, gh, CELL };
 
     // 4. Routes: thin pale lines between towns, as on an atlas
@@ -278,12 +279,12 @@ const MapView = {
       const big = name[0] === '@';
       const im = big ? Art.landmark(DATA.regions[name.slice(1)].landmark) : Art.deco(name);
       if (!im || !im.width) continue;
-      if (!big) { HD.draw(ctx, im, Math.round(x - im.width / 2), Math.round(y - im.height + 1)); continue; }
-      // landmarks: drawn larger, on a soft shadow, with the region's name on a plate
+      if (!big) { mapDraw(ctx, im, x - im.width / 2, y - im.height + 1); continue; }
+      // landmarks: one art pixel each, on a soft shadow
       const w = im.width * LS, h = im.height * LS, bw = (im.box.x1 - im.box.x0 + 1) * LS;
       ctx.fillStyle = 'rgba(20,16,30,0.3)';
       ctx.beginPath(); ctx.ellipse(x + 4, y + 1, bw * 0.55, bw * 0.16, 0, 0, Math.PI * 2); ctx.fill();
-      HD.draw(ctx, im, x - w / 2, y - h + 2 * LS, w, h);
+      mapDraw(ctx, im, x - w / 2, y - h + 2 * LS, LS);
     }
     // region names: placed now, clear of the towns as far as possible
     this.regionNames = [];
@@ -311,7 +312,7 @@ const MapView = {
       const owner = Object.keys(DATA.factions).find(f => DATA.landmarkRegion && DATA.landmarkRegion(f) === reg && DATA.landmarkPower.factions[f]);
       this.regionNames.push({ name: rn, x, y: ty - 4, trim: home ? home.color : '#c9a15a', f: owner });
     }
-    return cv;
+    return Palette.canvas(cv, 0);                  // the whole map in the game's palette
   },
 
   // ---------------------------------------------------------------- camera
@@ -322,20 +323,28 @@ const MapView = {
     } else {
       const minZ = Math.max(canvas.width / this.W, canvas.height / this.H) / dpr;   // never smaller than the screen
       this.cam.z = Math.max(minZ, Math.min(4, this.cam.z));
-      this.scale = this.cam.z * dpr;
+      // zoomed in, whole screen pixels per map (art) pixel so the pixel art stays crisp; below 1, smooth
+      let N = this.cam.z * dpr;
+      if (N >= 1) N = Math.max(1, Math.round(N));
+      if (N < minZ * dpr) N = minZ * dpr;
+      this.scale = N;
       const hw = canvas.width / 2 / this.scale, hh = canvas.height / 2 / this.scale;
       this.cam.x = Math.max(hw, Math.min(this.W - hw, this.cam.x));
       this.cam.y = Math.max(hh, Math.min(this.H - hh, this.cam.y));
     }
     const cx = this.fitAll ? this.W / 2 : this.cam.x, cy = this.fitAll ? this.H / 2 : this.cam.y;
-    this.ox = Math.round(canvas.width / 2 - cx * this.scale);
-    this.oy = Math.round(canvas.height / 2 - cy * this.scale);
+    const N = this.scale, snap = v => N >= 1 ? Math.round(v / Math.round(N)) * Math.round(N) : Math.round(v);   // on whole map pixels
+    this.ox = snap(canvas.width / 2 - cx * this.scale);
+    this.oy = snap(canvas.height / 2 - cy * this.scale);
   },
   toWorld(px, py) { return [(px - this.ox) / this.scale, (py - this.oy) / this.scale]; },
   centerOn(x, y) { this.cam.x = x; this.cam.y = y; },
   zoomAt(factor, px, py) {                     // px, py: device pixels to keep still
-    const [wx, wy] = this.toWorld(px, py);
-    this.cam.z = Math.max(0.3, Math.min(4, this.cam.z * factor));
+    const [wx, wy] = this.toWorld(px, py), dpr0 = window.devicePixelRatio || 1, N = this.scale || 1;
+    if (N >= 1 && factor > 1) this.cam.z = (Math.round(N) + 1) / dpr0;               // whole steps when zoomed in
+    else if (N > 1.5 && factor < 1) this.cam.z = (Math.round(N) - 1) / dpr0;
+    else this.cam.z = this.cam.z * factor;
+    this.cam.z = Math.max(0.3, Math.min(4, this.cam.z));
     const dpr = window.devicePixelRatio || 1, s = this.cam.z * dpr;
     this.cam.x = wx - (px - this.canvasW / 2) / s;
     this.cam.y = wy - (py - this.canvasH / 2) / s;
@@ -422,21 +431,26 @@ const MapView = {
     this.scrollKeys(dt);
     this.startQueuedFx(dt);
     this.fit(canvas);
-    if (this.shake > 0.2) {                    // screen shake after big captures
-      const dpr = window.devicePixelRatio || 1;
-      this.ox += Math.round((Math.random() - 0.5) * this.shake * dpr * 2);
-      this.oy += Math.round((Math.random() - 0.5) * this.shake * dpr * 2);
+    if (this.shake > 0.2) {                    // screen shake after big captures (in whole map pixels)
+      const k = Math.max(1, Math.round(this.scale));
+      this.ox += Math.round((Math.random() - 0.5) * this.shake * 2) * k;
+      this.oy += Math.round((Math.random() - 0.5) * this.shake * 2) * k;
     }
     this.shake *= Math.pow(0.02, dt);
     if (this.calm === undefined) this.calm = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
     if (this.calm) { this.shake = 0; this.flash = Math.min(this.flash, 0.15); }
+    // the map is drawn into a buffer at one pixel per map pixel, then enlarged by a whole number
+    // (N), so the land, towns, generals and scenery share one pixel grid; names go on top, sharp
+    const screen = ctx, N = this.scale >= 1 ? Math.round(this.scale) : this.scale;
+    const bw = Math.ceil(canvas.width / N), bh = Math.ceil(canvas.height / N);
+    if (!this.buf || this.buf.width !== bw || this.buf.height !== bh) { this.buf = document.createElement('canvas'); this.buf.width = bw; this.buf.height = bh; }
+    ctx = this.buf.getContext('2d');
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = '#1d3557';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.setTransform(this.scale, 0, 0, this.scale, this.ox, this.oy);
-    ctx.imageSmoothingEnabled = this.scale < 2;           // the map is stored at 2x detail
-    ctx.drawImage(this.terrain, 0, 0, this.W, this.H);
+    ctx.fillRect(0, 0, bw, bh);
+    ctx.setTransform(1, 0, 0, 1, this.ox / N, this.oy / N);
     ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(this.terrain, 0, 0, this.W, this.H);
 
     // visible area in world pixels, so off-screen towns are skipped
     const [vx0, vy0] = this.toWorld(0, 0), [vx1, vy1] = this.toWorld(canvas.width, canvas.height);
@@ -461,8 +475,16 @@ const MapView = {
     this.drawBeams(ctx, dt);
     for (const id of order) if (vis(DATA.spots[id].x, DATA.spots[id].y)) this.drawSpot(ctx, id, game, ui);
     this.drawWeather(ctx, vis, vx0, vy0, vx1, vy1);
-    this.drawRegionNames(ctx, vis, game);
     this.drawFx(ctx, dt);
+    // enlarge the buffer onto the screen, then the names, sharp
+    screen.setTransform(1, 0, 0, 1, 0, 0);
+    screen.imageSmoothingEnabled = N < 1;
+    screen.drawImage(this.buf, 0, 0, bw * N, bh * N);
+    ctx = screen;
+    ctx.setTransform(this.scale, 0, 0, this.scale, this.ox, this.oy);
+    for (const id of order) if (vis(DATA.spots[id].x, DATA.spots[id].y)) this.drawSpotName(ctx, id, game);
+    this.drawRegionNames(ctx, vis, game);
+    this.drawFxText(ctx);
     if (this.flash > 0.01) {                   // full-screen flash
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.fillStyle = `rgba(255,248,220,${Math.min(0.85, this.flash)})`;
@@ -612,9 +634,11 @@ const MapView = {
       ctx.globalAlpha = 1;
     }
     this.parts = this.parts.filter(p => p.life < p.max);
-    // floating words: pop in, hold, drift up and fade
+    for (const t of this.texts) t.age += dt;
+  },
+  // floating words (drawn sharp, over the enlarged map): pop in, hold, drift up and fade
+  drawFxText(ctx) {
     for (const t of this.texts) {
-      t.age += dt;
       if (t.age < 0) continue;
       const k = t.age / t.dur, pop = t.age < 0.18 ? 1.6 - (t.age / 0.18) * 0.6 : 1;
       const a = k > 0.75 ? (1 - k) / 0.25 : 1;
@@ -739,12 +763,11 @@ const MapView = {
     const style = DATA.regions[s.region].building;
     const size = { village: 0, town: 1, capital: 2, city: 2, shrine: style === 'village' ? 3 : 0 }[s.kind] || 0;
     // drawn bigger, scaled by the building's own width so every region's houses match
-    const im = Art.building(style, size, id), bw = im.box.x1 - im.box.x0 + 1;   // each town its own variant
-    // generated buildings stand on their own block of ground, so they are drawn larger
-    const want = (im.gen ? { village: 56, town: 66, shrine: 54, capital: 88, city: 88 } : { village: 38, town: 46, shrine: 40, capital: 58, city: 58 })[s.kind] || 40;
-    const sc = Math.max(1, Math.min(im.gen ? 3.2 : 2.4, want / bw));
-    const bx = s.x - 24 * sc, by = s.y - 3 - 38 * sc;              // the building stands at (24, 38) in its picture
-    HD.draw(ctx, im, bx, by, 48 * sc, 40 * sc);
+    const im = Art.building(style, size, id);                       // each town its own variant
+    // one art pixel per map pixel; the picture's box, tx, ty are in the old 48 x 40 units (generated pictures are twice that)
+    const sc = im.gen ? 2 : 1;
+    const bx = Math.round(s.x - 24 * sc), by = Math.round(s.y - 3 - 38 * sc);   // the building stands at (24, 38) in old units
+    mapDraw(ctx, im, bx, by);
     // flag pole planted on the roof's highest point
     const poleX = Math.round(bx + (im.box.tx + 0.5) * sc), poleBase = Math.round(by + im.box.ty * sc + 2);
     let lift = 1;
@@ -762,27 +785,27 @@ const MapView = {
 
     // generals standing in front of the building: drawn 22 px, outlined in their side's
     // colour (white for the Free Towns); generals who have moved this turn are faded
-    const GS = 22, gap = 15;
+    const GS = 32, gap = 20, MAXG = 2;                               // 32: one art pixel per map pixel; two at most, the rest counted
     const outlineOf = f => !f || DATA.factions[f].neutral ? '#ffffff' : DATA.factions[f].color;
     const gens = game.generalsAt(id);
-    const shown = gens.slice(0, 3);
+    const shown = gens.slice(0, MAXG);
     const startX = s.x - ((shown.length - 1) * gap) / 2;
     shown.forEach((g, i) => {
       const done = g.acted && owner === game.player;
       Assets.drawUnit(ctx, Assets.outlined(Assets.genSprite(g.id), outlineOf(g.faction)), 0, 0, false,
-        startX + i * gap - GS / 2, s.y + 12 - GS, done ? 0.5 : 1, GS);
+        startX + i * gap - GS / 2, s.y + 16 - GS, done ? 0.5 : 1, GS);
     });
-    if (gens.length > 3) {                                   // how many more are here
-      const bx = Math.round(startX + 2 * gap + 10), by = Math.round(s.y - 6);
+    if (gens.length > MAXG) {                                // how many more are here
+      const bx = Math.round(startX + (shown.length - 1) * gap + 12), by = Math.round(s.y - 4);
       ctx.fillStyle = '#1a1020'; ctx.beginPath(); ctx.roundRect ? ctx.roundRect(bx - 1, by - 1, 15, 10, 3) : ctx.rect(bx - 1, by - 1, 15, 10); ctx.fill();
       ctx.fillStyle = color; ctx.beginPath(); ctx.roundRect ? ctx.roundRect(bx, by, 13, 8, 2.5) : ctx.rect(bx, by, 13, 8); ctx.fill();
-      label(ctx, '+' + (gens.length - 3), bx + 6.5, by + 7, '#ffffff', 'center', 8);
+      label(ctx, '+' + (gens.length - MAXG), bx + 6.5, by + 7, '#ffffff', 'center', 8);
     }
 
     // wandering generals stand beside the building with a gold outline and a gold coin
     const free = game.wanderersAt ? game.wanderersAt(id) : [];
     free.slice(0, 2).forEach((g, i) => {
-      const WS = 20, wx = s.x - 26 - i * 13, wy = s.y - 6 - WS;                       // to the left; the right is for the +N badge
+      const WS = 32, wx = s.x - 28 - i * 15, wy = s.y + 2 - WS;                       // to the left; the right is for the +N badge
       const bob = Math.floor(this.time * 2 + i) % 2;
       Assets.drawUnit(ctx, Assets.outlined(Assets.genSprite(g.id), '#ffd84a'), 0, 0, false, wx - WS / 2, wy, 1, WS);
       const cx = wx + 7, cy = wy - 2 - bob;
@@ -796,16 +819,6 @@ const MapView = {
     const opp = game.oppSpots && game.oppSpots[id];
     if (opp) this.drawBeacon(ctx, id, s, opp, poleBase - Heraldry.poleLen(tier) - 14);
 
-    // name: plain lettering with a dark outline, as on an atlas, and a thin underline in the owner's colour
-    const fs = [0, 11, 12, 14][tier];
-    ctx.font = `${fs}px PixelFont`;
-    const tw = Math.ceil(ctx.measureText(s.name).width), ty = s.y + 26;
-    ctx.textAlign = 'center'; ctx.lineJoin = 'round';
-    ctx.lineWidth = 3.2; ctx.strokeStyle = 'rgba(12,10,20,0.92)'; ctx.strokeText(s.name, s.x, ty);
-    ctx.fillStyle = tier === 3 ? '#ffe27a' : owner === game.player ? '#fff6b0' : '#ffffff';
-    ctx.fillText(s.name, s.x, ty);
-    ctx.fillStyle = 'rgba(12,10,20,0.85)'; ctx.fillRect(Math.round(s.x - tw / 2) - 1, ty + 2, tw + 2, 3);
-    ctx.fillStyle = color; ctx.fillRect(Math.round(s.x - tw / 2), ty + 3, tw, 1);
   },
 
   // A walled town's site under it (an island in a lake, a crag with a ramp, a ridge end)
@@ -844,6 +857,21 @@ const MapView = {
     }
     ctx.fillStyle = '#e4e0ec';
     for (let a = 0; a < Math.PI * 2; a += 0.32) if (!gaps.some(g => Math.abs(((a - g + Math.PI * 3) % (Math.PI * 2)) - Math.PI) < 0.24)) ctx.fillRect(Math.round(x + Math.cos(a) * R) - 0.5, Math.round(y + Math.sin(a) * Ry) - 1.5, 1.2, 1.2);
+  },
+
+  // The town's name, drawn sharp over the enlarged map.
+  drawSpotName(ctx, id, game) {
+    const s = DATA.spots[id], owner = game.spots[id].owner, color = DATA.factions[owner].color, tier = this.tierOf(s.kind);
+    // name: plain lettering with a dark outline, as on an atlas, and a thin underline in the owner's colour
+    const fs = [0, 11, 12, 14][tier];
+    ctx.font = `${fs}px PixelFont`;
+    const tw = Math.ceil(ctx.measureText(s.name).width), ty = s.y + 26;
+    ctx.textAlign = 'center'; ctx.lineJoin = 'round';
+    ctx.lineWidth = 3.2; ctx.strokeStyle = 'rgba(12,10,20,0.92)'; ctx.strokeText(s.name, s.x, ty);
+    ctx.fillStyle = tier === 3 ? '#ffe27a' : owner === game.player ? '#fff6b0' : '#ffffff';
+    ctx.fillText(s.name, s.x, ty);
+    ctx.fillStyle = 'rgba(12,10,20,0.85)'; ctx.fillRect(Math.round(s.x - tw / 2) - 1, ty + 2, tw + 2, 3);
+    ctx.fillStyle = color; ctx.fillRect(Math.round(s.x - tw / 2), ty + 3, tw, 1);
   },
 
   // Bobbing badge: gold "!" = a hero you can hire here; pink "?" = a general you can persuade.
@@ -904,7 +932,14 @@ function showCaptureBanner(s, col, tier) {
   showCaptureBanner.t = setTimeout(() => { el.hidden = true; }, tier === 3 ? 3200 : 2000);
 }
 
-const LS = 1.4;                 // landmarks are drawn at 1.4x their picture size
+const LS = 1;                   // landmarks are drawn at their picture's own size (one art pixel each, like everything else)
+// Draw pixel art on the map's art grid (one art pixel per map pixel), k map pixels per image pixel.
+function mapDraw(ctx, im, x, y, k = 1, sx = 0, sy = 0, sw = im.width, sh = im.height) {
+  const prev = ctx.imageSmoothingEnabled;
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(im, sx, sy, sw, sh, Math.round(x), Math.round(y), Math.round(sw * k), Math.round(sh * k));
+  ctx.imageSmoothingEnabled = prev;
+}
 
 function circPath(ctx, x, y, r) { ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); }
 

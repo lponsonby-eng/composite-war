@@ -142,6 +142,11 @@ Add your own events by copying an entry; the format is described at the top of t
   below 1:1 it shrinks smoothly for an overview. Battles open at 1:1. Units, generals, houses, trees and rocks are
   drawn at one art pixel each (the older 16 px scenery at a clean 2x); the walls, roads, fields and ground are drawn
   straight onto the same grid. Squad markers, numbers and messages are drawn sharp on top.
+- **The strategy map too** keeps one art pixel per map pixel: the land is painted in 2-px cells and enlarged once
+  with Scale2x (rounded coasts as hard pixels on the 1-px grid), and towns, landmarks, scenery and generals are
+  drawn at one art pixel each; the map is drawn into a buffer and enlarged by a whole number, zoom steps whole
+  sizes, and town and region names are drawn sharp on top. Up to two generals stand in front of a town at full
+  size, with a "+N" badge for the rest.
 - **One palette.** Every generated sprite, building and portrait, and the whole battlefield, is snapped to
   [Resurrect 64](https://lospec.com/palette-list/resurrect-64) by Kerrie Lake (`js/palette.js`, matched in OKLab
   through a lookup table). The ground is painted in three palette shades of the region's ground. Set
