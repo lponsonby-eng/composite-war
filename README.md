@@ -75,7 +75,12 @@ whole army's surcoats, shields, banners and tents match:
   healers), a cape with a gilded hem that streams out behind, gilded pauldron edges, belt, hem and baldric; faction lords
   wear a gold crown and an ermine collar. Options: `--role warrior|marksman|mage|healer`, `--lord yes|no`. Generals are
   drawn 28 px against their men's 22, so they stand a head taller in a block
-- **champion** (the older hero style, still used for portraits): 160 x 288 sheet of 40 x 48 frames (front/back/left/right; walk, attack, special).
+- **commanderface** (generals' portraits): 192 x 64, the matching 64 x 64 bust of a commander (same seed and options,
+  so the same person) in three moods (neutral, fierce, smile): warriors in an open-faced helm with the visor raised so
+  the face shows, plume, gilded pauldrons and the army's arms on the chest; marksmen in their plumed hat; mages and
+  healers with circlet, mantle and stole; lords crowned with an ermine collar; on a backdrop in the army's colour
+  inside a gilt frame. Used for every portrait in the game
+- **champion** (the older hero style, no longer used by the game): 160 x 288 sheet of 40 x 48 frames (front/back/left/right; walk, attack, special).
   Heroes are built to stand apart from the rank and file, in the spirit of Vampire Survivors' cast: twelve
   archetypes (witch, reaper, cavalier, berserker, paladin, monk, necromancer, huntress, alchemist, jester,
   warlord, shieldmaiden), each with its own silhouette (witch hats, plumed cavalier hats, plague masks, jester
