@@ -70,7 +70,12 @@ whole army's surcoats, shields, banners and tents match:
   and heater shield, men-at-arms in plate and mail with polearms, spearmen in padded coats with tall spears, archers in
   jacks with a quiver and a bow as tall as themselves, levies in plain tunics. Blades are held point-down at the side.
   Every colour runs through `tone()`: deep, cool shadows and soft warm-white highlights, with a dark navy outline
-- **champion** (heroes): 160 x 288 sheet of 40 x 48 frames (front/back/left/right; walk, attack, special).
+- **commander** (generals in battle): 160 x 288 sheet of 40 x 48 frames, the foot soldier's body made grand: a tall
+  feathered plume in the army's colours (or a plumed wide-brimmed hat for marksmen, a jewelled circlet for mages and
+  healers), a cape with a gilded hem that streams out behind, gilded pauldron edges, belt, hem and baldric; faction lords
+  wear a gold crown and an ermine collar. Options: `--role warrior|marksman|mage|healer`, `--lord yes|no`. Generals are
+  drawn 28 px against their men's 22, so they stand a head taller in a block
+- **champion** (the older hero style, still used for portraits): 160 x 288 sheet of 40 x 48 frames (front/back/left/right; walk, attack, special).
   Heroes are built to stand apart from the rank and file, in the spirit of Vampire Survivors' cast: twelve
   archetypes (witch, reaper, cavalier, berserker, paladin, monk, necromancer, huntress, alchemist, jester,
   warlord, shieldmaiden), each with its own silhouette (witch hats, plumed cavalier hats, plague masks, jester
