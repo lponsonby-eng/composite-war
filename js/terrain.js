@@ -8,7 +8,7 @@
 //  The layout comes from the town's `terrain` (see FIELD_RECIPES) and region, and
 //  `walls`, seeded by the town's id so the same town always gives the same field.
 // =============================================================================
-const GROUND = { grass: 0, forest: 1, water: 2, ford: 3, mud: 4, wall: 5, snow: 6, ice: 7, sand: 8, lava: 9, rock: 10, stream: 11, bridge: 12, gate: 13 };
+const GROUND = { grass: 0, forest: 1, water: 2, ford: 3, mud: 4, wall: 5, snow: 6, ice: 7, sand: 8, lava: 9, rock: 10, stream: 11, bridge: 12, gate: 13, cliff: 14, deep: 15 };
 
 // What each battlefield type is made of. Counts are for the whole field.
 //   hills: number of hills (ridge: long thin dune ridges), forests: forest blobs,
@@ -39,6 +39,7 @@ class Terrain {
     this.height = new Float32Array(this.cols * this.rows);
     this.type = s.terrain || 'plains';
     this.walls = !!s.walls;
+    this.site = this.walls ? (DATA.sites[s.site] ? s.site : 'open') : null;   // how the town's ground lets attackers in (DATA.sites)
     this.region = s.region || 'free';
     this.features = [];                     // what the field has, for the HUD (hills, river with fords...)
     // trees used for forests and the tree lines at the edges of the field
@@ -90,21 +91,101 @@ class Terrain {
     }
     return [clamp(x, 8, this.W - 8), clamp(y, 16, this.H - 8)];
   }
-  // Where a unit at (x, y) should head to get past the wall towards (tx, ty), or null.
-  // Attackers (side 0) use broken gates if there are any, else the nearest gate (to
-  // batter it down); defenders can use any of their gates.
-  gateWaypoint(x, y, tx, ty, side = 0) {
+  // ---------------------------------------------------------------- walled towns
+  // A walled town is a square of walls (this.town: x0, y0, x1, y1 in pixels) with
+  // gates on the sides its site leaves open. Around it is the site's "keep-out" box
+  // (this.keep): the walls themselves, or the cliffs / lake that close off the other
+  // approaches. Each gate has an approach lane (its channel) running out through the
+  // keep-out box to a point A in the open; I is just inside the gate.
+  // Inside the walls (not counting the walls themselves or a gateway).
+  inTown(x, y) { const t = this.town; return !!t && x > t.x0 + t.wall && x < t.x1 - t.wall && y > t.y0 + t.wall && y < t.y1 - t.wall; }
+  inKeep(x, y) { const k = this.keep; return !!k && x > k.x0 && x < k.x1 && y > k.y0 && y < k.y1; }
+  // Gate-local coordinates of a point: out = distance outward from the gate's centre, lat = sideways.
+  gateLocal(g, x, y) { const dx = x - g.x, dy = y - g.y; return [dx * g.nx + dy * g.ny, -dx * g.ny + dy * g.nx]; }
+  gatePoint(g, out, lat) { return [g.x + g.nx * out - g.ny * lat, g.y + g.ny * out + g.nx * lat]; }
+  // The gate whose approach lane (from just inside it out to A) holds (x, y), or null.
+  channelOf(x, y) {
     if (!this.walls) return null;
-    const x0 = this.wallX, x1 = this.wallX + this.wallW, mid = (x0 + x1) / 2;
-    if ((x < mid) === (tx < mid)) return null;                 // same side: no need
-    const open = this.gates.filter(g => g.open), list = side === 0 && open.length ? open : this.gates;
-    const g = list.reduce((a, b) => Math.abs(b.y - y) + Math.abs(b.y - ty) < Math.abs(a.y - y) + Math.abs(a.y - ty) ? b : a);
-    const lane = g.y + clamp(y - g.y, -(g.half - 8), g.half - 8);     // spread across the gateway
-    const lined = Math.abs(y - g.y) < g.half - 6 && Math.abs(x - mid) < this.wallW / 2 + 18;
-    return lined ? [x < mid ? x1 + 18 : x0 - 18, lane]                 // walk through it
-      : [x < mid ? x0 - 14 : x1 + 14, lane];                           // line up with it first
+    for (const g of this.gates) {
+      const [o, l] = this.gateLocal(g, x, y);
+      if (Math.abs(l) < g.lane && o > -(this.town.wall / 2 + 30) && o < g.reach + 6) return g;
+    }
+    return null;
   }
-  gateAt(x, y) { return this.walls ? this.gates.find(g => !g.open && x >= this.wallX - 2 && x <= this.wallX + this.wallW + 2 && Math.abs(y - g.y) < g.half + 2) : null; }
+  // Where a unit at (x, y) should head next to reach (tx, ty), or null to walk straight:
+  // round the town (and its cliffs or lake) by the corners, out to a gate's approach,
+  // through the gate, and out again. Attackers (side 0) use broken gates if there are
+  // any, else the nearest gate (to batter it down); defenders can use any of their gates.
+  route(x, y, tx, ty, side = 0) {
+    if (!this.walls) return null;
+    const a = this.inTown(x, y), b = this.inTown(tx, ty);
+    if (a && b) return null;
+    const pc = this.channelOf(x, y), lane = (g, out) => {
+      const [, l] = this.gateLocal(g, x, y);
+      return this.gatePoint(g, out, clamp(l, -(g.half - 8), g.half - 8));          // spread across the gateway
+    };
+    // out of a lane: walk on to its outer end first
+    const leave = g => { const [o] = this.gateLocal(g, x, y); return o < g.reach - 4 ? lane(g, g.reach + 4) : null; };
+    if (!a && !b) {
+      const qc = this.channelOf(tx, ty);
+      if (pc && pc === qc) return null;
+      if (qc) return pc ? leave(pc) || this.around(x, y, qc.ax, qc.ay) : this.around(x, y, qc.ax, qc.ay) || (this.inKeep(x, y) ? null : [qc.ax, qc.ay]);
+      if (pc) return leave(pc) || this.around(x, y, tx, ty);
+      return this.around(x, y, tx, ty);
+    }
+    const open = this.gates.filter(g => g.open), list = side === 0 && open.length ? open : this.gates;
+    if (b) {                                                                       // going in
+      const g = pc && list.includes(pc) ? pc : list.reduce((p, q) => this.costIn(x, y, q, tx, ty) < this.costIn(x, y, p, tx, ty) ? q : p);
+      if (pc === g) return lane(g, -(this.town.wall / 2 + 26));
+      if (pc) return leave(pc) || this.around(x, y, g.ax, g.ay);
+      return this.around(x, y, g.ax, g.ay) || [g.ax, g.ay];
+    }
+    // going out
+    const g = list.reduce((p, q) => Math.hypot(q.ix - x, q.iy - y) + Math.hypot(q.ax - tx, q.ay - ty) < Math.hypot(p.ix - x, p.iy - y) + Math.hypot(p.ax - tx, p.ay - ty) ? q : p);
+    if (pc === g) return lane(g, g.reach + 4);
+    const [, l] = this.gateLocal(g, x, y);
+    return this.gatePoint(g, -(this.town.wall / 2 + 26), clamp(l, -(g.half - 8), g.half - 8));
+  }
+  costIn(x, y, g, tx, ty) {
+    const r = this.around(x, y, g.ax, g.ay);
+    const d = r ? Math.hypot(r[0] - x, r[1] - y) + Math.hypot(g.ax - r[0], g.ay - r[1]) * 1.2 : Math.hypot(g.ax - x, g.ay - y);
+    return d + Math.hypot(g.ix - tx, g.iy - ty);
+  }
+  // Does the segment from (x0, y0) to (x1, y1) pass through the keep-out box?
+  crossesKeep(x0, y0, x1, y1) {
+    const k = this.keep, dx = x1 - x0, dy = y1 - y0;
+    let t0 = 0, t1 = 1;
+    for (const [p, q] of [[-dx, x0 - k.x0 - 1], [dx, k.x1 - 1 - x0], [-dy, y0 - k.y0 - 1], [dy, k.y1 - 1 - y0]]) {
+      if (p === 0) { if (q < 0) return false; continue; }
+      const r = q / p;
+      if (p < 0) { if (r > t1) return false; if (r > t0) t0 = r; } else { if (r < t0) return false; if (r < t1) t1 = r; }
+    }
+    return t1 - t0 > 1e-4;
+  }
+  // The first corner to make for to get round the keep-out box from (x, y) to (tx, ty),
+  // or null when the way is clear (or there is no way round inside the field).
+  around(x, y, tx, ty) {
+    if (!this.keep || this.inKeep(x, y) || !this.crossesKeep(x, y, tx, ty)) return null;
+    const k = this.keep, m = 22;
+    const cs = [[k.x0 - m, k.y0 - m], [k.x1 + m, k.y0 - m], [k.x1 + m, k.y1 + m], [k.x0 - m, k.y1 + m]]
+      .map(c => c[0] > 4 && c[0] < this.W - 4 && c[1] > 14 && c[1] < this.H - 6 ? c : null);
+    const len = (ax, ay, bx, by) => Math.hypot(bx - ax, by - ay);
+    let best = null, bd = 1e9;
+    for (let i = 0; i < 4; i++) {
+      const c = cs[i]; if (!c || this.crossesKeep(x, y, c[0], c[1])) continue;
+      const d0 = len(x, y, c[0], c[1]);
+      if (!this.crossesKeep(c[0], c[1], tx, ty)) { const d = d0 + len(c[0], c[1], tx, ty); if (d < bd) { bd = d; best = c; } continue; }
+      for (const j of [(i + 1) % 4, (i + 3) % 4]) {
+        const e = cs[j]; if (!e || this.crossesKeep(e[0], e[1], tx, ty)) continue;
+        const d = d0 + len(c[0], c[1], e[0], e[1]) + len(e[0], e[1], tx, ty); if (d < bd) { bd = d; best = c; }
+      }
+    }
+    return best;
+  }
+  gateAt(x, y) {
+    if (!this.walls) return null;
+    return this.gates.find(g => { if (g.open) return false; const [o, l] = this.gateLocal(g, x, y); return Math.abs(o) < this.town.wall / 2 + 4 && Math.abs(l) < g.half + 2; }) || null;
+  }
   // A gate has been battered down: its cells become open ground.
   breakGate(g) {
     g.open = true;
@@ -116,14 +197,17 @@ class Terrain {
     const name = { plains: 'Open plains', forest: 'Forest', river: 'River', swamp: 'Swamp', snow: 'Snowfield',
       dunes: 'Dunes', lava: 'Lava field', crystal: 'Crystal shore' }[this.type] || this.type;
     const extra = this.features.filter(f => !name.toLowerCase().includes(f.split(' ')[0])).slice(0, 2);
-    return [name, ...extra].join(', ') + (this.walls ? ', walled town' : '');
+    return [name, ...extra].join(', ') + (this.walls ? `, walled town (${DATA.sites[this.site].name.toLowerCase()})` : '');
   }
   // What is under a point, for the battle's ground readout.
   infoAt(x, y) {
     const k = GROUND_NAMES[this.kindAt(x, y)], G = DATA.ground[k], h = this.heightAt(x, y), HB = DATA.battle.hills;
     const parts = [{ grass: 'Open ground', forest: 'Forest - hides troops, cover', water: 'Deep water - slow, poor footing', ford: 'Ford - shallow crossing',
       mud: 'Mud - slow', wall: 'Wall', snow: 'Snowdrift - slow', ice: 'Ice - fast, slippery', sand: 'Sand - slow', lava: 'Lava - impassable',
-      rock: 'Rocks - impassable', stream: 'Stream - shallow', bridge: 'Bridge', gate: 'Gate - break it down to get in' }[k] || k];
+      rock: 'Rocks - impassable', stream: 'Stream - shallow', bridge: this.site === 'lake' && this.inKeep(x, y) ? 'Causeway - the only way in' : 'Bridge',
+      gate: 'Gate - break it down to get in', cliff: 'Cliffs - impassable', deep: 'Deep water - impassable' }[k] || k];
+    if (this.inTown(x, y) && k === 'grass') parts[0] = 'Inside the walls - defenders +' + DATA.ground.wall.fortify + ' defence';
+    else if (this.channelOf(x, y) && !this.inTown(x, y) && this.site !== 'open') parts[0] = this.site === 'crag' ? 'Ramp - the only way up' : this.site === 'lake' ? parts[0] : 'Approach to the gate';
     if (h > 0.2) parts.push(`${h > 0.7 ? 'Hilltop' : 'Slope'}: shooters +${Math.round(h * HB.range * 100)}% range`);
     if (G.cover && k !== 'forest') parts.push(`${Math.round(G.cover * 100)}% cover`);
     return parts.join(' | ');
@@ -256,36 +340,8 @@ class Terrain {
       for (let j = 0, m = 2 + Math.floor(rng() * 3); j < m; j++) this.blob(x + (rng() - 0.5) * 70, y + (rng() - 0.5) * 50, 10 + rng() * 12, G.rock, soft);
     }
 
-    if (this.walls) {
-      // The town sits behind a thick stone wall about 60% of the way across the field,
-      // with three closed gates (battered down in battle) and a raised rampart behind
-      // it, so the defenders' archers shoot from high ground and the courtyard beyond
-      // leaves room to move. Inside is flat open ground.
-      const WC = 3;                                                 // wall thickness in cells
-      this.wallX = Math.round(W * 0.6 / C) * C; this.wallW = WC * C;
-      const wx = this.wallX / C;
-      this.gates = [0.24, 0.5, 0.76].map(f => ({ y: Math.round((H * f + (rng() - 0.5) * 60) / 8) * 8, half: 22, open: false, hp: 1, maxHp: 1, cells: [], hitT: 0 }));
-      for (let y = 0; y < this.rows; y++) {
-        const py = y * C + 4;
-        for (let x = wx - 8; x < this.cols; x++) {                     // clear ground in front of the wall and inside
-          const i = y * this.cols + x, k = x - wx;
-          this.kind[i] = G.grass;
-          this.height[i] = k < 0 ? this.height[i] * (-k - 1) / 8                 // level ground at the foot of the wall
-            : k < WC + 5 ? 0.85 : k < WC + 9 ? 0.85 * (WC + 9 - k) / 4 : 0;      // the wall and its rampart, sloping down to the courtyard
-        }
-        if (py < 12 || py > H - 12) continue;
-        const gate = this.gates.find(g => Math.abs(py - g.y) < g.half);
-        for (let k = 0; k < WC; k++) {
-          const i = y * this.cols + wx + k;
-          this.kind[i] = gate ? G.gate : G.wall;
-          if (gate) gate.cells.push(i);
-        }
-        if (!gate) for (let k = WC; k < WC + 7; k++) this.cover[y * this.cols + wx + k] = DATA.ground.wall.behindCover;  // shelter behind the wall
-      }
-      this.features.push('three gates');
-    }
     // scattered trees along the top and bottom edges
-    for (let x = 40; x < (this.walls ? this.wallX - 60 : W - 40); x += 70) for (const edge of [0, 1]) if (rng() < 0.55)   // (not inside a town)
+    for (let x = 40; x < W - 40; x += 70) for (const edge of [0, 1]) if (rng() < 0.55)
       this.blob(x + (rng() - 0.5) * 40, edge ? H - 20 - rng() * 30 : 20 + rng() * 30, 10 + rng() * 14, G.forest, [G.grass, G.snow, G.sand, G.mud]);
     // never block the starting areas: no water, lava or rocks where armies deploy
     const blocks = [G.water, G.lava, G.rock, G.ice];
@@ -293,6 +349,113 @@ class Terrain {
       const i = y * this.cols + x;
       if ((x * C < 300 || x * C > W - 300) && blocks.includes(this.kind[i])) this.kind[i] = G.grass;
     }
+    if (this.walls) this.genTown();
+  }
+
+  // A walled town about two-thirds of the way across the field: a square of thick stone
+  // walls with round towers, a raised wall-walk inside them (so the defenders' archers
+  // shoot from high ground), and gates on the sides its site leaves open:
+  //   open: gates on all four sides, roads running out from each;
+  //   hill: on the end of a ridge, cliffs on the far side and one flank: two gates;
+  //   crag: on a cliff-girt crag, one gate up a narrow ramp;
+  //   lake: on an island, one gate at the end of a causeway.
+  // The ground around it is cleared; the site's cliffs or lake form the keep-out box.
+  genTown() {
+    const C = this.C, W = this.W, H = this.H, G = GROUND, rng = this.rng, cols = this.cols, rows = this.rows;
+    const site = this.site, WC = 3, IW = 66, IH = 62;               // wall thickness and the inside, in cells
+    const cx = Math.round(W * 0.67 / C), cy = Math.round(H / 2 / C);
+    const X0 = cx - IW / 2 - WC, X1 = cx + IW / 2 + WC, Y0 = cy - IH / 2 - WC, Y1 = cy + IH / 2 + WC;   // cells [X0, X1) x [Y0, Y1)
+    this.town = { x0: X0 * C, y0: Y0 * C, x1: X1 * C, y1: Y1 * C, wall: WC * C, cx: cx * C, cy: cy * C };
+    const flank = (this.spotId || '').length % 2 ? 'n' : 's';     // the hill town's open flank (as the map shows it)
+    const sides = { open: ['w', 'n', 's', 'e'], hill: ['w', flank], crag: ['w'], lake: ['w'] }[site];
+    const base = { open: 0, hill: 0.55, crag: 0.95, lake: 0 }[site];
+    // keep-out box in cells: what attackers must go round (cliffs, lake, or just the walls)
+    const R = site === 'crag' ? 12 : site === 'lake' ? 14 : 10;
+    const K = site === 'crag' ? [X0 - R, Y0 - R, cols, Y1 + R]
+      : site === 'lake' ? [X0 - R, Y0 - R, X1 + R, Y1 + R]
+      : site === 'hill' ? [X0, flank === 'n' ? Y0 : Y0 - R, cols, flank === 's' ? Y1 : Y1 + R]
+      : [X0, Y0, X1, Y1];
+    this.keep = { x0: K[0] * C, y0: K[1] * C, x1: K[2] * C, y1: K[3] * C };
+
+    // clear the ground round the town and its site; flatten the land into its base
+    const M = 12, inK = (x, y) => x >= K[0] && x < K[2] && y >= K[1] && y < K[3];
+    for (let y = Math.max(0, K[1] - M); y < Math.min(rows, K[3] + M); y++) for (let x = Math.max(0, K[0] - M); x < Math.min(cols, K[2] + M); x++) {
+      const i = y * cols + x;
+      const d = Math.max(K[0] - x, x - K[2] + 1, K[1] - y, y - K[3] + 1, 0);          // cells outside the box
+      if (d === 0) { this.kind[i] = G.grass; this.height[i] = base; continue; }
+      if (d < 4 || this.kind[i] === G.rock || this.kind[i] === G.lava) this.kind[i] = G.grass;
+      const t = d / M; this.height[i] *= t * t;                                          // level ground at the foot of the site
+    }
+    // the site: cliffs or deep water fill the box outside the walls
+    const fill = site === 'crag' || site === 'hill' ? G.cliff : site === 'lake' ? G.deep : null;
+    if (fill != null) for (let y = Math.max(0, K[1]); y < Math.min(rows, K[3]); y++) for (let x = K[0]; x < K[2]; x++)
+      if (!(x >= X0 && x < X1 && y >= Y0 && y < Y1)) this.kind[y * cols + x] = fill;
+    if (site === 'lake') for (let y = K[1] - 2; y < K[3] + 2; y++) for (let x = K[0] - 2; x < K[2] + 2; x++) {   // a shallow rim round the lake
+      if (y < 0 || y >= rows || x < 0 || x >= cols || inK(x, y)) continue;
+      this.kind[y * cols + x] = G.water;
+    }
+
+    // gates, each with its approach lane out through the box
+    this.gates = sides.map(side => {
+      const v = side === 'w' || side === 'e', jit = Math.round((rng() - 0.5) * 10);
+      const nx = side === 'w' ? -1 : side === 'e' ? 1 : 0, ny = side === 'n' ? -1 : side === 's' ? 1 : 0;
+      const gx = v ? (side === 'w' ? X0 + WC / 2 : X1 - WC / 2) * C : (cx + jit) * C, gy = v ? (cy + jit) * C : (side === 'n' ? Y0 + WC / 2 : Y1 - WC / 2) * C;
+      const edge = side === 'w' ? gx - K[0] * C : side === 'e' ? K[2] * C - gx : side === 'n' ? gy - K[1] * C : K[3] * C - gy;
+      const g = { side, x: gx, y: gy, nx, ny, half: 22, lane: site === 'open' || site === 'hill' ? 34 : 30, reach: edge + 26,
+        open: false, hp: 1, maxHp: 1, cells: [], hitT: 0 };
+      [g.ax, g.ay] = this.gatePoint(g, g.reach, 0);
+      [g.ix, g.iy] = this.gatePoint(g, -(WC * C / 2 + 30), 0);
+      return g;
+    });
+    for (const g of this.gates) {                                    // the lane: open ground (a ramp, or a causeway over the lake)
+      for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
+        const [o, l] = this.gateLocal(g, x * C + 4, y * C + 4);
+        if (Math.abs(l) >= g.lane || o < WC * C / 2 || o > g.reach - 6) continue;
+        const i = y * cols + x;
+        if (site === 'lake' && (inK(x, y) || this.kind[i] === G.water)) this.kind[i] = G.bridge;
+        else if (inK(x, y)) {
+          this.kind[i] = G.grass;
+          if (site !== 'lake') this.height[i] = base * clamp(1 - (o - WC * C / 2) / Math.max(1, g.reach - WC * C / 2), 0, 1);   // the ramp down
+        }
+      }
+    }
+    // the walls, gates, wall-walk and town ground
+    const walk = site === 'crag' ? 0.5 : 0.85;                      // the wall-walk stands this much above the town
+    for (let y = Y0; y < Y1; y++) for (let x = X0; x < X1; x++) {
+      const i = y * cols + x, d = Math.min(x - X0, X1 - 1 - x, y - Y0, Y1 - 1 - y);   // cells in from the outer face
+      const px = x * C + 4, py = y * C + 4;
+      const gate = this.gates.find(g => { const [o, l] = this.gateLocal(g, px, py); return Math.abs(l) < g.half && Math.abs(o) < WC * C / 2; });
+      if (d < WC) {
+        this.kind[i] = gate ? G.gate : G.wall; this.height[i] = base + walk;
+        if (gate) gate.cells.push(i);
+        continue;
+      }
+      const k = d - WC;
+      this.kind[i] = G.grass;
+      this.height[i] = base + (k < 5 ? walk : k < 9 ? walk * (9 - k) / 4 : 0);
+      const lane = this.gates.some(g => Math.abs(this.gateLocal(g, px, py)[1]) < g.half + 4);
+      if (k < 7 && !lane) this.cover[i] = DATA.ground.wall.behindCover;                 // shelter behind the wall
+    }
+    // roads out from the gates to the edge of the field (bridging any river on the way)
+    this.roads = this.gates.map(g => {
+      const pts = [[g.ax, g.ay]];
+      let [x, y] = [g.ax, g.ay];
+      const far = g.nx ? (g.nx < 0 ? x : W - x) : (g.ny < 0 ? y : H - y);
+      const wob = rng() * 6, amp = 10 + rng() * 14;
+      for (let s = 20; s <= far + 20; s += 20) {
+        const w = Math.sin(s / 90 + wob) * amp * Math.min(1, s / 120);
+        pts.push([g.ax + g.nx * s - g.ny * w, g.ay + g.ny * s + g.nx * w]);
+      }
+      for (const [px, py] of pts) for (let oy = -12; oy <= 12; oy += 8) for (let ox = -12; ox <= 12; ox += 8) {
+        const i = this.idx(px + ox, py + oy); if (i < 0) continue;
+        const k = this.kind[i];
+        if (k === G.forest || k === G.rock || k === G.mud || k === G.snow || k === G.sand || k === G.lava) this.kind[i] = G.grass;
+        else if (k === G.water || k === G.ice) this.kind[i] = G.bridge;
+      }
+      return pts;
+    });
+    const name = { open: 'open ground', hill: 'ridge end', crag: 'clifftop', lake: 'island' }[site];
+    this.features.push(`${name}, ${this.gates.length} gate${this.gates.length > 1 ? 's' : ''}`);
   }
 
   // ---------------------------------------------------------------- drawing
@@ -304,6 +467,7 @@ class Terrain {
       const k = this.kind[y * this.cols + x], px = x * C, py = y * C;
       if (k === GROUND.forest && (x + y * 3) % 2 === 0 && rng() < 0.7) trees.push([px - 4 + rng() * 4, py - 10 + rng() * 4]);
       else if (k === GROUND.rock && (x + y) % 2 === 0) rocks.push([px + 4, py + 8]);
+      else if (k === GROUND.cliff && rng() < 0.05) rocks.push([px + 4, py + 8]);
     }
     this.drawGround(ctx);
     this.drawHills(ctx);
@@ -335,8 +499,7 @@ class Terrain {
     const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
     const c = cv.getContext('2d'), img = c.createImageData(W, H), d = img.data, STEP = 0.2;
     const solid = new Uint8Array(W * H);
-    const town = this.walls ? this.wallX - 6 : W;
-    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const k = this.kindAt(x, y); solid[y * W + x] = x >= town || k === GROUND.water || k === GROUND.lava || k === GROUND.ice || k === GROUND.bridge ? 1 : 0; }
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const k = this.kindAt(x, y); solid[y * W + x] = this.inTown(x, y) || k === GROUND.deep || k === GROUND.water || k === GROUND.lava || k === GROUND.ice || k === GROUND.bridge ? 1 : 0; }
     for (let y = 2; y < H - 2; y++) for (let x = 2; x < W - 2; x++) {
       const i = y * W + x, h = hs[i];
       if (solid[i]) continue;
@@ -385,6 +548,13 @@ class Terrain {
       if (crack) return [140, 180, 214];
       if (h(Math.floor(wx / 3), Math.floor(wy)) < 0.02) return [255, 255, 255];
       return [176 + v, 214 + v, 238 + v * 0.4]; } });
+    // cliffs: broken rock in the region's stone, cracked and lit from the north-west
+    const ROCK = { frost: [176, 190, 206], ember: [92, 74, 70], sun: [196, 158, 104], shadow: [104, 102, 120], azure: [150, 160, 170], bog: [104, 100, 80] }[this.region] || [138, 128, 112];
+    this.layer(ctx, [G.cliff], { edge: [40, 34, 30, 170], rim: [ROCK[0] * 0.45, ROCK[1] * 0.45, ROCK[2] * 0.45], paint: (wx, wy, w, n, h) => {
+      const v = (n(wx / 7, wy / 7) - 0.5) * 40 + (n(wx / 2.5 + 3, wy / 2.5) - 0.5) * 16, crack = Math.abs(n(wx / 11 + 9, wy / 11) - 0.5) < 0.025;
+      if (crack) return [ROCK[0] * 0.4, ROCK[1] * 0.4, ROCK[2] * 0.4];
+      const lit = n(wx / 5 + 2, wy / 5 + 2) - n(wx / 5 + 2.6, wy / 5 + 2.6);
+      return [ROCK[0] + v + lit * 60, ROCK[1] + v + lit * 60, ROCK[2] + v + lit * 55]; } });
     const stone = this.river && this.river.kind === 'lava';
     this.layer(ctx, stone ? [G.lava, G.bridge] : [G.lava], { edge: [42, 26, 20, 255], edgeFrom: 0.3, rim: [120, 40, 20], paint: (wx, wy, w, n) => {
       const f = n(wx / 8, wy / 8) * 0.6 + n(wx / 3 + 7, wy / 3) * 0.4, hot = Math.min(1, (w - 0.5) / 0.3);
@@ -394,7 +564,7 @@ class Terrain {
       const v = (n(wx / 8 + 3, wy / 8) - 0.5) * 14;
       if (h(Math.floor(wx / 4 + Math.sin(wy / 4) * 2), Math.floor(wy / 1.5)) < 0.05) return [190, 225, 248];
       return [106 + v, 168 + v, 222 + v]; } });
-    this.layer(ctx, stone ? [G.water, G.ford] : [G.water, G.ford, G.bridge], { edge: [46, 62, 30, 150], rim: [150, 200, 236], sub: G.ford, paint: (wx, wy, w, n, h, f) => {
+    this.layer(ctx, stone ? [G.water, G.deep, G.ford] : [G.water, G.deep, G.ford, G.bridge], { edge: [46, 62, 30, 150], rim: [150, 200, 236], sub: G.ford, paint: (wx, wy, w, n, h, f) => {
       if (f > 0.5) {                                                      // ford: wet sand with ripples
         const v = n(wx / 5, wy / 5) * 18 - 9;
         if (h(Math.floor(wx / 4 + Math.sin(wy / 4) * 2), Math.floor(wy / 1.5)) < 0.05) return [120, 160, 196];
@@ -474,105 +644,209 @@ class Terrain {
     ctx.drawImage(cv, px0, py0, pw, ph);
   }
 
-  // The town behind the wall: cobbled streets from each gate to a main street, a
-  // plaza with the town's keep, and houses in the region's style drawn 1.5x-1.9x
-  // with ground shadows. Kept back from the wall so the defenders' ground stays clear.
+  // The town and what lies round it, like a walled market town seen from above: dirt
+  // roads running out from the gates, crop fields outside the walls, and inside a
+  // wall-walk, cobbled streets from every side to a market square with the town's keep
+  // or church, a windmill, a crop field and houses in the region's style.
+  // The houses are only drawn: the ground inside stays open for the defenders.
   drawTown(ctx) {
-    const style = (DATA.regions[this.region] || DATA.regions.free).building;
-    const wx = this.wallX + this.wallW, H = this.H, W = this.W, street = wx + 210, mid = H / 2, px = street + 120;
+    const T = this.town, style = (DATA.regions[this.region] || DATA.regions.free).building, site = this.site;
+    let seed = 11; for (const ch of this.spotId || 'x') seed = seed * 31 + ch.charCodeAt(0);
+    const r2 = makeRng(seed);
     const rr = (x, y, w, h, r) => { ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x, y, w, h, r) : ctx.rect(x, y, w, h); };
+    const DIRT = { frost: ['#7a8ea4', '#a8bacc'], ember: ['#4a3a34', '#6a5850'], sun: ['#b89058', '#d8b47c'], darkwood: ['#5a4430', '#7a6044'],
+      azure: ['#b0a078', '#d4c49c'], shadow: ['#5e5a6a', '#7e7a8a'], bog: ['#5a4c30', '#7a6844'] }[this.region] || ['#8a6a44', '#b08c5c'];
     const ROAD = { frost: ['#8ea2b8', '#c4d2e0'], ember: ['#4a3e3a', '#6e605a'], sun: ['#c8a468', '#e6cc96'], darkwood: ['#6a5236', '#8a6c48'],
       azure: ['#c8b890', '#efe4c4'], shadow: ['#6a6a7a', '#8e8ea0'], bog: ['#6a5a3a', '#8a7650'] }[this.region] || ['#9a8a6a', '#bcae8c'];
+    const path = pts => { ctx.beginPath(); pts.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); };
+    const road = pts => {
+      ctx.lineJoin = ctx.lineCap = 'round';
+      ctx.strokeStyle = 'rgba(30,22,14,0.28)'; ctx.lineWidth = 27; path(pts); ctx.stroke();
+      ctx.strokeStyle = DIRT[0]; ctx.lineWidth = 23; path(pts); ctx.stroke();
+      ctx.strokeStyle = DIRT[1]; ctx.lineWidth = 15; path(pts); ctx.stroke();
+      ctx.setLineDash([5, 7]); ctx.strokeStyle = 'rgba(60,44,28,0.35)'; ctx.lineWidth = 1.5;          // cart ruts
+      for (const s of [-4, 4]) { ctx.save(); ctx.translate(s * 0.7, s * 0.7); path(pts); ctx.stroke(); ctx.restore(); }
+      ctx.setLineDash([]);
+    };
     const cobble = (x, y, w, h) => {
       ctx.fillStyle = 'rgba(30,24,18,0.3)'; rr(x - 1.5, y - 1.5, w + 3, h + 3, 4); ctx.fill();
       ctx.fillStyle = ROAD[0]; rr(x, y, w, h, 3); ctx.fill();
       ctx.fillStyle = ROAD[1];
       for (let yy = y + 1; yy < y + h - 1.5; yy += 3) for (let xx = x + 1 + ((yy - y) % 6 ? 1.5 : 0); xx < x + w - 2; xx += 3) ctx.fillRect(xx, yy, 2, 1.8);
     };
-    // streets: in from each gate across the courtyard, the main street, the plaza
-    for (const g of this.gates || []) cobble(wx, g.y - 10, street - wx + 2, 20);
-    cobble(street - 7, 20, 14, H - 40);
-    ctx.save(); ctx.beginPath(); ctx.ellipse(px, mid + 6, 70, 44, 0, 0, Math.PI * 2); ctx.clip();
-    cobble(px - 75, mid - 40, 150, 94); ctx.restore();
-    ctx.strokeStyle = 'rgba(30,24,18,0.35)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.ellipse(px, mid + 6, 70, 44, 0, 0, Math.PI * 2); ctx.stroke();
-    cobble(street, mid - 6, 50, 12);
+    // a crop field: soil, rows of crops (wheat, greens or furrows), a low fence
+    const CROPS = this.region === 'frost' ? [['#c8d4dc', '#a8b8c4']] : this.region === 'sun' ? [['#d8b050', '#b08838'], ['#8a9a40', '#6a7a30']]
+      : [['#e0c050', '#c09a30'], ['#78a840', '#5a8a30'], ['#a07848', '#7a5830']];
+    const field = (x, y, w, h, rot) => {
+      const [c0, c1] = CROPS[Math.floor(r2() * CROPS.length)];
+      ctx.save(); ctx.translate(x + w / 2, y + h / 2); ctx.rotate(rot);
+      ctx.fillStyle = 'rgba(30,22,14,0.3)'; rr(-w / 2 - 2, -h / 2 - 2, w + 4, h + 4, 3); ctx.fill();
+      ctx.fillStyle = '#6e5232'; rr(-w / 2, -h / 2, w, h, 2); ctx.fill();
+      for (let yy = -h / 2 + 2; yy < h / 2 - 2; yy += 5) { ctx.fillStyle = c0; ctx.fillRect(-w / 2 + 2, yy, w - 4, 3); ctx.fillStyle = c1; ctx.fillRect(-w / 2 + 2, yy + 2.2, w - 4, 0.8); }
+      ctx.strokeStyle = '#4a3420'; ctx.lineWidth = 1; ctx.setLineDash([3, 2]); rr(-w / 2 + 0.5, -h / 2 + 0.5, w - 1, h - 1, 2); ctx.stroke(); ctx.setLineDash([]);
+      ctx.restore();
+    };
+    const clear = (x, y, w, h) => {
+      for (let yy = y; yy <= y + h; yy += 8) for (let xx = x; xx <= x + w; xx += 8) {
+        const k = this.kindAt(xx, yy);
+        if (!this.passable(xx, yy) || k === GROUND.forest || k === GROUND.water || k === GROUND.bridge || this.inKeep(xx, yy) || this.inTown(xx, yy)) return false;
+        if (this.roads.some(pts => pts.some(([px, py]) => Math.abs(px - xx) < 22 && Math.abs(py - yy) < 22))) return false;
+      }
+      return true;
+    };
 
-    // houses: staggered columns behind the main street to the far edge, the keep on the plaza
-    const r2 = makeRng(7), spots = [];
-    for (let x = street + 60, c = 0; x < W - 40; x += 120, c++) for (let y = 80 + (c % 2) * 55; y < H - 30; y += 110) {
-      if (Math.abs(y - mid) < 80 && Math.abs(x - px) < 110) continue;
-      spots.push([x + (r2() - 0.5) * 10, y + (r2() - 0.5) * 10, r2() < 0.3 ? 1 : 0, 56]);
+    // outside: crop fields in the angles between the roads, then the roads
+    if (site === 'open' || site === 'hill') for (let n = 0; n < 9; n++) {
+      const w = 80 + r2() * 60, h = 50 + r2() * 40;
+      const corner = [[T.x0, T.y0, -1, -1], [T.x1, T.y0, 1, -1], [T.x0, T.y1, -1, 1], [T.x1, T.y1, 1, 1]][n % 4];
+      const x = corner[0] + corner[2] * (40 + r2() * 120) - (corner[2] < 0 ? w : 0), y = corner[1] + corner[3] * (30 + r2() * 110) - (corner[3] < 0 ? h : 0);
+      if (clear(x - 6, y - 6, w + 12, h + 12)) field(x, y, w, h, (r2() - 0.5) * 0.15);
     }
-    spots.push([px, mid + 18, 2, 88]);
+    for (const pts of this.roads) road(pts);
+
+    // inside: the wall-walk round the inside of the walls, streets, the square
+    const w = T.wall, ix0 = T.x0 + w, iy0 = T.y0 + w, ix1 = T.x1 - w, iy1 = T.y1 - w, cx = T.cx, cy = T.cy;
+    ctx.fillStyle = 'rgba(60,50,40,0.22)'; ctx.fillRect(ix0, iy0, ix1 - ix0, iy1 - iy0);
+    ctx.fillStyle = 'rgba(120,140,80,0.5)'; ctx.fillRect(ix0 + 34, iy0 + 34, ix1 - ix0 - 68, iy1 - iy0 - 68);
+    ctx.strokeStyle = 'rgba(40,30,20,0.25)'; ctx.lineWidth = 2; ctx.strokeRect(ix0 + 34, iy0 + 34, ix1 - ix0 - 68, iy1 - iy0 - 68);
+    const streets = [], street = (x, y, w, h) => { streets.push([x, y, w, h]); cobble(x, y, w, h); };
+    for (const side of ['w', 'n', 's', 'e']) {                     // from every gate (or side) in to the square, with a dogleg
+      const g = this.gates.find(q => q.side === side);
+      const gx = g ? g.x : side === 'w' ? ix0 + 36 : side === 'e' ? ix1 - 36 : cx, gy = g ? g.y : side === 'n' ? iy0 + 36 : side === 's' ? iy1 - 36 : cy;
+      if (side === 'w' || side === 'e') {
+        const mx = gx + (cx - gx) * 0.5;
+        street(Math.min(gx, mx) - 10, gy - 10, Math.abs(mx - gx) + 20, 20);
+        street(mx - 10, Math.min(gy, cy) - 10, 20, Math.abs(cy - gy) + 20);
+        street(Math.min(mx, cx) - 10, cy - 10, Math.abs(cx - mx) + 20, 20);
+      } else {
+        const my = gy + (cy - gy) * 0.5;
+        street(gx - 10, Math.min(gy, my) - 10, 20, Math.abs(my - gy) + 20);
+        street(Math.min(gx, cx) - 10, my - 10, Math.abs(cx - gx) + 20, 20);
+        street(cx - 10, Math.min(my, cy) - 10, 20, Math.abs(cy - my) + 20);
+      }
+    }
+    const PW = 160, PH = 112;
+    cobble(cx - PW / 2, cy - PH / 2, PW, PH);
+    ctx.strokeStyle = 'rgba(30,24,18,0.35)'; ctx.lineWidth = 1.5; rr(cx - PW / 2, cy - PH / 2, PW, PH, 6); ctx.stroke();
+    // a well in the square
+    ctx.fillStyle = '#2a2630'; ctx.beginPath(); ctx.arc(cx + 34, cy + 22, 7, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#a8a4b4'; ctx.beginPath(); ctx.arc(cx + 34, cy + 22, 5.8, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#3a6a9a'; ctx.beginPath(); ctx.arc(cx + 34, cy + 22, 3.4, 0, Math.PI * 2); ctx.fill();
+
+    // plots for buildings: a grid over the inside, clear of the walk, the streets and the square
+    const nearStreet = (x, y) => streets.some(([sx, sy, sw, sh]) => x > sx - 28 && x < sx + sw + 28 && y > sy - 12 && y < sy + sh + 40);
+    const fq = [[ix0 + 76, iy0 + 76], [ix1 - 76 - 120, iy0 + 76], [ix0 + 76, iy1 - 76 - 80], [ix1 - 76 - 120, iy1 - 76 - 80]][Math.floor(r2() * 4)];
+    const inField = (x, y) => x > fq[0] - 26 && x < fq[0] + 146 && y > fq[1] - 20 && y < fq[1] + 110;
+    field(fq[0], fq[1], 120, 80, 0);
+    const spots = [];
+    for (let y = iy0 + 84, row = 0; y < iy1 - 56; y += 58, row++) for (let x = ix0 + 86 + (row % 2) * 30; x < ix1 - 70; x += 66) {
+      const px = x + (r2() - 0.5) * 10, py = y + (r2() - 0.5) * 8;
+      if (Math.abs(px - cx) < PW / 2 + 30 && Math.abs(py - cy) < PH / 2 + 30) continue;
+      if (nearStreet(px, py) || inField(px, py)) continue;
+      spots.push([px, py, r2() < 0.25 ? 1 : 0, 46 + r2() * 8]);
+    }
+    spots.push([cx - 30, cy - PH / 2 - 4, 2, 84]);                               // the keep / church at the head of the square
+    const mill = [cx + PW / 2 - 22, cy + PH / 2 + 34];                               // the windmill below the square
     spots.sort((a, b) => a[1] - b[1]);
-    let n = 0;
-    for (const [x, y, size, want] of spots) {               // want: drawn width of the building itself
-      if (y > H - 4) continue;
-      const im = Art.building(style, size, size === 2 ? this.spotId || 1 : `${this.spotId}:${n++ % 6}`), bw = im.box.x1 - im.box.x0 + 1;
+    let n = 0, millDone = false;
+    for (const [x, y, size, want] of spots) {
+      if (!millDone && y > mill[1]) { this.drawWindmill(ctx, mill[0], mill[1]); millDone = true; }
+      const im = Art.building(style, size, size === 2 ? this.spotId || 1 : `${this.spotId}:${n++ % 8}`), bw = im.box.x1 - im.box.x0 + 1;
       const sc = Math.min(3.2, want / bw), half = bw * sc / 2;
       ctx.fillStyle = 'rgba(20,16,30,0.32)';
       ctx.beginPath(); ctx.ellipse(x + 3, y + 1, half * 0.95, half * 0.28, 0, 0, Math.PI * 2); ctx.fill();
       HD.draw(ctx, im, Math.round(x - 24 * sc), Math.round(y - 38 * sc), 48 * sc, 40 * sc);
     }
+    if (!millDone) this.drawWindmill(ctx, mill[0], mill[1]);
+    // a few trees in the corners of the walk
+    const tree = Art.deco(this.trees[0]);
+    if (tree && tree.width) for (const [x, y] of [[ix0 + 44, iy0 + 48], [ix1 - 50, iy0 + 52], [ix0 + 46, iy1 - 30], [ix1 - 48, iy1 - 34]])
+      if (!this.gates.some(g => Math.hypot(g.ix - x, g.iy - y) < 70)) HD.draw(ctx, tree, Math.round(x - tree.width / 2), Math.round(y - tree.height));
   }
 
-  // The town wall as continuous ramparts: rounded stone runs with brick courses and
-  // battlements on the attackers' side, round towers flanking each gate and along
-  // the wall, a cobbled gateway with open doors, and a soft shadow on the town side.
+  // A windmill: a round white tower with a thatched cap and four sails.
+  drawWindmill(ctx, x, y) {
+    const OUT = '#2a2026';
+    ctx.fillStyle = 'rgba(20,16,30,0.32)'; ctx.beginPath(); ctx.ellipse(x + 3, y + 1, 13, 4, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = OUT; ctx.beginPath(); ctx.moveTo(x - 10, y + 1); ctx.lineTo(x - 7, y - 26); ctx.lineTo(x + 7, y - 26); ctx.lineTo(x + 10, y + 1); ctx.closePath(); ctx.fill();
+    const g = ctx.createLinearGradient(x - 9, 0, x + 9, 0); g.addColorStop(0, '#f4ece0'); g.addColorStop(1, '#b8aca0');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(x - 8.5, y); ctx.lineTo(x - 6, y - 25); ctx.lineTo(x + 6, y - 25); ctx.lineTo(x + 8.5, y); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#5a3a24'; ctx.fillRect(x - 2, y - 7, 4, 7);                       // door
+    ctx.fillStyle = OUT; ctx.beginPath(); ctx.moveTo(x - 9, y - 24); ctx.lineTo(x, y - 36); ctx.lineTo(x + 9, y - 24); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#b8743c'; ctx.beginPath(); ctx.moveTo(x - 7.5, y - 25); ctx.lineTo(x, y - 34.5); ctx.lineTo(x + 7.5, y - 25); ctx.closePath(); ctx.fill();
+    ctx.save(); ctx.translate(x, y - 25); ctx.rotate(0.35);
+    for (let k = 0; k < 4; k++) {
+      ctx.rotate(Math.PI / 2);
+      ctx.fillStyle = OUT; ctx.fillRect(-1.2, -22, 2.4, 22);
+      ctx.fillStyle = '#d8ccb8'; ctx.fillRect(1, -21, 5, 15);
+      ctx.fillStyle = 'rgba(90,60,40,0.6)'; for (let s = -19; s < -6; s += 3) ctx.fillRect(1, s, 5, 0.6);
+    }
+    ctx.fillStyle = '#5a3a24'; ctx.beginPath(); ctx.arc(0, 0, 2, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+
+  // The town walls: four runs of thick stone wall broken by the gates, seen from a little
+  // to the south (so each run's top is lifted and the south face shows), with brick
+  // courses, battlements on the outer edge, a gateway at every gate and round towers at
+  // the corners, beside each gate and along the long runs.
   // Gameplay still uses the wall cells; this only draws them.
   drawWall(ctx) {
-    const C = this.C, col = Math.floor(this.wallX / C), x = col * C, w = this.wallW, LIFT = 9;
-    const segs = [];
-    let start = null;
-    for (let y = 0; y <= this.rows; y++) {
-      const on = y < this.rows && this.kind[y * this.cols + col] === GROUND.wall;
-      if (on && start == null) start = y;
-      if (!on && start != null) { segs.push([start * C, y * C]); start = null; }
-    }
+    const T = this.town, w = T.wall, LIFT = 10, OUT = '#2a2630';
     const rr = (rx, ry, rw, rh, r) => { ctx.beginPath(); ctx.roundRect ? ctx.roundRect(rx, ry, rw, rh, r) : ctx.rect(rx, ry, rw, rh); };
-    const OUT = '#2a2630';
-
-    // gateways: cobbles across the gap, worn into the ground
-    for (let k = 0; k + 1 < segs.length; k++) {
-      const a = segs[k][1], b = segs[k + 1][0];
-      ctx.fillStyle = 'rgba(40,32,24,0.35)'; rr(x - 10, a - 1, w + 20, b - a + 2, 4); ctx.fill();
-      ctx.fillStyle = '#a8987a'; rr(x - 8, a, w + 16, b - a, 3); ctx.fill();
-      for (let yy = a + 1.5; yy < b - 1; yy += 2.5) for (let xx = x - 7 + ((yy * 2) % 2 ? 1.2 : 0); xx < x + w + 7; xx += 2.5) {
+    // each side's runs of wall between its gates: [x, y, width, height, side]
+    const runs = [];
+    for (const side of ['n', 'w', 'e', 's']) {
+      const horiz = side === 'n' || side === 's';
+      const a0 = horiz ? T.x0 : T.y0, a1 = horiz ? T.x1 : T.y1;
+      const cuts = this.gates.filter(g => g.side === side).map(g => horiz ? [g.x - g.half, g.x + g.half] : [g.y - g.half, g.y + g.half]).sort((p, q) => p[0] - q[0]);
+      let s = a0;
+      for (const [c0, c1] of cuts.concat([[a1, a1]])) {
+        if (c0 > s) {
+          if (horiz) runs.push([s, side === 'n' ? T.y0 : T.y1 - w, c0 - s, w, side]);
+          else runs.push([side === 'w' ? T.x0 : T.x1 - w, s, w, c0 - s, side]);
+        }
+        s = c1;
+      }
+    }
+    // gateways: cobbles through the gap, worn into the ground
+    for (const g of this.gates) {
+      const [o0x, o0y] = this.gatePoint(g, -w / 2 - 8, -g.half), [o1x, o1y] = this.gatePoint(g, w / 2 + 8, g.half);
+      const x = Math.min(o0x, o1x), y = Math.min(o0y, o1y), gw = Math.abs(o1x - o0x), gh = Math.abs(o1y - o0y);
+      ctx.fillStyle = 'rgba(40,32,24,0.35)'; rr(x - 2, y - 2, gw + 4, gh + 4, 4); ctx.fill();
+      ctx.fillStyle = '#a8987a'; rr(x, y, gw, gh, 3); ctx.fill();
+      for (let yy = y + 1.5; yy < y + gh - 1; yy += 2.5) for (let xx = x + 1 + ((yy * 2) % 2 ? 1.2 : 0); xx < x + gw - 1; xx += 2.5) {
         ctx.fillStyle = (xx * 7 + yy * 3) % 5 < 2 ? '#8a7a5e' : '#c0b090'; ctx.fillRect(xx, yy, 1.6, 1.4);
       }
     }
-
-    for (const [y0, y1] of segs) {
-      // shadow cast on the town side
-      const sh = ctx.createLinearGradient(x + w, 0, x + w + 12, 0);
-      sh.addColorStop(0, 'rgba(20,16,30,0.4)'); sh.addColorStop(1, 'rgba(20,16,30,0)');
-      ctx.fillStyle = sh; ctx.fillRect(x + w, y0 - 2, 12, y1 - y0 + 4);
-      // body: outline, then stone shaded from the lit outer face to the inner face
-      ctx.fillStyle = OUT; rr(x - 1.5, y0 - LIFT - 1, w + 3, y1 - y0 + LIFT + 2, 2.5); ctx.fill();
-      const body = ctx.createLinearGradient(x, 0, x + w, 0);
-      body.addColorStop(0, '#c2becc'); body.addColorStop(0.35, '#a29eae'); body.addColorStop(1, '#787484');
-      ctx.fillStyle = body; rr(x - 0.5, y0 - LIFT, w + 1, y1 - y0 + LIFT, 2); ctx.fill();
-      // brick courses with staggered joints
-      ctx.fillStyle = 'rgba(58,54,72,0.5)';
-      for (let yy = y0 - LIFT + 2.5, r = 0; yy < y1 - 0.5; yy += 2.5, r++) {
-        ctx.fillRect(x, yy, w, 0.5);
-        for (let xx = x + (r % 2 ? 1.5 : 3.5); xx < x + w - 0.5; xx += 4) ctx.fillRect(xx, yy - 2, 0.5, 2);
+    // shadow cast inside the walls
+    ctx.fillStyle = 'rgba(20,16,30,0.28)';
+    ctx.fillRect(T.x0 + w, T.y0 + w, T.x1 - T.x0 - 2 * w, 10);
+    ctx.fillRect(T.x1 - w - 8, T.y0 + w, 8, T.y1 - T.y0 - 2 * w);
+    for (const [x, y, rw, rh, side] of runs) {
+      ctx.fillStyle = OUT; rr(x - 1.5, y - LIFT - 1.5, rw + 3, rh + LIFT + 3, 2.5); ctx.fill();
+      // the top: the wall-walk's flagstones, lit from the north-west
+      const top = side === 'n' || side === 's' ? ctx.createLinearGradient(0, y - LIFT, 0, y - LIFT + rh) : ctx.createLinearGradient(x, 0, x + rw, 0);
+      top.addColorStop(0, '#cac6d4'); top.addColorStop(1, '#9e9aaa');
+      ctx.fillStyle = top; rr(x - 0.5, y - LIFT - 0.5, rw + 1, rh + 1, 2); ctx.fill();
+      ctx.fillStyle = 'rgba(70,66,84,0.35)';
+      for (let yy = y - LIFT + 3; yy < y - LIFT + rh - 1; yy += 4) for (let xx = x + ((yy | 0) % 8 < 4 ? 1 : 3); xx < x + rw - 1; xx += 5) ctx.fillRect(xx, yy, 0.6, 3);
+      // the south face: brick courses with staggered joints
+      const fy = y + rh - LIFT;
+      ctx.fillStyle = '#7a7686'; ctx.fillRect(x - 0.5, fy, rw + 1, LIFT);
+      ctx.fillStyle = 'rgba(48,44,60,0.6)';
+      for (let yy = fy + 2.5, r = 0; yy < fy + LIFT; yy += 2.5, r++) {
+        ctx.fillRect(x, yy, rw, 0.5);
+        for (let xx = x + (r % 2 ? 1.5 : 3.5); xx < x + rw - 0.5; xx += 4) ctx.fillRect(xx, yy - 2, 0.5, 2);
       }
-      // wall-walk along the top, and the shaded foot of the wall
-      ctx.fillStyle = 'rgba(255,255,255,0.18)'; ctx.fillRect(x + 2, y0 - LIFT + 1, 2.5, y1 - y0 + LIFT - 2);
-      ctx.fillStyle = 'rgba(30,26,40,0.35)'; ctx.fillRect(x - 0.5, y1 - 1.5, w + 1, 1.5);
-      // battlements on the outer (attackers') edge
-      for (let yy = y0 - LIFT + 1; yy < y1 - 2; yy += 4) {
-        ctx.fillStyle = OUT; rr(x - 3, yy - 0.5, 3.5, 3, 0.8); ctx.fill();
-        ctx.fillStyle = '#d4d0de'; ctx.fillRect(x - 2.5, yy, 2.5, 1.2);
-        ctx.fillStyle = '#9894a6'; ctx.fillRect(x - 2.5, yy + 1.2, 2.5, 1.3);
-      }
+      ctx.fillStyle = 'rgba(255,255,255,0.15)'; ctx.fillRect(x, fy, rw, 0.8);
+      ctx.fillStyle = 'rgba(30,26,40,0.4)'; ctx.fillRect(x - 0.5, y + rh - 1.5, rw + 1, 1.5);   // foot of the wall
+      // battlements on the outer edge
+      const merlon = (mx, my) => { ctx.fillStyle = OUT; rr(mx - 0.5, my - 0.5, 3.6, 3.6, 0.8); ctx.fill(); ctx.fillStyle = '#dcd8e6'; ctx.fillRect(mx, my, 2.6, 1.3); ctx.fillStyle = '#9894a6'; ctx.fillRect(mx, my + 1.3, 2.6, 1.3); };
+      if (side === 'n' || side === 's') for (let xx = x + 1; xx < x + rw - 3; xx += 5) merlon(xx, side === 'n' ? y - LIFT - 1 : fy - 3);
+      else for (let yy = y - LIFT + 1; yy < y + rh - LIFT - 3; yy += 5) merlon(side === 'w' ? x - 1 : x + rw - 2.6, yy);
     }
 
-    // round towers: at both ends of every run (so each gate is flanked) and along long runs
-    const tower = (cx, cy) => {                                   // drawn at 1.9x around (cx, cy) to suit the thick wall
-      ctx.save(); ctx.translate(cx, cy); ctx.scale(1.9, 1.9); towerAt(0, 0); ctx.restore();
-    };
+    // round towers: the corners, both sides of every gate, and along the long runs
     const towerAt = (cx, cy) => {
       ctx.fillStyle = 'rgba(20,16,30,0.35)'; ctx.beginPath(); ctx.ellipse(cx + 4, cy + 3, 9, 4.5, 0, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = OUT; rr(cx - 7.5, cy - 9, 15, 13, 4); ctx.fill();                       // drum
@@ -581,6 +855,7 @@ class Terrain {
       ctx.fillStyle = g; rr(cx - 6.5, cy - 8, 13, 11, 3.5); ctx.fill();
       ctx.fillStyle = 'rgba(58,54,72,0.45)';
       for (let yy = cy - 5; yy < cy + 2; yy += 2.5) ctx.fillRect(cx - 6, yy, 12, 0.5);
+      ctx.fillStyle = '#2a2026'; ctx.fillRect(cx - 1, cy - 5, 2, 3);                          // arrow slit
       ctx.fillStyle = OUT; ctx.beginPath(); ctx.ellipse(cx, cy - 9, 8, 4.5, 0, 0, Math.PI * 2); ctx.fill();   // top
       ctx.fillStyle = '#b8b4c4'; ctx.beginPath(); ctx.ellipse(cx, cy - 9, 7, 3.6, 0, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = '#6a6678'; ctx.beginPath(); ctx.ellipse(cx, cy - 9, 4.6, 2.2, 0, 0, Math.PI * 2); ctx.fill();
@@ -590,14 +865,13 @@ class Terrain {
         ctx.fillStyle = Math.sin(t) < 0 || Math.cos(t) < 0 ? '#dcd8e6' : '#a8a4b4'; ctx.fillRect(mx - 0.8, my - 1.1, 1.6, 1.4);
       }
     };
-    const cx = x + w / 2, spots = [];
-    for (let k = 0; k < segs.length; k++) {
-      const [y0, y1] = segs[k];
-      spots.push(y0 + 3, y1 - 1);
-      const n = Math.floor((y1 - y0) / 150);
-      for (let i = 1; i <= n; i++) spots.push(Math.round(y0 + (y1 - y0) * i / (n + 1)));
+    const towers = [[T.x0 + w / 2, T.y0 + w / 2, 2.3], [T.x1 - w / 2, T.y0 + w / 2, 2.3], [T.x0 + w / 2, T.y1 - w / 2, 2.3], [T.x1 - w / 2, T.y1 - w / 2, 2.3]];
+    for (const g of this.gates) for (const s of [-1, 1]) { const [tx, ty] = this.gatePoint(g, 0, s * (g.half + 11)); towers.push([tx, ty, 2]); }
+    for (const [x, y, rw, rh] of runs) {
+      const len = Math.max(rw, rh), n = Math.floor(len / 170);
+      for (let i = 1; i <= n; i++) towers.push(rw > rh ? [x + rw * i / (n + 1), y + rh / 2, 1.8] : [x + rw / 2, y + rh * i / (n + 1), 1.8]);
     }
-    for (const y of spots.sort((a, b) => a - b)) tower(cx, y);
+    for (const [tx, ty, s] of towers.sort((a, b) => a[1] - b[1])) { ctx.save(); ctx.translate(tx, ty - LIFT * 0.4); ctx.scale(s, s); towerAt(0, 0); ctx.restore(); }
   }
 }
 const GROUND_NAMES = Object.keys(GROUND);

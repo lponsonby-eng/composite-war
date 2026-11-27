@@ -728,6 +728,7 @@ const MapView = {
     // faction-coloured ground circle, outlined so it reads on any ground
     const tier = this.tierOf(s.kind);
     const gr = [0, 23, 27, 32][tier];
+    if (s.walls) this.drawSite(ctx, s, gr, id);
     ctx.fillStyle = hexA(color, 0.5);
     ctx.beginPath(); ctx.ellipse(s.x, s.y + 5, gr, gr * 0.42, 0, 0, Math.PI * 2); ctx.fill();
     ctx.lineWidth = 1.5; ctx.strokeStyle = 'rgba(16,10,24,0.85)'; ctx.stroke();
@@ -805,6 +806,44 @@ const MapView = {
     ctx.fillText(s.name, s.x, ty);
     ctx.fillStyle = 'rgba(12,10,20,0.85)'; ctx.fillRect(Math.round(s.x - tw / 2) - 1, ty + 2, tw + 2, 3);
     ctx.fillStyle = color; ctx.fillRect(Math.round(s.x - tw / 2), ty + 3, tw, 1);
+  },
+
+  // A walled town's site under it (an island in a lake, a crag with a ramp, a ridge end)
+  // and its wall: a stone ring with a gap for each gate (see DATA.sites).
+  drawSite(ctx, s, gr, id) {
+    const x = s.x, y = s.y + 5, rx = gr + 6, ry = rx * 0.45, site = s.site || 'open';
+    const ell = (cx, cy, a, b) => { ctx.beginPath(); ctx.ellipse(cx, cy, a, b, 0, 0, Math.PI * 2); };
+    if (site === 'lake') {
+      ell(x, y + 1, rx + 12, ry + 7); ctx.fillStyle = 'rgba(16,10,24,0.6)'; ctx.fill();
+      ell(x, y + 1, rx + 11, ry + 6); ctx.fillStyle = '#3f7fc0'; ctx.fill();
+      ell(x, y + 1, rx + 7, ry + 3.5); ctx.strokeStyle = 'rgba(190,226,255,0.6)'; ctx.lineWidth = 1; ctx.stroke();
+      ctx.fillStyle = '#16101a'; ctx.fillRect(x - rx - 13, y - 3, 14, 6);              // the causeway
+      ctx.fillStyle = '#b08c5c'; ctx.fillRect(x - rx - 12, y - 2, 13, 4);
+    } else if (site === 'crag' || site === 'hill') {
+      const lift = site === 'crag' ? 8 : 4, col = site === 'crag' ? ['#5a5058', '#8a8088', '#a8a0a4'] : ['#4a5a30', '#6a7a44', '#86965a'];
+      ell(x, y + lift, rx + 6, ry + 4); ctx.fillStyle = 'rgba(16,10,24,0.7)'; ctx.fill();
+      ctx.fillStyle = col[0]; ctx.fillRect(x - rx - 5, y, (rx + 5) * 2, lift);
+      ell(x, y + lift, rx + 5, ry + 3); ctx.fill();
+      ell(x, y, rx + 5, ry + 3); ctx.fillStyle = col[2]; ctx.fill();
+      ctx.strokeStyle = col[1]; ctx.lineWidth = 1;
+      for (let a = 0.3; a < Math.PI - 0.2; a += 0.45) { const px = x + Math.cos(a) * (rx + 5); ctx.beginPath(); ctx.moveTo(px, y + Math.sin(a) * (ry + 3)); ctx.lineTo(px, y + Math.sin(a) * (ry + 3) + lift - 1); ctx.stroke(); }
+      if (site === 'crag') { ctx.fillStyle = '#16101a'; ctx.beginPath(); ctx.moveTo(x - rx - 4, y - 3); ctx.lineTo(x - rx - 16, y + lift + 2); ctx.lineTo(x - rx - 8, y + lift + 4); ctx.lineTo(x - rx + 2, y + 3); ctx.fill();
+        ctx.fillStyle = '#b08c5c'; ctx.beginPath(); ctx.moveTo(x - rx - 3, y - 1.5); ctx.lineTo(x - rx - 14, y + lift + 2); ctx.lineTo(x - rx - 8, y + lift + 3); ctx.lineTo(x - rx + 1, y + 2); ctx.fill(); }
+    }
+    // the wall: a stone ring broken at the gates
+    const gaps = { open: [Math.PI, -Math.PI / 2, Math.PI / 2, 0], hill: [Math.PI, id.length % 2 ? -Math.PI / 2 : Math.PI / 2], crag: [Math.PI], lake: [Math.PI] }[site];
+    const R = rx - 1, Ry = R * 0.45;
+    for (const [col, lw] of [['rgba(16,10,24,0.9)', 4.5], ['#bab6c4', 2.6]]) {
+      ctx.strokeStyle = col; ctx.lineWidth = lw;
+      let a0 = -Math.PI + 0.2;                                   // (every town has a west gate)
+      for (const g of gaps.slice().sort((p, q) => p - q).concat([Math.PI + 0.001])) {
+        const a1 = Math.min(g, Math.PI) - 0.2;
+        if (a1 > a0) { ctx.beginPath(); ctx.ellipse(x, y, R, Ry, 0, a0, a1); ctx.stroke(); }
+        a0 = g + 0.2;
+      }
+    }
+    ctx.fillStyle = '#e4e0ec';
+    for (let a = 0; a < Math.PI * 2; a += 0.32) if (!gaps.some(g => Math.abs(((a - g + Math.PI * 3) % (Math.PI * 2)) - Math.PI) < 0.24)) ctx.fillRect(Math.round(x + Math.cos(a) * R) - 0.5, Math.round(y + Math.sin(a) * Ry) - 1.5, 1.2, 1.2);
   },
 
   // Bobbing badge: gold "!" = a hero you can hire here; pink "?" = a general you can persuade.
