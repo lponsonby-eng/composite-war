@@ -289,7 +289,7 @@ hills are drawn with light, shade and contour lines.
 - Each walled town has a **site** (`site` in `js/map.js`, `DATA.sites` in `js/data.js`) that sets
   its ways in: **open ground** (a gate on every side), **ridge end** (cliffs close the far side and
   one flank: two gates), **clifftop** (cliffs all round, one gate up a narrow ramp) or **island**
-  (a deep lake all round, one gate at the end of a causeway). Attackers march round the town (and
+  (raised out of a deep lake, one gate at the end of a causeway; as hard to take as a clifftop). Attackers march round the town (and
   its cliffs or lake) to the gates. One-gate strongholds have tougher gatehouses (`gateHp`) and count
   as much stronger for the computer when it weighs up an attack (`power`). `tools/genmap.py` picks
   the site from the land: lake and crystal country puts towns on islands, mountains and snow on

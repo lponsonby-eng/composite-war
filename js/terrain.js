@@ -358,7 +358,7 @@ class Terrain {
   //   open: gates on all four sides, roads running out from each;
   //   hill: on the end of a ridge, cliffs on the far side and one flank: two gates;
   //   crag: on a cliff-girt crag, one gate up a narrow ramp;
-  //   lake: on an island, one gate at the end of a causeway.
+  //   lake: on a rocky island raised out of a lake, one gate at the end of a causeway.
   // The ground around it is cleared; the site's cliffs or lake form the keep-out box.
   genTown() {
     const C = this.C, W = this.W, H = this.H, G = GROUND, rng = this.rng, cols = this.cols, rows = this.rows;
@@ -368,7 +368,7 @@ class Terrain {
     this.town = { x0: X0 * C, y0: Y0 * C, x1: X1 * C, y1: Y1 * C, wall: WC * C, cx: cx * C, cy: cy * C };
     const flank = (this.spotId || '').length % 2 ? 'n' : 's';     // the hill town's open flank (as the map shows it)
     const sides = { open: ['w', 'n', 's', 'e'], hill: ['w', flank], crag: ['w'], lake: ['w'] }[site];
-    const base = { open: 0, hill: 0.55, crag: 0.95, lake: 0 }[site];
+    const base = { open: 0, hill: 0.55, crag: 0.95, lake: 0.95 }[site];   // the town's ground: an island stands up out of its lake
     // keep-out box in cells: what attackers must go round (cliffs, lake, or just the walls)
     const R = site === 'crag' ? 12 : site === 'lake' ? 14 : 10;
     const K = site === 'crag' ? [X0 - R, Y0 - R, cols, Y1 + R]
@@ -382,7 +382,7 @@ class Terrain {
     for (let y = Math.max(0, K[1] - M); y < Math.min(rows, K[3] + M); y++) for (let x = Math.max(0, K[0] - M); x < Math.min(cols, K[2] + M); x++) {
       const i = y * cols + x;
       const d = Math.max(K[0] - x, x - K[2] + 1, K[1] - y, y - K[3] + 1, 0);          // cells outside the box
-      if (d === 0) { this.kind[i] = G.grass; this.height[i] = base; continue; }
+      if (d === 0) { this.kind[i] = G.grass; this.height[i] = site === 'lake' && !(x >= X0 && x < X1 && y >= Y0 && y < Y1) ? 0 : base; continue; }
       if (d < 4 || this.kind[i] === G.rock || this.kind[i] === G.lava) this.kind[i] = G.grass;
       const t = d / M; this.height[i] *= t * t;                                          // level ground at the foot of the site
     }
@@ -420,7 +420,7 @@ class Terrain {
       }
     }
     // the walls, gates, wall-walk and town ground
-    const walk = site === 'crag' ? 0.5 : 0.85;                      // the wall-walk stands this much above the town
+    const walk = site === 'crag' || site === 'lake' ? 0.5 : 0.85;   // the wall-walk stands this much above the town
     for (let y = Y0; y < Y1; y++) for (let x = X0; x < X1; x++) {
       const i = y * cols + x, d = Math.min(x - X0, X1 - 1 - x, y - Y0, Y1 - 1 - y);   // cells in from the outer face
       const px = x * C + 4, py = y * C + 4;
