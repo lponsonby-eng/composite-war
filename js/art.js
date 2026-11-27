@@ -32,7 +32,7 @@ const Art = {
       const seed = typeof variant === 'number' ? variant : 1 + PixelGen.hashSeed('town:' + variant) % 99991;
       const g = PixelGen.generate('building', { seed, style, size: String(size) }).img;
       const cv = document.createElement('canvas'); cv.width = g.w; cv.height = g.h;
-      const c = cv.getContext('2d'); c.putImageData(new ImageData(g.toRGBA(), g.w, g.h), 0, 0);
+      const c = cv.getContext('2d'); c.putImageData(new ImageData(Palette.quantize(g.toRGBA()), g.w, g.h), 0, 0);   // in the game's palette
       const b = bbox(c, g.w, g.h);                                     // measured in the old 48 x 40 picture's units
       cv.box = { x0: b.x0 / 2, y0: b.y0 / 2, x1: b.x1 / 2, y1: b.y1 / 2, tx: b.tx / 2, ty: b.ty / 2 };
       cv.gen = true;

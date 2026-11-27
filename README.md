@@ -17,6 +17,7 @@ Open `index.html` through any local web server (for example `python3 -m http.ser
 - `js/battleui.js` – battle controls: selecting squads, orders, formations, skills, battle minimap.
 - `js/mapview.js` – draws the strategy map, scrolling, zoom and the minimap.
 - `js/assets.js` – loads images and sounds.
+- `js/palette.js` – the game's fixed palette (Resurrect 64) and snapping colours to it.
 - `js/main.js` – startup, frame loop, mouse input.
 
 ## The map
@@ -133,6 +134,18 @@ refugees, plague, festivals, deserters, wanderers, an old drill-master); milesto
 victory, first signature ability, 25 and 50 towns, rival factions falling); and endings.
 Choices can give or cost gold, soldiers, XP, promotions or bring a wandering general.
 Add your own events by copying an entry; the format is described at the top of the file.
+
+## Pixel art: one grid, one palette
+- **One pixel grid in battle.** The battlefield is drawn into a buffer at one pixel per *art pixel* (`ART` in
+  `js/terrain.js`: soldiers' 32 px art is 22 world px tall, so 32/22 art pixels per world pixel), then enlarged to the
+  screen by a whole number. Zooming in steps a whole art-pixel size at a time, so sprites stay crisp; zoomed out
+  below 1:1 it shrinks smoothly for an overview. Battles open at 1:1. Units, generals, houses, trees and rocks are
+  drawn at one art pixel each (the older 16 px scenery at a clean 2x); the walls, roads, fields and ground are drawn
+  straight onto the same grid. Squad markers, numbers and messages are drawn sharp on top.
+- **One palette.** Every generated sprite, building and portrait, and the whole battlefield, is snapped to
+  [Resurrect 64](https://lospec.com/palette-list/resurrect-64) by Kerrie Lake (`js/palette.js`, matched in OKLab
+  through a lookup table). The ground is painted in three palette shades of the region's ground. Set
+  `Palette.on = false` to see the raw colours.
 
 ## Battles
 Live battles are fought by **blocks of hundreds of men** on a large field (2000 x 1280) seen

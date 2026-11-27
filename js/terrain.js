@@ -8,6 +8,15 @@
 //  The layout comes from the town's `terrain` (see FIELD_RECIPES) and region, and
 //  `walls`, seeded by the town's id so the same town always gives the same field.
 // =============================================================================
+// Art pixels per world pixel in battle: soldiers' 32 px art is 22 world px tall, so one art
+// pixel is 22/32 of a world pixel. Everything drawn on the battlefield keeps to this grid.
+const ART = 32 / 22;
+// Draw pixel art `im` (or part of it) with its top-left at (x, y), k art pixels per image pixel,
+// on whole art pixels.
+function artDraw(ctx, im, x, y, k = 1, sx = 0, sy = 0, sw = im.width, sh = im.height) {
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(im, sx, sy, sw, sh, Math.round(x * ART) / ART, Math.round(y * ART) / ART, sw * k / ART, sh * k / ART);
+}
 const GROUND = { grass: 0, forest: 1, water: 2, ford: 3, mud: 4, wall: 5, snow: 6, ice: 7, sand: 8, lava: 9, rock: 10, stream: 11, bridge: 12, gate: 13, cliff: 14, deep: 15 };
 
 // What each battlefield type is made of. Counts are for the whole field.
@@ -470,27 +479,38 @@ class Terrain {
     const trees = [], rocks = [];
     for (let y = 0; y < this.rows; y++) for (let x = 0; x < this.cols; x++) {
       const k = this.kind[y * this.cols + x], px = x * C, py = y * C;
-      if (k === GROUND.forest && (x + y * 3) % 2 === 0 && rng() < 0.7) trees.push([px - 4 + rng() * 4, py - 10 + rng() * 4]);
+      if (k === GROUND.forest && (x + y * 3) % 2 === 0 && rng() < 0.45) trees.push([px - 4 + rng() * 4, py - 10 + rng() * 4]);
       else if (k === GROUND.rock && (x + y) % 2 === 0) rocks.push([px + 4, py + 8]);
       else if (k === GROUND.cliff && rng() < 0.05) rocks.push([px + 4, py + 8]);
     }
     this.drawGround(ctx);
     this.drawHills(ctx);
     trees.sort((a, b) => a[1] - b[1]);
-    for (const [x, y] of trees) {
-      const im = Art.deco(this.trees[Math.floor(rng() * this.trees.length)]);
-      if (im && im.width) HD.draw(ctx, im, Math.round(x), Math.round(y - (im.height - 16)));
-    }
+    for (const [x, y] of trees) this.drawScenery(ctx, this.trees[Math.floor(rng() * this.trees.length)], x + 8, y + 16, rng);
     // solid rocks: crystal pillars by the lakes, boulders elsewhere
     const rockArt = this.region === 'azure' || this.type === 'crystal' ? 'crystal' : this.region === 'frost' ? 'icerock' : this.region === 'ember' ? 'ashrock' : 'boulder';
-    for (const [x, y] of rocks.sort((a, b) => a[1] - b[1])) {
-      const im = Art.deco(rockArt);
-      HD.draw(ctx, im, Math.round(x - 8), Math.round(y - im.height + 2));
-    }
+    for (const [x, y] of rocks.sort((a, b) => a[1] - b[1])) this.drawScenery(ctx, rockArt, x, y + 2, rng);
     if (this.walls) {
       this.drawTown(ctx);
       this.drawWall(ctx);
     }
+  }
+
+  // A tree or rock standing on (x, y), on the art-pixel grid: generated oaks, pines and
+  // rocks at one art pixel each; the older 16 px scenery (snowy pines, palms, cacti...) at 2x.
+  drawScenery(ctx, name, x, y, rng) {
+    const prop = typeof Gen !== 'undefined' && Gen.on && { tree_round: 'oak', darktree: 'oak', tree_pine: 'pine', boulder: 'rock' }[name];
+    if (prop) {
+      const key = 'gen:prop:' + prop + ':' + Math.floor(rng() * 4);
+      if (!Assets.img[key]) { const p = PixelGen.generate('prop', { seed: 3 + Number(key.slice(-1)) * 7, prop }).img; Assets.img[key] = Gen.canvas(p, p.w, p.h, 0, 1); }
+      const im = Assets.img[key];
+      if (name === 'darktree') ctx.filter = 'brightness(0.7) saturate(0.8)';
+      artDraw(ctx, im, x - im.width / 2 / ART, y - im.height / ART);
+      ctx.filter = 'none';
+      return;
+    }
+    const im = Art.deco(name);
+    if (im && im.width) artDraw(ctx, im, x - im.width / ART, y - im.height * 2 / ART, 2);
   }
 
   // Hills: soft light from the top left, shade on the far slopes, a touch of brightness
@@ -711,9 +731,6 @@ class Terrain {
 
     // inside: the wall-walk round the inside of the walls, streets, the square
     const w = T.wall, ix0 = T.x0 + w, iy0 = T.y0 + w, ix1 = T.x1 - w, iy1 = T.y1 - w, cx = T.cx, cy = T.cy;
-    ctx.fillStyle = 'rgba(60,50,40,0.22)'; ctx.fillRect(ix0, iy0, ix1 - ix0, iy1 - iy0);
-    ctx.fillStyle = 'rgba(120,140,80,0.5)'; ctx.fillRect(ix0 + 34, iy0 + 34, ix1 - ix0 - 68, iy1 - iy0 - 68);
-    ctx.strokeStyle = 'rgba(40,30,20,0.25)'; ctx.lineWidth = 2; ctx.strokeRect(ix0 + 34, iy0 + 34, ix1 - ix0 - 68, iy1 - iy0 - 68);
     const streets = [], street = (x, y, w, h) => { streets.push([x, y, w, h]); cobble(x, y, w, h); };
     for (const side of ['w', 'n', 's', 'e']) {                     // from every gate (or side) in to the square, with a dogleg
       const g = this.gates.find(q => q.side === side);
@@ -756,17 +773,17 @@ class Terrain {
     let n = 0, millDone = false;
     for (const [x, y, size, want] of spots) {
       if (!millDone && y > mill[1]) { this.drawWindmill(ctx, mill[0], mill[1]); millDone = true; }
-      const im = Art.building(style, size, size === 2 ? this.spotId || 1 : `${this.spotId}:${n++ % 8}`), bw = im.box.x1 - im.box.x0 + 1;
-      const sc = Math.min(3.2, want / bw), half = bw * sc / 2;
+      // at its own size, one art pixel each (the picture is 96 x 80 with the building standing on (48, 76))
+      const im = Art.building(style, size, size === 2 ? this.spotId || 1 : `${this.spotId}:${n++ % 8}`), half = (im.box.x1 - im.box.x0 + 1) * 2 / ART / 2;
       ctx.fillStyle = 'rgba(20,16,30,0.32)';
       ctx.beginPath(); ctx.ellipse(x + 3, y + 1, half * 0.95, half * 0.28, 0, 0, Math.PI * 2); ctx.fill();
-      HD.draw(ctx, im, Math.round(x - 24 * sc), Math.round(y - 38 * sc), 48 * sc, 40 * sc);
+      artDraw(ctx, im, x - im.width / 2 / ART, y - (im.height - 4) / ART);
     }
     if (!millDone) this.drawWindmill(ctx, mill[0], mill[1]);
     // a few trees in the corners of the walk
-    const tree = Art.deco(this.trees[0]);
-    if (tree && tree.width) for (const [x, y] of [[ix0 + 44, iy0 + 48], [ix1 - 50, iy0 + 52], [ix0 + 46, iy1 - 30], [ix1 - 48, iy1 - 34]])
-      if (!this.gates.some(g => Math.hypot(g.ix - x, g.iy - y) < 70)) HD.draw(ctx, tree, Math.round(x - tree.width / 2), Math.round(y - tree.height));
+    const r3 = makeRng(seed + 5);
+    for (const [x, y] of [[ix0 + 44, iy0 + 48], [ix1 - 50, iy0 + 52], [ix0 + 46, iy1 - 30], [ix1 - 48, iy1 - 34]])
+      if (!this.gates.some(g => Math.hypot(g.ix - x, g.iy - y) < 70)) this.drawScenery(ctx, this.trees[0], x, y, r3);
   }
 
   // A windmill: a round white tower with a thatched cap and four sails.
