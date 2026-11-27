@@ -28,14 +28,14 @@ class Battle {
     this.fog = !!DATA.battle.fog;
     this.men = opts.men || (this.headless ? 1 : (B.men || 1));   // figures per campaign soldier (opts.men: for testing)
     this.stats = { loss: 0, flank: 0, rear: 0, charge: 0, general: 0, hits: 0 };
-    this.units = []; this.squads = []; this.projs = []; this.fx = []; this.texts = []; this.dead = [];
+    this.units = []; this.squads = []; this.projs = []; this.fx = []; this.texts = []; this.dead = []; this.spent = [];
     this.zones = []; this.pending = []; this.custom = {};
     this.time = 0; this.limit = DATA.battleTimeLimit;
     this.done = false; this.banner = null;
     this.xp = {};                            // gid -> XP earned from kills this battle
     this.terrain = new Terrain(opts.spotId, this.W, this.H);
     if (this.terrain.walls) for (const g of this.terrain.gates)          // gates are tougher in big battles (more men batter them)
-      g.hp = g.maxHp = B.gate.hp * (this.men > 1 ? B.gate.menMul : 1);
+      g.hp = g.maxHp = B.gate.hp * (this.men > 1 ? B.gate.menMul : 1) * DATA.sites[this.terrain.site].gateHp;
     this.boosts = opts.boosts || [null, null];   // landmark powers for each side: { unit, k, L } or null
     this.placeSquads(opts.attackers, 0);
     this.placeSquads(opts.defenders, 1);
@@ -74,7 +74,8 @@ class Battle {
     const made = gens.map(g => this.makeSquad(g, side, rowOf(g), face));
     const front = made.filter(q => q.row === 'front'), back = made.filter(q => q.row === 'back');
     const walled = side === 1 && T.walls;
-    const rows = (walled ? [[back, T.wallX + T.wallW + 22], [front, T.wallX + T.wallW + 150]] : [[front, 360], [back, 265]]).filter(r => r[0].length);
+    if (walled) { this.placeInTown(front, back); return; }
+    const rows = [[front, 360], [back, 265]].filter(r => r[0].length);
     // where every squad would stand for a given sideways shift / forward step
     const layout = (shift, step) => {
       const out = [];
@@ -83,14 +84,14 @@ class Battle {
         const g = Math.max(10, Math.min(gap, (H - 140 - total) / Math.max(1, list.length - 1)));
         let y = H / 2 + shift - (total + g * (list.length - 1)) / 2;
         list.forEach((q, i) => {
-          const x = walled ? depth : side === 0 ? depth + step : W - depth - step;
+          const x = side === 0 ? depth + step : W - depth - step;
           out.push({ q, x, y: clamp(y + ws[i] / 2, 60, H - 60) }); y += ws[i] + g;
         });
       }
       return out;
     };
     let best = layout(0, 0);
-    if (!walled && side !== this.playerSide) {           // seek high ground (backline counts most)
+    if (side !== this.playerSide) {                      // seek high ground (backline counts most)
       let bs = -1e9;
       for (let shift = -360; shift <= 360; shift += 60) for (const step of [0, 90, 180]) {
         const L = layout(shift, step);
@@ -100,6 +101,34 @@ class Battle {
       }
     }
     for (const p of best) { this.putSquad(p.q, p.x, p.y); this.squads.push(p.q); }
+  }
+  // Defenders of a walled town: the backline mans the walls beside each gate (on the
+  // wall-walk, facing out, so they shoot over the wall from high ground), then the walls
+  // near the attackers' side; the frontline stands just inside each gate, ready for
+  // whoever breaks in; anyone left over waits in the market square. Each squad
+  // remembers its post (computer defenders go back to it once the town is clear).
+  placeInTown(front, back) {
+    const T = this.terrain, t = T.town, w = t.wall, ix0 = t.x0 + w, iy0 = t.y0 + w, ix1 = t.x1 - w, iy1 = t.y1 - w;
+    const gates = T.gates.slice().sort((a, b) => 'wnse'.indexOf(a.side) - 'wnse'.indexOf(b.side));
+    const walls = [];
+    for (const g of gates) for (const s of [-1, 1]) walls.push({ p: T.gatePoint(g, -(w / 2 + 34), s * (g.half + 78)), face: [g.nx, g.ny] });
+    walls.push({ p: [ix0 + 120, iy0 + 34], face: [0, -1] }, { p: [ix0 + 120, iy1 - 34], face: [0, 1] },
+      { p: [ix0 + 34, iy0 + 110], face: [-1, 0] }, { p: [ix0 + 34, iy1 - 110], face: [-1, 0] });
+    const gatesIn = gates.map(g => ({ p: T.gatePoint(g, -(w / 2 + 120), 0), face: [g.nx, g.ny] }));
+    const used = [];
+    const free = (x, y, r) => !used.some(([ux, uy]) => Math.hypot(ux - x, uy - y) < r);
+    const square = k => ({ p: [t.cx - 40 + (k % 3) * 110 - 110, t.cy + Math.floor(k / 3) * 90 - 40], face: [-1, 0] });
+    let k = 0;
+    const put = (q, list) => {
+      let post = list.find(c => free(c.p[0], c.p[1], 120));
+      if (!post) post = square(k++);
+      used.push(post.p);
+      q.post = { x: post.p[0], y: post.p[1], face: post.face };
+      this.putSquad(q, post.p[0], post.p[1], post.face);
+      this.squads.push(q);
+    };
+    for (const q of back) put(q, walls);
+    for (const q of front) put(q, gatesIn);
   }
 
   // A general's squad: the hero and their men (placed later by putSquad). In a live
@@ -207,7 +236,7 @@ class Battle {
     const boost = 1 + lv * (isLeader ? L.leaderBonus : L.squadBonus);
     const sb = isLeader ? { hp: 1, atk: 1, def: 0 } : DATA.soldierBoost(slv);       // soldier level and tier
     const big = this.men > 1 ? DATA.battle.menHp : 1;                                // big battles: tougher men, slower grind
-    const hp = Math.round((isLeader ? t.hp * 5 * (this.men > 1 ? 3 : 1) : t.hp) * big * boost * sb.hp * (1 + (P.hp || 0) * k) * DATA.battle.hpMul);
+    const hp = Math.round((isLeader ? t.hp * 5 * (this.men > 1 ? 3 : 1) : t.hp) * big * boost * sb.hp * (1 + (P.hp || 0) * k) * (isLeader ? DATA.battle.heroHpMul : DATA.battle.hpMul));
     const B = DATA.battle, hits = t.type === 'healer' ? B.hpMul : t.proj ? B.rangedAtkMul : B.atkMul;   // heals keep pace with the extra hp
     const V = DATA.battle.vision;
     return {
@@ -298,13 +327,30 @@ class Battle {
   }
 
   // The computer's squads: attackers advance; defenders hold until the enemy shows
-  // up nearby (wall defenders always man their walls).
+  // up nearby (wall defenders man their walls and gates: see townDefence).
   aiOrders() {
     for (const q of this.squads) {
-      if (q.side === this.playerSide || !q.leader.alive || q.order !== 'hold') continue;
-      if (q.side === 1 && this.terrain.walls) continue;
+      if (q.side === this.playerSide || !q.leader.alive) continue;
+      if (q.side === 1 && this.terrain.walls) { this.townDefence(q); continue; }
+      if (q.order !== 'hold') continue;
       const near = this.squads.some(e => e.side !== q.side && e.seenBy && e.seenBy[q.side] && Math.hypot(e.cx - q.leader.x, e.cy - q.leader.y) < 380);
       if (near || this.time > 70) q.order = 'advance';
+    }
+  }
+
+  // Computer defenders of a walled town: the backline holds the walls; the frontline
+  // goes for anyone who has got inside, and returns to its post once the town is clear.
+  townDefence(q) {
+    const T = this.terrain;
+    if (q.back || !q.post) return;
+    const inside = this.squads.filter(e => e.side !== q.side && e.live && T.inTown(e.cx, e.cy));
+    if (inside.length) {
+      if (q.order === 'attack' && q.target && q.target.alive && !q.target.routing && T.inTown(q.target.x, q.target.y)) return;
+      const e = inside.reduce((a, b) => Math.hypot(b.cx - q.cx, b.cy - q.cy) < Math.hypot(a.cx - q.cx, a.cy - q.cy) ? b : a);
+      const tg = e.leader.alive && !e.leader.routing ? e.leader : e.members.find(m => m.alive && !m.routing && !m.escaped);
+      if (tg) { q.order = 'attack'; q.target = tg; }
+    } else if (q.order === 'attack' || q.order === 'advance') {
+      q.order = 'move'; q.target = null; q.tx = q.post.x; q.ty = q.post.y; q.faceEnd = q.post.face; q.cap = 0;
     }
   }
 
@@ -356,7 +402,7 @@ class Battle {
     switch (S.kind) {
       case 'strike': {
         const e = pick(); if (!e) return;
-        if (S.range > 60) this.projs.push({ x: L.x, y: L.y - 6, tx: e.x, ty: e.y - 6, tg: e, side: q.side, gid: q.id, src: L, dmg: S.dmg * dk, splash: 0, img: S.proj, speed: 340, angle: 0, pierce: true });
+        if (S.range > 60) this.projs.push({ x: L.x, y: L.y - 6, tx: e.x, ty: e.y - 6, tg: e, side: q.side, gid: q.id, src: L, dmg: S.dmg * dk, splash: 0, img: S.proj, speed: DATA.battle.missile.skill * 1.4, angle: 0, pierce: true });
         else { this.damage(e, S.dmg * dk, q.id, false, L); this.addFx('slash', e.x, e.y - 6, 0.4); this.addFx('hit', e.x, e.y - 8, 0.4); }
         big(e, '!!', '#ff8a5a');
         break;
@@ -371,7 +417,7 @@ class Battle {
         break;
       }
       case 'blast':
-        this.projs.push({ x: L.x, y: L.y - 6, tx: x, ty: y, tg: null, side: q.side, gid: q.id, src: L, dmg: S.dmg * dk, splash: this.rad(S), img: S.proj, speed: 210, angle: 0, big: true });
+        this.projs.push({ x: L.x, y: L.y - 6, tx: x, ty: y, tg: null, side: q.side, gid: q.id, src: L, dmg: S.dmg * dk, splash: this.rad(S), img: S.proj, speed: DATA.battle.missile.skill, angle: 0, big: true, sx: L.x, sy: L.y - 6, arc: Math.min(90, Math.hypot(x - L.x, y - L.y) * 0.3), d0: Math.max(1, Math.hypot(x - L.x, y - L.y)) });
         break;
       case 'nova':
         for (const v of near(this.rad(S), foe)) this.damage(v, S.dmg * dk, q.id, true, L);
@@ -494,10 +540,11 @@ class Battle {
         for (const z of this.zones) if (z.slow && z.side !== u.side && Math.hypot(u.x - z.x, u.y - z.y) <= z.r) sp *= z.slow;
         vx *= sp; vy *= sp;
       }
-      u.moving = !!(vx || vy);
+      u.moving = !!(vx || vy); u.vx = vx; u.vy = vy;
       if (vx || vy) {
         const T = this.terrain, nx = u.x + vx * dt, ny = u.y + vy * dt;   // solid ground (walls) blocks; slide along it
         if (u.cav) u.run += Math.hypot(vx, vy) * dt;                     // cavalry builds up a charge
+        if (this.speedFor(u, u.x, u.y) > 0) { u.okX = u.x; u.okY = u.y; }
         if (this.speedFor(u, nx, ny) > 0) { u.x = nx; u.y = ny; }
         else if (this.speedFor(u, nx, u.y) > 0) u.x = nx;
         else if (this.speedFor(u, u.x, ny) > 0) u.y = ny;
@@ -540,7 +587,8 @@ class Battle {
     const M = DATA.battle.morale;
     // per hit, scaled so it takes as much real damage as before to break a block: with
     // more hp (and heavier blows) a man takes hpMul / atkMul times as many hits to fall
-    const B = DATA.battle, per = Math.pow(B.atkMul / B.hpMul, B.shockExp);
+    // (men in big live battles are menHp times tougher again, so they take that many more blows)
+    const B = DATA.battle, per = Math.pow(B.atkMul / (B.hpMul * (this.men > 1 ? B.menHp : 1)), B.shockExp);
     let k = ((side === 'rear' ? M.rear : side === 'side' ? M.flank : 0) + (charged ? M.charge : 0)) * per;
     if (k) q.morale -= k / q.startN;
     this.stats.hits++; if (side !== 'front') this.stats[side === 'rear' ? 'rear' : 'flank'] += (side === 'rear' ? M.rear : M.flank) / q.startN; if (charged) this.stats.charge += M.charge / q.startN;
@@ -559,7 +607,9 @@ class Battle {
         q.face = [Math.cos(now + da), Math.sin(now + da)];
       }
       const engaged = q.closest < 70, leaderless = !q.leader.alive;
-      if (!engaged && !leaderless) q.morale = Math.min(100, q.morale + M.recover * dt);
+      const alone = !leaderless && !q.members.some(u => u.alive && !u.escaped);   // a general whose men are all dead or fled the field
+      if (alone) q.morale = Math.max(-50, q.morale - M.alone * dt);
+      else if (!engaged && !leaderless) q.morale = Math.min(100, q.morale + M.recover * dt);
       const was = q.state;
       if (q.state === 'routing') {
         if (!leaderless && !q.leader.escaped && !engaged && q.morale >= M.rally) q.state = 'steady';
@@ -591,7 +641,7 @@ class Battle {
   think(u, dt) {
     const q = u.sq, L = q.leader, R = DATA.roles.back, T = this.terrain;
     const go = (x, y, speed = u.spd) => {
-      const wp = T.gateWaypoint(u.x, u.y, x, y, u.side);
+      const wp = T.route(u.x, u.y, x, y, u.side);
       const gx = wp ? wp[0] : x, gy = wp ? wp[1] : y, d = Math.hypot(gx - u.x, gy - u.y);
       if (d < 2) return [0, 0];
       const s = Math.min(speed, d * 4);
@@ -600,6 +650,9 @@ class Battle {
     if (u.routing) {                                     // routed: run for your own edge of the field
       u.routT -= dt;
       if (u.routT <= 0) { u.alive = false; this.addFx('smoke', u.x, u.y - 6, 0.5); }
+      // inside town walls there is nowhere to run: defenders huddle in the market square
+      if (T.walls && u.side === 1 && T.inTown(u.x, u.y)) return go(T.town.cx + ((u.slotK || 0) % 9 - 4) * 9, T.town.cy + ((u.slotK || 0) % 5 - 2) * 9, u.spd * 1.1);
+      if (T.walls && (T.inTown(u.x, u.y) || T.channelOf(u.x, u.y) || T.crossesKeep(u.x, u.y, u.side === 0 ? -30 : this.W + 30, u.y))) return go(u.side === 0 ? -30 : this.W + 30, u.y, u.spd * 1.25);
       return [(u.side === 0 ? -1 : 1) * u.spd * 1.25, ((u.slotK || 0) % 3 - 1) * u.spd * 0.25];
     }
     if (q.order === 'retreat') return go(u.side === 0 ? -30 : this.W + 30, u.y, u.spd * 1.2);
@@ -641,7 +694,7 @@ class Battle {
     }
     const tg = u.target, range = this.unitReach(u, tg);
     const d = tg ? udist(tg, u) : 1e9;
-    const walled = u.side === 1 && T.walls && u.x > T.wallX;
+    const walled = u.side === 1 && T.walls && T.inTown(u.x, u.y);
     const kite = u.back && u.frontFoe && u.frontFoeD < R.kiteRange && u.cdLeft > 0.15 && !walled;
     if (kite) {                                         // backline steps away from a frontline enemy
       const f = u.frontFoe, fd = u.frontFoeD || 1;
@@ -667,7 +720,7 @@ class Battle {
       }
       if (!u.back && pushing && (q.charging || d < CH.dist) && q.state !== 'routing') {
         speed *= CH.speed;
-        if (!u.charging) { u.charging = true; u.impact = true; }
+        if (!u.charging) { u.charging = true; if (!(this.time - u.lastAtk < 4)) u.impact = true; }   // (not again while still in the thick of it)
       } else { u.charging = false; if (!pushing) u.impact = false; }
       // in a big block only the men near the enemy break ranks; the rest keep their places
       // and the block presses forward behind its general
@@ -704,43 +757,56 @@ class Battle {
   // and frontline troops with no enemy this side of the wall batter it.
   gateDuty(u, tg) {
     const T = this.terrain, q = u.sq;
-    if (!T.walls || u.side !== 0 || u.heal || u.x > T.wallX || q.order === 'move' || q.order === 'retreat') return null;
+    if (!T.walls || u.side !== 0 || u.heal || T.inTown(u.x, u.y) || q.order === 'move' || q.order === 'retreat') return null;
     if (q.gateT) { if (!q.gateT.open) return q.gateT; q.gateT = null; }
     if (T.gates.some(g => g.open)) return null;                       // there is a way in: use it
-    const art = u.t.type === 'artillery', stuck = !u.back && (!tg || tg.x > T.wallX);
+    const art = u.t.type === 'artillery', stuck = !u.back && (!tg || T.inTown(tg.x, tg.y));
     if (!art && !stuck) return null;
     if (!q.gateAim || q.gateAim.open) {
-      const y = q.leader.alive ? q.leader.y : u.y;
-      q.gateAim = T.gates.reduce((a, b) => Math.abs(b.y - y) < Math.abs(a.y - y) ? b : a);
+      // the nearest gate by the way round, but squads spread over the gates when there are several
+      const L = q.leader.alive ? q.leader : u, busy = g => this.squads.filter(o => o !== q && o.side === q.side && o.live && o.gateAim === g).length;
+      const cost = g => T.costIn(L.x, L.y, g, g.ix, g.iy) + busy(g) * 260;
+      q.gateAim = T.gates.reduce((a, b) => cost(b) < cost(a) ? b : a);
     }
     return q.gateAim;
   }
   // Work on gate g: shooters and artillery fire at it from range, the rest close in
   // along its width and hit it.
   bashGate(u, g, go) {
-    const T = this.terrain, G = DATA.battle.gate, fx = T.wallX - 6;
-    const lane = g.y - (g.half - 6) + ((u.slotK || 0) * 7) % (2 * g.half - 12);
+    const T = this.terrain, G = DATA.battle.gate, face = T.town.wall / 2;
+    const lat = ((u.slotK || 0) * 7) % (2 * g.half - 12) - (g.half - 6);    // spread along the gate
+    const [fx, fy] = T.gatePoint(g, face + 6, lat), [ax, ay] = T.gatePoint(g, face, lat * 0.8);
     const mul = u.t.type === 'artillery' ? G.artillery : u.t.type === 'mage' ? G.mage : u.t.proj ? G.shooter : G.melee;
     const ready = u.cdLeft <= 0;
     if (u.t.proj) {
-      const r = (u.range + u.b.range) * 0.95, d = Math.hypot(fx - u.x, g.y - u.y);
-      if (d > r) return go(fx, g.y);
-      u.dir = faceDir(fx - u.x, g.y - u.y);
+      const r = (u.range + u.b.range) * 0.95, d = Math.hypot(ax - u.x, ay - u.y);
+      if (d > r) return go(g.ax, g.ay);
+      u.dir = faceDir(ax - u.x, ay - u.y);
       if (ready) {
-        this.projs.push({ x: u.x, y: u.y - 6, tx: fx + 4, ty: lane - 4, tg: null, gate: g, side: u.side, gid: u.gid, src: u, dmg: u.atk * u.b.atk * mul,
-          splash: 0, img: u.t.proj, speed: u.t.splash ? 260 : 400, angle: 0 });
+        this.projs.push(this.missile(u, ax, ay - 4, { gate: g, dmg: u.atk * u.b.atk * mul, splash: 0 }));
         u.cdLeft = u.cd; u.atkT = 0.25;
       }
       return [0, 0];
     }
-    if (Math.hypot(fx - u.x, lane - u.y) > u.range + 8) return go(fx, lane, u.spd);
-    u.dir = faceDir(1, 0);
+    if (Math.hypot(fx - u.x, fy - u.y) > u.range + 8) return go(fx, fy, u.spd);
+    u.dir = faceDir(-g.nx, -g.ny);
     if (ready) {
       this.hitGate(g, u.atk * u.b.atk * mul * (u.run >= DATA.unitTypes.cavalry.chargeRun ? 1.5 : 1));
       u.run = 0; u.cdLeft = u.cd; u.atkT = 0.25;
-      if (!this.headless && Math.random() < 0.3) { this.addFx('hit', fx + 6, lane - 6, 0.25); if (this.seenByPlayer(u)) Assets.sfx('sword', 0.2); }
+      if (!this.headless && Math.random() < 0.3) { this.addFx('hit', ax, ay - 6, 0.25); if (this.seenByPlayer(u)) Assets.sfx('sword', 0.2); }
     }
     return [0, 0];
+  }
+  // Missiles: how fast unit u's fly, and one loosed by u at (tx, ty). They are not guided:
+  // they come down where they were aimed (see updateProjectiles).
+  missileSpeed(u) {
+    const M = DATA.battle.missile, t = u.t.type;
+    return t === 'artillery' ? M.artillery : t === 'mage' || u.splash ? M.bolt : M.arrow;
+  }
+  missile(u, tx, ty, extra) {
+    const d = Math.hypot(tx - u.x, ty - u.y + 6);
+    return Object.assign({ x: u.x, y: u.y - 6, sx: u.x, sy: u.y - 6, tx, ty, tg: null, side: u.side, gid: u.gid, src: u, img: u.t.proj,
+      speed: this.missileSpeed(u), angle: 0, arc: Math.min(90, d * (u.t.type === 'artillery' ? 0.3 : 0.18)), d0: Math.max(1, d) }, extra);
   }
   hitGate(g, dmg) {
     if (g.open) return;
@@ -752,7 +818,7 @@ class Battle {
       if (q.gateT === g) { q.gateT = null; if (q.order === 'attack' && !q.target) q.order = 'advance'; }
     }
     if (!this.headless) {
-      for (let i = 0; i < 6; i++) this.addFx(i % 2 ? 'smoke' : 'hit', this.terrain.wallX + Math.random() * this.terrain.wallW, g.y + (Math.random() - 0.5) * g.half * 2, 0.7);
+      for (let i = 0; i < 6; i++) { const [x, y] = this.terrain.gatePoint(g, (Math.random() - 0.5) * this.terrain.town.wall, (Math.random() - 0.5) * g.half * 2); this.addFx(i % 2 ? 'smoke' : 'hit', x, y, 0.7); }
       Assets.sfx('kill', 0.6);
     }
     this.banner = { text: 'A gate has fallen!', t: 2.5, side: 1 };
@@ -783,7 +849,7 @@ class Battle {
   // wall defenders deal with anyone inside first.
   pickTarget(u) {
     const q = u.sq, T = this.terrain;
-    const walled = u.side === 1 && T.walls && u.x > T.wallX, inside = e => e.x > T.wallX + 6;
+    const walled = u.side === 1 && T.walls && T.inTown(u.x, u.y), inside = e => T.inTown(e.x, e.y);
     const anchor = u.isLeader ? (q.order === 'hold' ? { x: q.tx, y: q.ty } : u) : q.leader.alive ? q.leader : u;
     const leash = q.order === 'hold' ? 150 : q.order === 'attack' ? 240 : u.isLeader ? 1e9 : 170;
     let best = null, bd = 1e9;
@@ -829,26 +895,41 @@ class Battle {
         }
       }
     }
-    if (this.terrain.walls) for (const u of live)                 // nobody gets shoved into a wall
-      if (this.speedFor(u, u.x, u.y) === 0) u.x = u.x < this.terrain.wallX + this.terrain.wallW / 2 ? this.terrain.wallX - 1 : this.terrain.wallX + this.terrain.wallW + 1;
+    for (const u of live)                                         // nobody gets shoved into a wall or a cliff
+      if (u.okX != null && this.speedFor(u, u.x, u.y) === 0) { u.x = u.okX; u.y = u.okY; }
   }
 
   updateProjectiles(dt) {
+    const M = DATA.battle.missile, hitR = this.men > 1 ? M.hitRMen : M.hitR;
     for (const p of this.projs) {
-      if (p.tg && p.tg.alive) { p.tx = p.tg.x; p.ty = p.tg.y - 6; }
+      if (p.tg && p.tg.alive) { p.tx = p.tg.x; p.ty = p.tg.y - 6; }      // (guided: only some skills)
       const dx = p.tx - p.x, dy = p.ty - p.y, d = Math.hypot(dx, dy);
       const step = p.speed * dt;
       p.angle = Math.atan2(dy, dx);
+      if (p.arc) {                                                      // an arcing flight: tilt with the climb and fall
+        const k = clamp(1 - d / p.d0, 0, 1);
+        p.lift = Math.sin(k * Math.PI) * p.arc;
+        p.angle = Math.atan2(dy / d * p.speed - Math.cos(k * Math.PI) * Math.PI * p.arc / p.d0 * p.speed, dx / d * p.speed);
+      }
       if (d <= step + 2) {
         p.dead = true;
         if (p.gate) { this.hitGate(p.gate, p.dmg); this.addFx(p.big || p.splash ? 'fire' : 'hit', p.tx, p.ty, 0.3); }
         else if (p.splash) {
           if (p.big) for (let i = 0; i < 5; i++) this.addFx(i % 2 ? 'smoke' : 'fire', p.tx + (Math.random() - 0.5) * p.splash, p.ty + (Math.random() - 0.5) * p.splash * 0.6, 0.6);
           else if (!p.quiet) this.addFx('fire', p.tx, p.ty, 0.4); else this.addFx('hit', p.tx, p.ty, 0.2);
-          for (const v of this.units) if (v.alive && !v.escaped && v.side !== p.side && Math.hypot(v.x - p.tx, v.y - 6 - p.ty) <= p.splash) this.damage(v, p.dmg, p.gid, true, p.src);
+          for (const v of this.units) {                                   // full force where it lands, half at the edge of the blast
+            if (!v.alive || v.escaped || v.side === p.side) continue;
+            const dd = Math.hypot(v.x - p.tx, v.y - 6 - p.ty);
+            if (dd <= p.splash) this.damage(v, p.dmg * (1 - 0.5 * dd / p.splash), p.gid, true, p.src);
+          }
         } else if (p.tg && p.tg.alive) {
           this.addFx('hit', p.tx, p.ty, 0.25);
           this.damage(p.tg, p.dmg, p.gid, true, p.src);
+        } else if (p.aim) {                                             // a loosed missile: hits whoever is where it comes down
+          let v = p.aim.alive && !p.aim.escaped && Math.hypot(p.aim.x - p.tx, p.aim.y - 6 - p.ty) <= hitR ? p.aim : null;
+          if (!v) { let bd = hitR; for (const e of this.nearby({ x: p.tx, y: p.ty + 6, side: p.side }, hitR + 8)) { const dd = Math.hypot(e.x - p.tx, e.y - 6 - p.ty); if (dd < bd) { bd = dd; v = e; } } }
+          if (v) { this.addFx('hit', p.tx, p.ty, 0.25); this.damage(v, p.dmg, p.gid, true, p.src); }
+          else if (!this.headless && p.img === 'arrow') { this.spent.push([p.tx, p.ty + 6, Math.atan2(p.ty - p.sy, p.tx - p.sx)]); if (this.spent.length > 300) this.spent.shift(); }
         }
       } else { p.x += dx / d * step; p.y += dy / d * step; }
     }
@@ -937,7 +1018,7 @@ class Battle {
       for (const e of this.squads) {
         if (e.side === q.side || !e.live || !e.seenBy[q.side]) continue;
         let d = Math.hypot(e.cx - q.cx, e.cy - q.cy);
-        if (walled && e.cx > T.wallX) d -= 400;                                     // intruders first
+        if (walled && T.inTown(e.cx, e.cy)) d -= 400;                               // intruders first
         if (!q.back) for (const f of this.squads)                                     // protect your own backline
           if (f.side === q.side && f.back && f.live && Math.hypot(f.cx - e.cx, f.cy - e.cy) < 120) d -= 150;
         if (d < bd) { bd = d; best = e; }
@@ -990,7 +1071,7 @@ class Battle {
     }
     else if (u.impact && !u.t.proj) dmg *= DATA.battle.charge.impact;  // infantry charging home
     const charged = (u.run >= C.chargeRun && u.cav) || (u.impact && !u.t.proj);
-    u.run = 0; u.impact = false; u.revealT = 2;                       // fighting gives away a hidden position
+    u.run = 0; u.impact = false; u.revealT = 2; u.lastAtk = this.time;  // fighting gives away a hidden position
     if (!u.t.proj) dmg *= 1 + DATA.battle.hills.melee * clamp(u.h - tg.h, -1, 1);   // fighting downhill
     if (u.sq.state === 'wavering') dmg *= DATA.battle.morale.waverAtk;
     if (u.t.antiCav && tg.cav) dmg *= DATA.antiCavMul;               // spears against horses
@@ -1000,8 +1081,10 @@ class Battle {
     if (u.back) dmg *= R.power;                                    // shooting from safety hits hard...
     if (u.back && u.closestD < R.exposedRange) dmg *= R.meleePenalty;   // ...but caught in melee, much less
     if (u.t.proj) {
-      this.projs.push({ x: u.x, y: u.y - 6, tx: tg.x, ty: tg.y - 6, tg, side: u.side, gid: u.gid, src: u, dmg,
-        splash: u.splash || 0, img: u.t.proj, speed: u.t.splash ? 260 : 400, angle: 0 });
+      // loosed at where the target will be when it lands, scattered more the further it flies
+      const M = DATA.battle.missile, d = Math.hypot(tg.x - u.x, tg.y - u.y), t = d / this.missileSpeed(u) * M.lead;
+      const sc = d * M.scatter * (u.t.type === 'artillery' ? 1.3 : 1), a = Math.random() * Math.PI * 2, r = sc * Math.sqrt(Math.random()) * 0.9;
+      this.projs.push(this.missile(u, tg.x + (tg.vx || 0) * t + Math.cos(a) * r, tg.y - 6 + (tg.vy || 0) * t + Math.sin(a) * r * 0.7, { aim: tg, dmg, splash: u.splash || 0 }));
       if (!this.headless && u.t.splash && this.seenByPlayer(u)) Assets.sfx('magic-1', 0.25);
     } else {
       if (!this.headless && (this.men === 1 || Math.random() < 0.3)) this.fx.push({ name: 'arc', x: tg.x, y: tg.y - 7, t: 0, dur: 0.22, a: Math.atan2(tg.y - u.y, tg.x - u.x), flip: Math.random() < 0.5 });
@@ -1012,8 +1095,14 @@ class Battle {
 
   damage(v, amount, byGid, ranged, src) {
     if (!v.alive) return;
-    if (ranged) amount *= 1 - this.terrain.coverAt(v.x, v.y);
-    const fort = v.side === 1 && this.terrain.walls && v.x > this.terrain.wallX ? DATA.ground.wall.fortify : 0;
+    if (ranged) {
+      const T = this.terrain, W = DATA.ground.wall;
+      let cover = T.coverAt(v.x, v.y);
+      if (T.walls && src && T.inTown(v.x, v.y) && !T.inTown(src.x, src.y))           // shot from outside the walls
+        cover = Math.max(cover, src.t && src.t.type === 'artillery' ? W.lobbedCover : W.insideCover);
+      amount *= 1 - cover;
+    }
+    const fort = v.side === 1 && this.terrain.walls && this.terrain.inTown(v.x, v.y) ? DATA.ground.wall.fortify : 0;
     const def = (v.def + v.b.def + fort) * DATA.battle.defMul * (ranged ? 1 - DATA.roles.back.pierce : 1);       // arrows and spells pierce armour
     const dmg = Math.max(1, Math.round(amount * (0.85 + Math.random() * 0.3) - def));
     v.hp -= dmg; v.hitT = 0.12;
@@ -1219,6 +1308,10 @@ class Battle {
 
     // the fallen, under everyone else
     for (const d of this.dead || []) if (onScreen(d.x, d.y) && this.cellVisible(d.x, d.y)) Assets.drawCorpse(ctx, d.sprite, d.x, d.y, UNIT_SIZE.soldier, d.flip, 0.95);
+    ctx.strokeStyle = 'rgba(70,50,30,0.8)'; ctx.lineWidth = 0.8;                 // arrows that missed, stuck in the ground
+    ctx.beginPath();
+    for (const [x, y, a] of this.spent) if (onScreen(x, y)) { ctx.moveTo(x, y); ctx.lineTo(x - Math.cos(a) * 4, y - Math.sin(a) * 4 - 2.5); }
+    ctx.stroke();
 
     // selected squads: where they are going, as a faint ghost of the formation
     const lw = 1 / Math.max(0.5, this.cam.z);
@@ -1287,7 +1380,10 @@ class Battle {
       if (!this.cellVisible(p.x, p.y)) continue;
       const im = Assets.img['fx:' + p.img];
       if (!im) continue;
-      ctx.save(); ctx.translate(Math.round(p.x), Math.round(p.y));
+      if (p.lift) {                                                     // its shadow on the ground under the arc
+        ctx.fillStyle = 'rgba(10,8,16,0.25)'; ctx.fillRect(Math.round(p.x) - 2, Math.round(p.y) + 5, 4, 1.5);
+      }
+      ctx.save(); ctx.translate(Math.round(p.x), Math.round(p.y - (p.lift || 0)));
       if (p.img !== 'shuriken') ctx.rotate(p.angle); else ctx.rotate(this.time * 20);
       HD.draw(ctx, im, -Math.floor(im.width / 2), -Math.floor(im.height / 2));
       ctx.restore();
@@ -1340,14 +1436,17 @@ class Battle {
   // ends, splitting and darkening as it takes damage, with a bar showing what is left;
   // once broken, splintered timbers on the cobbles.
   drawGate(ctx, g) {
-    const T = this.terrain, x0 = T.wallX, w = T.wallW, y0 = g.y - g.half, h = g.half * 2;
+    const T = this.terrain, w = T.town.wall, x0 = -w / 2, y0 = -g.half, h = g.half * 2, seed = g.x * 3 + g.y;
+    ctx.save(); ctx.translate(g.x, g.y);                               // drawn as a west gate, turned to face its way
+    ctx.rotate({ w: 0, e: Math.PI, n: Math.PI / 2, s: -Math.PI / 2 }[g.side]);
     if (g.open) {
-      const r = makeRng(g.y);
+      const r = makeRng(seed);
       for (let i = 0; i < 9; i++) {
         ctx.save(); ctx.translate(x0 + r() * w, y0 + r() * h); ctx.rotate(r() * Math.PI);
         ctx.fillStyle = '#2a1a10'; ctx.fillRect(-6, -1.8, 12, 3.6); ctx.fillStyle = '#7a5430'; ctx.fillRect(-5.5, -1.2, 11, 2.4);
         ctx.restore();
       }
+      ctx.restore();
       return;
     }
     const k = Math.max(0, g.hp / g.maxHp);
@@ -1356,15 +1455,18 @@ class Battle {
     ctx.fillStyle = 'rgba(30,18,10,0.55)';                              // planks
     for (let y = y0 + 3; y < y0 + h; y += 4) ctx.fillRect(x0, y, w, 1);
     ctx.fillStyle = '#3a3a46';                                          // iron bands and the seam between the doors
-    ctx.fillRect(x0 + 3, y0, 2.5, h); ctx.fillRect(x0 + w - 5.5, y0, 2.5, h); ctx.fillRect(x0, g.y - 1, w, 2);
-    ctx.fillStyle = '#9a9aaa'; for (const yy of [y0 + 5, g.y - 6, g.y + 5, y0 + h - 6]) { ctx.fillRect(x0 + 3.5, yy, 1.5, 1.5); ctx.fillRect(x0 + w - 5, yy, 1.5, 1.5); }
+    ctx.fillRect(x0 + 3, y0, 2.5, h); ctx.fillRect(x0 + w - 5.5, y0, 2.5, h); ctx.fillRect(x0, -1, w, 2);
+    ctx.fillStyle = '#9a9aaa'; for (const yy of [y0 + 5, -6, 5, y0 + h - 6]) { ctx.fillRect(x0 + 3.5, yy, 1.5, 1.5); ctx.fillRect(x0 + w - 5, yy, 1.5, 1.5); }
     if (k < 0.7) {                                                      // cracks as it weakens
-      ctx.strokeStyle = 'rgba(15,8,6,0.85)'; ctx.lineWidth = 1.2; const r = makeRng(g.y + 3);
+      ctx.strokeStyle = 'rgba(15,8,6,0.85)'; ctx.lineWidth = 1.2; const r = makeRng(seed + 3);
       for (let i = 0; i < (k < 0.35 ? 6 : 3); i++) { const yy = y0 + r() * h; ctx.beginPath(); ctx.moveTo(x0, yy); ctx.lineTo(x0 + w * (0.4 + r() * 0.6), yy + (r() - 0.5) * 10); ctx.stroke(); }
     }
     if (g.hitT > 0) { ctx.fillStyle = 'rgba(255,240,200,0.35)'; ctx.fillRect(x0, y0, w, h); }
-    if (k < 1) { const bw = Math.max(w + 16, 40); hpBar(ctx, x0 + w / 2 - bw / 2, y0 - 8, bw, k, '#ffb040'); }
+    ctx.restore();
+    const up = g.side === 'w' || g.side === 'e' ? g.half : w / 2;
+    if (k < 1) { const bw = 44; hpBar(ctx, g.x - bw / 2, g.y - up - 14, bw, k, '#ffb040'); }
   }
+
 
   // One squad's formation as a ghost at (p.x, p.y) facing p.face: a dot per soldier,
   // the general's banner spot, and an arrow showing which way they will face.
@@ -1482,7 +1584,7 @@ const SKILL_FX = {
     for (let i = 0; i < S.arrows; i++) {
       const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * c.rad;
       b.pending.push({ at: b.time + i * 0.08, fn: () => b.projs.push({ x: L.x, y: L.y - 6, tx: x + Math.cos(a) * r, ty: y + Math.sin(a) * r,
-        tg: null, side: q.side, gid: q.id, src: L, dmg: S.dmg * c.dk, splash: 10, img: 'arrow', speed: 300, angle: 0, quiet: true }) });
+        tg: null, side: q.side, gid: q.id, src: L, dmg: S.dmg * c.dk, splash: 10, img: 'arrow', speed: DATA.battle.missile.skill, angle: 0, quiet: true, sx: L.x, sy: L.y - 6, arc: 60, d0: Math.max(1, Math.hypot(x - L.x, y - L.y)) }) });
     }
   },
   meteor: (b, c) => {

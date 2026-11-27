@@ -317,7 +317,7 @@ const Game = {
   // Defenders fight better behind walls; the computer takes that into account.
   defensePower(spot) {
     const s = DATA.spots[spot];
-    return this.armyPower(this.generalsAt(spot), spot) * (s.walls ? 1.4 : 1) * (s.terrain === 'river' ? 1.25 : 1);
+    return this.armyPower(this.generalsAt(spot), spot) * (s.walls ? DATA.sites[s.site || 'open'].power : 1) * (s.terrain === 'river' ? 1.25 : 1);
   },
   terrainText(spot) {
     const s = DATA.spots[spot];
@@ -325,7 +325,8 @@ const Game = {
       river: 'River: wade slowly or cross at the fords', swamp: 'Swamp: mud slows units',
       snow: 'Snowfield: deep drifts slow units, frozen ponds are fast but slippery', dunes: 'Dunes: sand slows units',
       lava: 'Lava field: walk around the molten pools', crystal: 'Crystal shore: crystal pillars block the way' }[s.terrain || 'plains'];
-    return t + (s.walls ? '. Walls: defenders shelter behind them, attackers must batter down a gate' : '')
+    const site = s.walls && DATA.sites[s.site || 'open'];
+    return t + (site ? `. Walled town, ${site.name.toLowerCase()} (${site.gates} gate${site.gates > 1 ? 's' : ''}): ${site.desc}; attackers must batter a gate down` : '')
       + '. Hills give shooters extra range; forests hide troops';
   },
 

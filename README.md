@@ -13,7 +13,7 @@ Open `index.html` through any local web server (for example `python3 -m http.ser
 - `js/heraldry.js` – faction banners: random symbols in faction colours, each side with its own glow effect.
 - `js/game.js` – campaign state, turns, AI opponents, panels and dialogs.
 - `js/battle.js` – the real-time battle simulation and drawing, and the skill handlers (`SKILL_FX`).
-- `js/terrain.js` – battlefield generation: hills, forests, rivers, streams, lakes, swamps and town walls.
+- `js/terrain.js` – battlefield generation: hills, forests, rivers, streams, lakes, swamps, and walled towns with their cliffs, lakes, gates and the way round to them.
 - `js/battleui.js` – battle controls: selecting squads, orders, formations, skills, battle minimap.
 - `js/mapview.js` – draws the strategy map, scrolling, zoom and the minimap.
 - `js/assets.js` – loads images and sounds.
@@ -144,16 +144,26 @@ preview while you drag. Blocks march facing the way they go and turn to their or
 Groups move in a **formation** (Auto: frontline in front and backline behind; Line; Column; Wedge) at the
 slowest block's pace. Orders: Advance, Hold, Retreat. The ranks close up as men fall. Advancing or
 attacking frontline blocks **charge** the last stretch (`charge`: faster, a harder first blow, and a blow
-to the enemy's morale; cavalry keep their bigger charge bonus). Shooters, casters and artillery fire
-from far off (`rangeMul`, 2.4x their listed range: archers about 230 px, cannons about 360), so armies
+to the enemy's morale; cavalry keep their bigger charge bonus; a man's charge impact only counts again
+once he has been out of the fight for a few seconds). Shooters, casters and artillery fire
+from far off (`rangeMul`, 3.4x their listed range: archers about 320 px, cannons about 500), so armies
 trade volleys long before they meet; skills reach `skillRangeMul` and cover `areaMul` more ground.
 
-**Weight of battle** (`hpMul`, `atkMul`, `rangedAtkMul`, `cdMul`, `defMul`, `shockExp`): everyone is
-3x as tough, melee hits 1.3x and ranged 1.8x as hard but 1.3x less often, and armour counts 1.5x. A
-clash of two blocks now holds for a while instead of being decided in seconds, and ranged fire wears
-blocks down on the way in. Healing and skill damage grow with the extra toughness. Morale shocks per
-hit (flank, rear, charge) shrink partly with the extra hits a kill takes, so blocks still break before
-they are wiped out. Live battles' fighting lasts about twice as long as before; battles have 8 minutes.
+**Missiles** (`DATA.battle.missile`) fly slowly (arrows 150 px/s, artillery 110) in an arc with a shadow
+under them, and are not guided: each is loosed at where its target will be (leading it), scattered by
+`scatter` x the distance (artillery a little more), and hits whoever is within `hitR` of where it comes
+down. Troops on the move and loose files dodge some of them, long shots miss more, and arrows that miss
+stick in the ground. Artillery blasts hit full force where they land and half at the edge.
+
+**Weight of battle** (`hpMul`, `heroHpMul`, `atkMul`, `rangedAtkMul`, `cdMul`, `defMul`, `shockExp`): soldiers
+are 4.5x as tough (generals, already five times a soldier, 3.3x, so two lone generals do not duel for
+minutes), melee hits 1.3x and ranged 1.5x as hard but 1.3x less often, and armour counts 1.5x. A
+clash of two blocks holds for a while instead of being decided in seconds, and ranged fire wears
+blocks down on the way in (less than the longer range suggests, since slow missiles miss moving troops).
+Healing and skill damage grow with the extra toughness. Morale shocks per hit (flank, rear, charge) shrink
+partly with the extra hits a kill takes (in live battles including `menHp`), so blocks still break before
+they are wiped out, but not on first contact. A general whose men are all gone loses heart (`morale.alone`)
+and leaves the field. Open-field battles last one to two minutes; battles have 10 minutes.
 
 Each hero has **skills** paid with MP
 (Charge, Rally, Shield Wall for warriors; Volley, Eagle Eye for marksmen; Meteor, Frost Field or Mass
@@ -250,7 +260,7 @@ computer factions hire them as well. Tune it in `DATA.hiring` / `DATA.wanderers`
 
 ## Battlefield terrain
 Each town has a battlefield type (`terrain`: plains, forest, river, swamp, snow, dunes,
-lava, crystal) and optionally `walls` in `js/map.js`. The field is generated from the
+lava, crystal) and optionally `walls` and a `site` in `js/map.js`. The field is generated from the
 town's id (the same town always gives the same field) from that type's recipe in
 `FIELD_RECIPES` (`js/terrain.js`), with regional flavour (`REGION_FIELD`: Darkwood has more
 woods, the desert fewer...): hills (long dune ridges in the desert), forests, a winding
@@ -269,16 +279,32 @@ hills are drawn with light, shade and contour lines.
 - Rivers are slow to wade (and units fight badly in the water) except at fords and
   bridges; streams are shallow. Snowdrifts, dunes and mud slow units, frozen ground is
   fast but slippery, lava and rocks block the way.
-- **Walled towns** stand about 60% of the way across the field behind a thick wall with
-  towers, a raised rampart behind it (the defenders' archers shoot from high ground) and an
-  open courtyard before the houses, so defenders have room to move. Defenders get cover from
-  arrows behind the wall and +1.5 defence inside.
-- The wall has three **gates**, shut, that attackers must batter down (`DATA.battle.gate`):
-  melee hits them, artillery smashes them (4x), mages crack them, arrows barely scratch them.
+- **Walled towns** (every capital, city and town; villages are open) stand about two-thirds of the
+  way across the field: a square of thick stone walls with round towers at the corners, beside
+  every gate and along the walls, and inside a raised wall-walk (the defenders' archers shoot
+  from high ground, behind battlements: 50% cover), cobbled streets from every side to a market
+  square with the keep or church, a windmill, a crop field and houses in the region's style, with
+  roads running out from the gates and fields outside. Inside the walls defenders get +1.5
+  defence and 60% cover from missiles shot from outside (35% from artillery, which lobs its shot).
+- Each walled town has a **site** (`site` in `js/map.js`, `DATA.sites` in `js/data.js`) that sets
+  its ways in: **open ground** (a gate on every side), **ridge end** (cliffs close the far side and
+  one flank: two gates), **clifftop** (cliffs all round, one gate up a narrow ramp) or **island**
+  (a deep lake all round, one gate at the end of a causeway). Attackers march round the town (and
+  its cliffs or lake) to the gates. One-gate strongholds have tougher gatehouses (`gateHp`) and count
+  as much stronger for the computer when it weighs up an attack (`power`). `tools/genmap.py` picks
+  the site from the land: lake and crystal country puts towns on islands, mountains and snow on
+  crags, a town at the end of a single road is always a one-gate stronghold, one on two roads tends
+  to sit on a ridge end, crossroads towns stand on open ground. The strategy map shows each
+  town's wall ring, and a crag with its ramp or a lake with its causeway under it.
+- The **gates** are shut and attackers must batter them down (`DATA.battle.gate`): melee hits
+  them, artillery hits them hard (2x), mages crack them, arrows barely scratch them.
   A damaged gate cracks and shows a bar of what is left; a broken one is open for good and
-  shakes the defenders. While every gate stands, computer artillery bombards the nearest gate
-  and frontline troops with no one to fight outside the wall batter it; right-click a gate to
-  send your selected squads at it. Defenders can pass through their own gates to sally out.
+  shakes the defenders. While every gate stands, computer artillery bombards a gate and frontline
+  troops with no one to fight outside the walls batter one, spreading over the gates when there
+  are several; right-click a gate to send your selected squads at it. Computer defenders man the
+  walls beside the gates with their backline, keep their frontline just inside the gates, go for
+  anyone who gets in and return to their posts once the town is clear. Defenders can pass through
+  their own gates to sally out; routed defenders have nowhere to run and huddle in the square.
 
 Point at the ground in battle to see what it is (bottom left). Tune it in `DATA.ground`.
 

@@ -13,7 +13,7 @@ window.DATA = {
   title: 'Composite War',
 
   startGold: 150,
-  battleTimeLimit: 480,          // seconds; when time runs out the defender holds (fights are long and heavy now)
+  battleTimeLimit: 600,          // seconds; when time runs out the defender holds (fights are long and heavy, sieges longer)
 
   // --- Battles ---------------------------------------------------------------
   // The battlefield (world pixels), how far units see through the fog of war,
@@ -29,13 +29,13 @@ window.DATA = {
     vision: { soldier: 130, hero: 190, cavalry: 45, shooter: 45 },  // cavalry and shooters see further (only used with fog)
     mp: { base: 60, perLevel: 5, regen: 3, start: 0.6 },
     // Morale (0-100 per squad). Losses, hits in the flank or rear, charges and a fallen general
-    // lower it; it recovers out of contact. Below wavering the squad fights worse; below rout it
+    // lower it (and a general left with no men loses heart steadily); it recovers out of contact. Below wavering the squad fights worse; below rout it
     // flees the field (and can rally once it is safe and above rally again).
     morale: { start: 100, perLevel: 1, losses: 130, flank: 30, rear: 70, charge: 45, general: 45, nearbyRout: 12,
-      recover: 4, wavering: 60, rout: 25, rally: 50, waverAtk: 0.85 },
+      recover: 4, wavering: 60, rout: 25, rally: 50, waverAtk: 0.85, alone: 5 },     // alone: per second, for a general with no men left
     flank: { side: 1.3, rear: 1.6 },                                  // damage when hitting a block's flank or rear
     turnRate: 0.7,                                                    // radians per second a block can wheel
-    rangeMul: 2.4,               // ranged units' range: shooters, casters and artillery fire from far off
+    rangeMul: 3.4,               // ranged units' range: shooters, casters and artillery fire from far off (archers ~320 px, cannons ~500)
     skillRangeMul: 1.45,         // ground skills' reach (and Eagle Eye's range bonus)
     areaMul: 1.3,                // skill radii
     // Toughness and weight of blows in battle: everyone has hpMul times their listed hp and
@@ -45,10 +45,17 @@ window.DATA = {
     // shockExp: how far per-hit morale shocks (flank, rear, charge) shrink with the extra
     // hits a kill now takes (0: not at all, so blocks break early; 1: fully, so they fight
     // almost to the last man). Tuned so live fights last about twice as long as before.
-    hpMul: 3, atkMul: 1.3, rangedAtkMul: 1.8, cdMul: 1.3, defMul: 1.5, shockExp: 0.5,
+    // heroHpMul: the same for generals (already 5x as tough as their men), kept lower so a
+    // fight between two lone generals does not drag on once their men are gone.
+    hpMul: 4.5, heroHpMul: 3.3, atkMul: 1.3, rangedAtkMul: 1.5, cdMul: 1.3, defMul: 1.5, shockExp: 0.5,
+    // Missiles fly slowly and are not guided: each is loosed at where the target will be
+    // (leading it), scattered by `scatter` x the distance, and hits whoever is within
+    // `hitR` (hitRMen in blocks of men) of where it comes down, so troops on the move
+    // and loose files dodge some of them, and long shots miss more. speed: px per second.
+    missile: { arrow: 150, bolt: 130, artillery: 110, skill: 170, scatter: 0.05, hitR: 11, hitRMen: 6.5, lead: 0.8 },
     // Town gates are shut in a siege and must be battered down: hp (x menMul in big live
     // battles), and how hard each kind of unit hits them (artillery smashes, arrows barely scratch).
-    gate: { hp: 1400, menMul: 5, melee: 1, artillery: 4, shooter: 0.1, mage: 0.4 },
+    gate: { hp: 6000, menMul: 5, melee: 1, artillery: 2, shooter: 0.1, mage: 0.4 },
     speedMul: 1.3,               // marching pace on the big field
     spacing: 9.5,                // pixels between men in a block (ranks and files)
     squadGap: 40,                // gap between neighbouring blocks in a group formation
@@ -421,7 +428,9 @@ window.DATA = {
   // --- Battlefield ground --------------------------------------------------
   // speed: movement multiplier. cover: share of arrow/spell damage blocked.
   // footing: attack multiplier for units standing in it (default 1).
-  // behindCover: protection from arrows for units standing just behind a town wall.
+  // behindCover: protection from arrows for units on the wall-walk, behind the battlements.
+  // insideCover: protection inside the walls (houses, the walls themselves) from missiles shot
+  // from outside them; lobbedCover instead for artillery, which lobs its shot over the walls.
   // fortify: extra defence for defenders while they are inside their walls.
   ground: {
     grass:  { speed: 1,    cover: 0 },
@@ -429,7 +438,7 @@ window.DATA = {
     water:  { speed: 0.3,  cover: 0, footing: 0.6 },
     ford:   { speed: 0.8,  cover: 0, footing: 0.85 },
     mud:    { speed: 0.5,  cover: 0 },
-    wall:   { speed: 0,    cover: 0,   behindCover: 0.35, fortify: 1.5 },   // solid: go through the gate
+    wall:   { speed: 0,    cover: 0,   behindCover: 0.5, insideCover: 0.6, lobbedCover: 0.35, fortify: 1.5 },   // solid: go through the gate
     snow:   { speed: 0.55, cover: 0 },                    // deep snowdrifts
     ice:    { speed: 1.2,  cover: 0, footing: 0.8 },      // fast but slippery
     sand:   { speed: 0.6,  cover: 0 },                    // dunes
@@ -438,6 +447,20 @@ window.DATA = {
     stream: { speed: 0.7,  cover: 0, footing: 0.85 },     // thin shallow streams
     bridge: { speed: 1,    cover: 0 },                    // bridges and causeways over rivers
     gate:   { speed: 0,    cover: 0 },                    // a town gate: shut until battered down (defenders pass through their own)
+    cliff:  { speed: 0,    cover: 0 },                    // the cliffs round a crag or ridge town: solid
+    deep:   { speed: 0,    cover: 0 },                    // the deep lake round an island town: solid
+  },
+
+  // --- Walled towns ---------------------------------------------------------
+  // A walled town (walls: true in js/map.js) stands on a site (site: in js/map.js) that
+  // sets how many ways in it has. power: how much stronger its defenders count for the
+  // computer when it weighs up an attack. gateHp: its gates are this much tougher (a one-gate
+  // stronghold has a heavy gatehouse).
+  sites: {
+    open: { name: 'Open ground', gates: 4, power: 1.4, gateHp: 1, desc: 'Walls on every side, a gate in each: the attackers can choose where to strike' },
+    hill: { name: 'Ridge end',   gates: 2, power: 1.6, gateHp: 1.2, desc: 'On the end of a ridge: cliffs close two sides, leaving two gates to attack' },
+    crag: { name: 'Clifftop',    gates: 1, power: 2.0, gateHp: 1.6, desc: 'On a cliff-girt crag: one gate at the top of a narrow ramp, under the defenders\' arrows' },
+    lake: { name: 'Island',      gates: 1, power: 2.0, gateHp: 1.6, desc: 'On an island in a lake: one gate at the end of a long causeway' },
   },
 };
 
