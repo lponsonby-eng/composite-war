@@ -147,6 +147,15 @@ of their death on the field. Who looks like whom: `Chars.UNITS`, `Chars.HEROES` 
 kings) and `Chars.MONSTER_GENERALS`. Portraits are a close-up of the same character. Cavalry, artillery and a few
 beasts keep their generated look.
 
+## Town walls
+Battle-town walls are pixel art drawn on the art grid by `js/walls.js` (`WallArt`), after a hand-painted castle
+tileset: blue-grey coursed bricks lit along their tops with dark mortar, flagstone wall-walks between parapets,
+crenellations on the outer edge, arrow slits, moss creeping up from the foot and ivy hanging from the top, round
+towers (corners, both sides of each gate, along long runs) with a crenellated rim and a flagged floor, oak gate
+doors with iron bands, studs and ring handles that split as they are battered (and lie as splintered planks once
+broken), and flagstone gateways. Streets and the market square are set stones. Everything is seeded by the town,
+so it always looks the same.
+
 ## Buildings from free packs
 Towns on the map, houses inside battle towns and four landmarks are drawn from free building packs (Devs in
 Exile, Pixel-Deck, MutterPixel Studio; see `assets/buildings/CREDITS.md`). `tools/sprites/buildings.py` picks each
