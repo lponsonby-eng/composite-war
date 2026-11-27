@@ -15,7 +15,7 @@
 //  Skills are handlers in SKILL_FX (below the class) and can use the squad-level
 //  helpers (squadUnits, putSquad, teleportSquad, push, buffSquad) to build new ones.
 // =============================================================================
-const UNIT_SIZE = { soldier: 22, leader: 25 };   // battle sprites are 16 px, drawn this big
+const UNIT_SIZE = { soldier: 22, leader: 28 };   // battle sprites (32 px figures) are drawn this big; generals stand taller than their men
 
 class Battle {
   constructor(opts) {
@@ -1397,13 +1397,14 @@ class Battle {
       const moving = u.moving && u.atkT <= 0;
       const frame = Math.floor(u.walkT * 8) % 4;
       const alpha = u.routing ? 0.5 : u.hitT > 0 ? 0.55 : u.hidden && u.side === this.playerSide ? 0.7 : 1;   // own troops hidden in woods: see-through
-      // drawn larger than on the map (22 px, generals 25 px), outlined in their side's colour
+      // drawn larger than on the map (22 px, generals 28 px), outlined in their side's colour
       const size = u.isLeader ? UNIT_SIZE.leader : UNIT_SIZE.soldier, top = u.y + 2 - size;
       if (!u.spriteO) u.spriteO = Assets.outlined(u.sprite, DATA.factions[this.factions[u.side]].neutral ? '#ffffff' : colors[u.side]);   // neutral troops: white
       Assets.drawUnit(ctx, u.spriteO, u.dir, moving ? frame : 0, u.atkT > 0, u.x - size / 2, top, alpha, size);
       if (u.isLeader) {
-        hpBar(ctx, u.x - 9, top - 3, 18, u.hp / u.maxHp, '#ffd84a');
-        if (u.side === this.playerSide) hpBar(ctx, u.x - 9, top - 1, 18, u.sq.mp / u.sq.maxMp, '#6fb6ff');
+        const im = Assets.img[u.sprite], over = im && im.fh ? (im.fh - 32 - (im.pad || 0)) * size / 32 : 0;   // above the plume
+        hpBar(ctx, u.x - 9, top - over - 3, 18, u.hp / u.maxHp, '#ffd84a');
+        if (u.side === this.playerSide) hpBar(ctx, u.x - 9, top - over - 1, 18, u.sq.mp / u.sq.maxMp, '#6fb6ff');
       } else if (u.hp < u.maxHp && this.men === 1) {                  // big battles: no bars over every man
         hpBar(ctx, u.x - 6, top - 2, 12, u.hp / u.maxHp, u.side === 0 ? '#7cf07c' : '#ff7a6a');
       }

@@ -114,6 +114,11 @@ const Gen = {
     const list = this.ARCHETYPES[t] || this.ARCHETYPES.warrior;
     return list[PixelGen.hashSeed('arch:' + gid) % list.length];
   },
+  commanderOpts(gid) {
+    const d = DATA.generals[gid], cls = DATA.classOf(gid), t = (DATA.units[d.leads] || {}).type;
+    return { seed: 1 + (PixelGen.hashSeed('hero:' + gid) % 99991), faction: d.faction && DATA.factions[d.faction] ? d.faction : 'neutral',
+      role: cls === 'marksman' ? 'marksman' : cls === 'mage' ? (t === 'healer' ? 'healer' : 'mage') : 'warrior', lord: d.lord ? 'yes' : 'no' };
+  },
   heroOpts(gid) { return { seed: 1 + (PixelGen.hashSeed('hero:' + gid) % 99991), hero: this.heroArchetype(gid) }; },
 
   // Key of a general's hero sheet (monster generals: their creature as a general), or null.
@@ -130,7 +135,11 @@ const Gen = {
       }
       return key;
     }
-    if (!Assets.img[key]) Assets.img[key] = this.canvas(PixelGen.generate('champion', this.heroOpts(gid)).img, 40, 48, 2, 5);
+    if (!Assets.img[key]) {
+      // generals: commanders in their army's style, made grand (plumed helm or hat, cape, gilt; lords crowned)
+      const res = PixelGen.GENERATORS.commander ? PixelGen.generate('commander', this.commanderOpts(gid)) : PixelGen.generate('champion', this.heroOpts(gid));
+      Assets.img[key] = this.canvas(res.img, 40, 48, 2, 5);
+    }
     return key;
   },
   // A portrait canvas (64 x 64) in one of three moods, or null.

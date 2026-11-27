@@ -173,12 +173,21 @@
     outline(c, diag) { const ox = this.ox, oy = this.oy; this.ox = this.oy = 0; super.outline(c, diag); this.ox = ox; this.oy = oy; return this; }
   }
 
+  // A grid drawn in shifted coordinates that, unlike OffsetGrid, checks its bounds after the
+  // shift only once (OffsetGrid clips the last ox columns and oy rows; the older generators
+  // only paint small extras on it, so they keep it as it is).
+  class ShiftGrid extends Grid {
+    constructor(w, h, ox, oy) { super(w, h); this.ox = ox; this.oy = oy; }
+    get(x, y) { return super.get(Math.round(x) + this.ox, Math.round(y) + this.oy); }
+    set(x, y, c, a) { return super.set(Math.round(x) + this.ox, Math.round(y) + this.oy, c, a); }
+    filled(x, y) { return (this.get(x, y) & 255) > 0; }
+  }
   // Paints parts back to front onto a grid. Each part is lit from the top-left: its
   // top/left edges get the lighter step, right/bottom edges the darker one, and
   // `spec` parts (plate, blades) get a white glint on their top-left corners.
   // `sep` draws a dark line where the part overlaps parts painted before it.
   class Painter {
-    constructor(w, h, ox = 0, oy = 0) { this.g = ox || oy ? new OffsetGrid(w, h, ox, oy) : new Grid(w, h); this.id = new Int16Array(w * h); this.n = 0; this.w = w; this.h = h; this.ox = ox; this.oy = oy; }
+    constructor(w, h, ox = 0, oy = 0, shift = false) { this.g = ox || oy ? (shift ? new ShiftGrid(w, h, ox, oy) : new OffsetGrid(w, h, ox, oy)) : new Grid(w, h); this.id = new Int16Array(w * h); this.n = 0; this.w = w; this.h = h; this.ox = ox; this.oy = oy; }
     mask() { return new Mask(this.w, this.h, this.ox, this.oy); }
     idx(x, y) { x += this.ox; y += this.oy; return x >= 0 && y >= 0 && x < this.w && y < this.h ? y * this.w + x : -1; }
     part(m, rampOrFn, o = {}) {
@@ -580,8 +589,8 @@
   const LONG = ['spear', 'halberd', 'poleaxe', 'bill', 'staff'];
 
   // One 32 x 40 frame of a foot soldier. dir: 0 front, 1 back, 2 side (facing left).
-  function footFrame(g, dir, pose, step) {
-    const P = new Painter(32, 40);
+  // P: the canvas to paint on (commanders use a bigger one, offset so the body sits the same).
+  function footFrame(g, dir, pose, step, P = new Painter(32, 40)) {
     const K = kitOf(g);
     const atk = pose === 'attack';
     const b = pose === 'walk' && step % 2 === 1 ? -1 : 0;           // the body rises between steps
@@ -595,6 +604,14 @@
       : K.coat === 'tunic' ? () => g.drab : K.coat === 'jack' ? () => mixRamp(g.liv, LEATHER) : () => g.liv;
     const coatOpts = K.coat === 'gambeson' || K.coat === 'jack' ? { tex: quiltTex } : {};
 
+    const Gr = g.grand;                                                // a commander's finery (see commanderGenome)
+    // a commander's cape, seen behind the shoulders and legs from the front
+    if (Gr && Gr.cape && !back) {
+      const sw = [0, 1, 0, -1][step] || 0;
+      const cm = P.mask().poly([[9, 13.5 + b], [23, 13.5 + b], [26.5 + sw, 35], [5.5 + sw, 35]]);
+      P.part(cm, Gr.cape, { base: 1, flat: true, shade: (x, y) => (x < 9 || x > 23 ? -1 : 0) });
+      cm.each((x, y) => { if (!cm.has(x, y + 1) || !cm.has(x - 1, y) || !cm.has(x + 1, y)) P.g.set(x, y, Gr.lining[y > 33 ? 2 : 3]); });
+    }
     // a quiver on the back (seen over the shoulder from the front)
     if (K.quiver && !back) {
       P.part(P.mask().rect(21, 9 + b, 23, 15 + b), LEATHER, { base: 1 });
@@ -633,16 +650,35 @@
     }
     if (!K.robe) P.part(P.mask().rect(11, 22 + b, 21, 22 + b), K.coat === 'surcoat' ? g.livMetal : LEATHER, { flat: true, base: 1 });   // belt
     if (K.coat === 'surcoat' || K.coat === 'tabard') P.g.set(16, 22 + b, g.livMetal[4]);                  // buckle
+    if (Gr) {                                                          // gold trim: belt, the coat's hem, a chain or sash
+      for (let x = 11; x <= 21; x++) P.g.set(x, 22 + b, Gr.trim[x === 16 ? 4 : (x % 2 ? 3 : 2)]);
+      if (!K.robe && K.coat !== 'brigandine') skirt.each((x, y) => { if (!skirt.has(x, y + 1)) P.g.set(x, y, Gr.trim[(x % 2) + 2]); });
+      if (K.robe) skirt.each((x, y) => { if (!skirt.has(x, y + 1) || Math.abs(x - 16) === 2) P.g.set(x, y, Gr.trim[(y % 2) + 2]); });
+      if (!back) for (let i = 0; i <= 7; i++) P.g.set(Math.round(11.5 + i * 1.2), Math.round(15 + b + i * 0.95), Gr.trim[i % 2 ? 2 : 3]);   // a baldric
+    }
     // arms: upper arm and forearm with a bend at the elbow; pauldrons on plate
     const armAtk = atk && !back;
     const L1 = [9.5, 15.5 + b], L2 = [8.6 - swing * 0.4, 20.5 + b], L3 = [9.2 - swing * 0.7, 25 + b];
     const R1 = [22.5, 15.5 + b], R2 = armAtk ? [24.5, 11 + b] : [23.4 + swing * 0.4, 20.5 + b], R3 = armAtk ? [25, 7.5 + b] : [23 + swing * 0.7, 25 + b];
     for (const [a, c] of [[L1, L2], [L2, L3], [R1, R2], [R2, R3]]) P.part(P.mask().capsule(a[0], a[1], c[0], c[1], 3.8), K.arm, Object.assign({ sep: true }, K.armOpts));
     if (K.plate) for (const [x, y] of [L2, R2]) P.part(P.mask().ellipse(x, y, 1.6, 1.3), STEEL, { spec: true, sep: true });   // couters
-    if (K.plate || K.coat === 'tabard') for (const x of [9.5, 22.5]) P.part(P.mask().ellipse(x, 14.5 + b, 3.4, 2.6), STEEL, { spec: true, sep: true });
+    if (K.plate || K.coat === 'tabard') for (const x of [9.5, 22.5]) {
+      const pm = P.mask().ellipse(x, 14.5 + b, Gr ? 3.8 : 3.4, Gr ? 2.9 : 2.6);
+      P.part(pm, STEEL, { spec: true, sep: true });
+      if (Gr) pm.each((px, py) => { if (!pm.has(px, py + 1) || !pm.has(px + (x < 16 ? -1 : 1), py)) P.g.set(px, py, Gr.trim[2 + ((px + py) % 2)]); });   // gilded edges
+    }
     else if (K.coat === 'gambeson' || K.coat === 'jack') for (const x of [10, 22]) P.part(P.mask().ellipse(x, 14.5 + b, 2.6, 2), K.coat === 'jack' ? LEATHER : g.liv, { sep: true });
     P.part(P.mask().ellipse(L3[0], L3[1] + 1, 1.7, 1.5), K.hand, { sep: true });
+    // a commander's cape over the back, seen from behind
+    if (Gr && Gr.cape && back) {
+      const sw = [0, 1, 0, -1][step] || 0;
+      const cm = P.mask().poly([[9.5, 13 + b], [22.5, 13 + b], [25 + sw, 35.5], [7 + sw, 35.5]]);
+      P.part(cm, Gr.cape, { base: 2, flat: true, shade: (x, y) => ((x - sw) % 4 === 0 ? -1 : (x - sw) % 4 === 1 ? 1 : 0), sep: true });
+      cm.each((x, y) => { if (!cm.has(x, y + 1)) P.g.set(x, y, Gr.lining[3]); if (cm.has(x, y + 1) && !cm.has(x, y + 2)) P.g.set(x, y, Gr.trim[3]); });
+      if (Gr.ermine) for (let x = 10; x <= 22; x++) { P.g.set(x, 13 + b, '#f2eee4'); P.g.set(x, 14 + b, x % 3 ? '#e4ded2' : '#1a1820'); }
+    }
     footHead(g, P, 16, 8 + b, back);
+    if (Gr) commanderCrest(g, P, 16, 8 + b, back ? 'back' : 'front', step);
     // shield on the viewer's left, held across the arm: a smaller heater with a dark rim
     if (g.shield) {
       const sm = heaterMask(P.mask(), 3, 16 + b, 11, 14);
@@ -690,6 +726,13 @@
     P.part(P.mask().ellipse(fh[0], fh[1], 1.6, 1.5), K.hand, { base: 1 });
     if (!K.robe) leg(st, false);
     else P.part(P.mask().rect(15 + st, 35.5, 18 + st, 37), LEATHER, { base: 0 });
+    const Gr = g.grand;
+    if (Gr && Gr.cape) {                                               // the cape streams out behind
+      const fl = pose === 'walk' ? [1, 0, 1, 2][step] : 2;
+      const cm = P.mask().poly([[16.5, 13 + b], [20, 13 + b], [23.5 + fl, 26], [24.5 + fl, 34.5], [17.5, 35]]);
+      P.part(cm, Gr.cape, { base: 1, sep: true });
+      cm.each((x, y) => { if (!cm.has(x, y + 1) || !cm.has(x + 1, y)) P.g.set(x, y, Gr.lining[3]); });
+    }
     // body: chest forward (to the left), a straight back
     const torso = P.mask().poly([[12.5, 13.5 + b], [19, 13.5 + b], [19.5, 18 + b], [18.5, 23 + b], [13.5, 23 + b], [12, 18 + b]]);
     const hem = K.hem, robe = K.robe;
@@ -728,8 +771,16 @@
       case 'kettle': { const m = P.mask().ellipse(15.5, cy - 2.5, 3.6, 3); m.rect(10, cy - 1, 21, cy - 1); P.part(m, STEEL, steel); break; }
       case 'coif': case 'hood': { const m = P.mask().ellipse(15.8, cy, 4.4, 5); m.rect(14, cy + 3, 19, cy + 5); m.each((x, y) => { if (x <= 14 && y >= cy - 2 && y <= cy + 3) m.del(x, y); }); P.part(m, g.helm === 'coif' ? STEEL : g.liv, g.helm === 'coif' ? { tex: mailTex, base: 1, sep: true } : { sep: true }); break; }
       case 'cap': { const m = P.mask().ellipse(15.8, cy - 2.6, 4.1, 2.4); P.part(m, g.drab, { sep: true }); break; }
+      case 'hat': {
+        P.part(P.mask().ellipse(15.5, cy - 1.8, 6.6, 1.5), g.hatRamp, { sep: true, base: 1 });
+        P.part(P.mask().ellipse(16, cy - 4, 3.6, 2.8).rect(13, cy - 3, 19, cy - 2), g.hatRamp, { sep: true });
+        for (let x = 13; x <= 19; x++) P.g.set(x, cy - 2, GOLD[x % 2 ? 3 : 2]);
+        break;
+      }
+      case 'circlet': { for (let x = 12; x <= 19; x++) P.g.set(x, cy - 2, GOLD[x % 2 ? 3 : 2]); P.g.set(12, cy - 3, '#40b0e0'); break; }
     }
-    if (g.plume && (g.helm === 'greathelm' || g.helm === 'bascinet' || g.helm === 'sallet')) P.part(P.mask().capsule(16, cy - 5, 19, cy - 8, 2.2).capsule(19, cy - 8, 21, cy - 7, 1.8), tRamp(g.arms.A), { sep: true });
+    if (g.plume && !Gr && (g.helm === 'greathelm' || g.helm === 'bascinet' || g.helm === 'sallet')) P.part(P.mask().capsule(16, cy - 5, 19, cy - 8, 2.2).capsule(19, cy - 8, 21, cy - 7, 1.8), tRamp(g.arms.A), { sep: true });
+    if (Gr) commanderCrest(g, P, 15.5, cy, 'side', step);
     // near side: pauldron, the shield arm, and the shield showing its arms (or the bow)
     if (K.plate || K.coat === 'tabard') P.part(P.mask().ellipse(15.5, 15 + b, 3, 2.4), STEEL, { spec: true, sep: true });
     const nh = atk && g.weapon === 'longbow' ? [8, 18 + b] : [13 - st * 0.3, 22.5 + b];
@@ -823,13 +874,96 @@
         P.part(m, g.drab, { sep: true });
         break;
       }
+      case 'hat': {                                           // a commander's wide-brimmed hat with a gold band
+        P.part(P.mask().ellipse(cx, cy - 1.8, 6.8, 1.6), g.hatRamp, { sep: true, base: 1 });
+        P.part(P.mask().ellipse(cx, cy - 4, 3.9, 2.8).rect(cx - 3.5, cy - 3, cx + 3.5, cy - 2), g.hatRamp, { sep: true });
+        for (let x = cx - 3; x <= cx + 3; x++) P.g.set(x, cy - 2, GOLD[x === cx ? 4 : 2]);
+        break;
+      }
+      case 'circlet': {                                       // a gold circlet with a jewel
+        for (let x = cx - 4; x <= cx + 4; x++) P.g.set(x, cy - 2 - (Math.abs(x - cx) > 2 ? 0 : 1) * 0, GOLD[x % 2 ? 3 : 2]);
+        if (!back) P.g.set(cx, cy - 3, '#40b0e0').set(cx, cy - 2, '#2070b0');
+        break;
+      }
     }
-    if (g.plume && (g.helm === 'greathelm' || g.helm === 'bascinet' || g.helm === 'sallet'))
+    if (g.plume && !g.grand && (g.helm === 'greathelm' || g.helm === 'bascinet' || g.helm === 'sallet'))
       P.part(P.mask().capsule(cx, cy - 5, cx + 3, cy - 8, 2.2).capsule(cx + 3, cy - 8, cx + 6, cy - 7, 1.8), tRamp(g.arms.A), { sep: true });
   }
 
   // A ramp halfway between two others (a leather jack dyed in the livery).
   function mixRamp(a, c) { return a.map((x, i) => mix(x, c[i], 0.55)); }
+
+
+  // ================================================================ COMMANDERS (generals)
+  // Generals in the foot soldiers' style, made grander: a tall plume of feathers in the
+  // army's colours on the helm (or a plumed hat, or a circlet), a cape with a gilded hem,
+  // gilded pauldron edges, belt and hem, and a baldric; faction lords wear a crown and an
+  // ermine collar. Warriors are in plate with a visored helm and shield, marksmen in a
+  // brigandine and plumed hat with bow or crossbow, mages and healers in trimmed robes
+  // with a circlet and a staff. Drawn 40 x 48 (the body sits as a soldier's, with room
+  // above for the plume and at the sides for the cape) so heroes stand taller in a block.
+  const GOLD = tone('#d8a838');
+  function commanderGenome(o) {
+    const r = R.make(o.seed, 'commander');
+    const role = ['warrior', 'marksman', 'mage', 'healer'].includes(o.role) ? o.role : 'warrior';
+    const lord = o.lord === 'yes';
+    const troop = role === 'warrior' ? 'knight' : role === 'marksman' ? 'crossbow' : 'archer';
+    const g = soldierGenome({ seed: o.seed, faction: o.faction, troop, robe: role === 'mage' || role === 'healer' ? 'yes' : 'no',
+      weapon: role === 'warrior' ? r.pick(['sword', 'sword', 'mace', 'axe']) : role === 'marksman' ? r.pick(['longbow', 'crossbow']) : 'staff',
+      helm: 'none' });
+    if (role === 'marksman') g.body = 'plateMail';
+    g.helm = role === 'warrior' ? r.pick(['greathelm', 'bascinet', 'sallet', 'greathelm']) : role === 'marksman' ? 'hat' : 'circlet';
+    if (lord && role === 'warrior') g.helm = r.pick(['greathelm', 'sallet']);
+    g.shield = role === 'warrior' && r.chance(0.8);
+    g.beard = r.pick(['full', 'moustache', 'none', 'full']);
+    const metal = g.arms.A === 'or' || g.arms.B === 'or' || r.chance(0.6) ? GOLD : tRamp('argent');
+    g.grand = {
+      cape: tone(mix(TINCT[METALS.includes(g.arms.A) ? g.arms.B : g.arms.A], '#2a1830', 0.25)),
+      lining: lord ? tone('#e8e2d4') : metal,
+      trim: metal,
+      plume: [tRamp(METALS.includes(g.arms.A) ? g.arms.B : g.arms.A), tone('#f0ece4')],
+      crown: lord, ermine: lord, role,
+    };
+    if (g.helm === 'hat') g.hatRamp = tone(mix(g.liv[2], '#2a2030', 0.45));
+    return g;
+  }
+  // The plume (and a lord's crown) above the head; view: front, back or side (facing left).
+  function commanderCrest(g, P, cx, cy, view, step) {
+    const Gr = g.grand, sw = [0, 1, 0, -1][step] || 0, side = view === 'side';
+    const top = g.helm === 'hat' ? cy - 5 : g.helm === 'circlet' ? null : cy - 5;
+    if (Gr.crown) {                                                    // a gold crown over the helm
+      const y = g.helm === 'hat' ? cy - 6 : cy - 5;
+      const cm = P.mask().rect(cx - 3.5, y, cx + 3.5, y + 1);
+      for (const dx of side ? [-3, 0, 3] : [-3, 0, 3]) cm.rect(cx + dx, y - 2, cx + dx, y - 1);
+      P.part(cm, GOLD, { spec: true, sep: true, flat: true, base: 3 });
+      P.g.set(Math.round(cx), y, '#c83040').set(Math.round(cx) - 2, y + 1, '#3060c8').set(Math.round(cx) + 2, y + 1, '#3060c8');
+    }
+    if (top == null) return;                                           // circlets wear no plume
+    const y0 = top - (Gr.crown ? 2 : 0);
+    // feathers: the long one in the army's colour, a shorter white one beside it
+    const curve = side ? [[cx + 0.5, y0], [cx + 2, y0 - 4], [cx + 5, y0 - 5.5 - sw * 0.3], [cx + 8, y0 - 4.5], [cx + 9.5 + sw * 0.5, y0 - 1.5]]
+      : [[cx, y0], [cx + 0.5, y0 - 4], [cx + 2.5, y0 - 7], [cx + 5.5 + sw * 0.5, y0 - 7.5], [cx + 7.5 + sw, y0 - 5.5]];
+    const m1 = P.mask(), m2 = P.mask();
+    for (let i = 0; i + 1 < curve.length; i++) {
+      const w = 3.4 - i * 0.5;
+      m1.capsule(curve[i][0], curve[i][1], curve[i + 1][0], curve[i + 1][1], w);
+      if (i < 3) m2.capsule(curve[i][0] - 1.5, curve[i][1] + 0.5, curve[i + 1][0] - 1.8, curve[i + 1][1] + 1.2, w - 1.2);
+    }
+    P.part(m2, Gr.plume[1], { sep: true, base: 2 });
+    P.part(m1, Gr.plume[0], { sep: true, base: 2, tex: (x, y) => ((x + y) % 3 === 0 ? 1 : 0) });
+    P.part(P.mask().ellipse(curve[0][0], curve[0][1] + 0.5, 1.4, 1.1), Gr.trim, { spec: true });   // the plume holder
+  }
+  function genCommander(o) {
+    const g = commanderGenome(o);
+    const sheet = new Grid(160, 288);
+    for (let row = 0; row < 6; row++) for (let col = 0; col < 4; col++) {
+      const pose = row >= 4 ? 'attack' : 'walk';
+      const P = new Painter(40, 48, 4, 8, true);
+      const fr = col === 3 ? footFrame(g, 2, pose, row, P).flipX() : footFrame(g, col, pose, row, P);
+      sheet.blit(fr, col * 40, row * 48);
+    }
+    return { img: sheet, anim: { fw: 40, fh: 48, fps: 6, tracks: [0, 1, 2, 3].map(c => [0, 1, 2, 3].map(r => ({ x: c * 40, y: r * 48 }))), labels: ['front', 'back', 'left', 'right'] }, name: `commander-${g.grand.role}`, info: g };
+  }
 
   // A fallen soldier: the front frame laid on its side over a pool of blood.
   function corpse(g, seed, flip) {
@@ -1863,6 +1997,7 @@
 
   Object.assign(PG.GENERATORS, {
     arms:    { group: 'Medieval 32px', fn: genArms,    label: 'Coat of arms', size: '32 x 36', options: { own: ['no', 'yes'] } },
+    commander: { group: 'Medieval 32px', fn: genCommander, label: 'General (commander) sheet', size: '40 x 48 frames', options: { role: ['warrior', 'marksman', 'mage', 'healer'], lord: ['no', 'yes'] } },
     soldier: { group: 'Medieval 32px', fn: genSoldier, label: 'Soldier sheet', size: '32 x 40 frames', options: { troop: ['random', ...Object.keys(TROOPS)], robe: ['no', 'yes'], weapon: ['random', 'sword', 'mace', 'axe', 'spear', 'halberd', 'poleaxe', 'bill', 'longbow', 'crossbow', 'staff'], helm: ['random', 'none', 'greathelm', 'bascinet', 'sallet', 'kettle', 'coif', 'hood', 'cap'] } },
     champion: { group: 'Medieval 32px', fn: genHero32, label: 'Hero sheet', size: '40 x 48 frames', options: { hero: ['random', ...Object.keys(HEROES)], weapon: ['random', ...Object.keys(HERO_WEAPONS).filter(k => k !== 'dagger'), 'tome', 'longbow', 'daggers'], palette: ['own', 'faction'], aura: ['on', 'off'] } },
     heroface: { group: 'Medieval 32px', fn: genHeroPortrait, label: 'Hero portrait', size: '64 x 64 x 3 moods', options: { hero: ['random', ...Object.keys(HEROES)], weapon: ['random', ...Object.keys(HERO_WEAPONS).filter(k => k !== 'dagger'), 'tome', 'longbow', 'daggers'], palette: ['own', 'faction'] } },
@@ -1874,5 +2009,5 @@
   PG.medieval = { rollArms, blazon, TINCT,
     // drawing kit for add-on sets (creatures.js)
     Painter, Mask, Grid, INK, STEEL, LEATHER, WOODR, BLOOD, BONER, GOLDR, FUR, STRAW, mailTex, quiltTex,
-    soldierGenome, soldierFrame, footFrame, tone, drawWeapon, drawHeroWeapon, HERO_WEAPONS, corpse, heaterMask, tRamp, MOUNTS };
+    soldierGenome, soldierFrame, footFrame, tone, commanderGenome, drawWeapon, drawHeroWeapon, HERO_WEAPONS, corpse, heaterMask, tRamp, MOUNTS };
 })(typeof window !== 'undefined' ? window : globalThis);
