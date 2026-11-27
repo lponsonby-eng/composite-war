@@ -131,7 +131,9 @@ field is in view (set `DATA.battle.fog` to bring back fog of war). Each campaign
 the field as 5 men (`DATA.battle.men`), so a 16-soldier squad is an 80-man block in ranks behind
 its general and banner; afterwards the survivors are turned back into soldiers. Auto-resolved
 battles run the same rules with 1 man per soldier, so they stay fast and give the same results.
-Every block also has a fixed-size **marker** (troop-type symbol, troops left, strength and
+Men in a block stand far enough apart that each one can be seen (`spacing`, and `spacingY` more up and
+down the screen, as the figures are tall and narrow); auto-resolved battles, where nothing is drawn, keep
+the tighter spacing (`spacingAuto`) they were balanced with. Every block also has a fixed-size **marker** (troop-type symbol, troops left, strength and
 morale bars) that stays readable at any zoom; click it to select the block.
 
 **Morale** decides most fights. Every block has morale (shown under its portrait as Steady, Wavering or
