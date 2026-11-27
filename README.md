@@ -144,8 +144,9 @@ writes `assets/sprites/catalog.json`. In the game (`js/chars.js`) each character
 fields it (cloth takes the faction's hue, muted; skin, steel and a monster's own colours are kept) and snapped to the
 palette; units play their real animations (run, attack, hurt, idle; mirrored to face left) and leave the last frame
 of their death on the field. Who looks like whom: `Chars.UNITS`, `Chars.HEROES` (generals by class; lords are
-kings) and `Chars.MONSTER_GENERALS`. Portraits are a close-up of the same character. Cavalry, artillery and a few
-beasts keep their generated look.
+kings) and `Chars.MONSTER_GENERALS`. Portraits are a close-up of the same character. Cavalry (a horse and rider by Admurin; a camel
+rider by Othur), beasts (a yeti, a dire bear, a hawk, a boar, a beetle soldier, a giant crab) and siege engines
+(a cannon and a catapult) come from a second round of free packs, imported the same way.
 
 ## Town walls
 Battle-town walls are pixel art drawn on the art grid by `js/walls.js` (`WallArt`), after a hand-painted castle

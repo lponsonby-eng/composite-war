@@ -9,7 +9,7 @@ facing right, trimmed to the character's own box with the feet on the same row i
 frame. Characters much taller than the game's figures are halved. Colours stay as the
 artists made them: the game recolours them per faction and to its palette when loading.
 
-Sources (thank you!):
+Sources (thank you!) - more in assets/sprites/CREDITS.md:
   LuizMelo   https://luizmelo.itch.io   CC0 (public domain)
   Sven Thole https://sventhole.itch.io  free for any game, commercial or not (not for resale as assets)
 """
@@ -61,6 +61,82 @@ STILLS = {
 }
 ORDER = ['idle', 'run', 'attack', 'hurt', 'death']
 
+# ---- packs laid out their own way: each loader returns {anim: [frames]} (facing right)
+def grid(path, fw, fh, n=None, row=None):
+    im = Image.open(path).convert('RGBA'); cols, rows = im.width // fw, im.height // fh
+    cells = [(c, r) for r in range(rows) for c in range(cols)] if row is None else [(c, row) for c in range(cols)]
+    out = [im.crop((c * fw, r * fh, c * fw + fw, r * fh + fh)) for c, r in cells]
+    out = [f for f in out if f.getchannel('A').getbbox()]
+    return out[:n] if n else out
+def flip(frames): return [f.transpose(Image.FLIP_LEFT_RIGHT) for f in frames]
+def over(a, b): return [Image.alpha_composite(x, y) for x, y in zip(a, b)]
+def strip(path, fw): im = Image.open(path).convert('RGBA'); return [im.crop((i * fw, 0, i * fw + fw, im.height)) for i in range(im.width // fw)]
+def folder(path): return [Image.open(p).convert('RGBA') for p in sorted(glob.glob(os.path.join(path, '*.png')))]
+def down(frames, k):
+    return [f.resize((f.width // k, f.height // k), Image.NEAREST) for f in frames]
+
+def ad_rider(root):                     # Admurin: horse and rider drawn separately on the same 64 px grid (facing left)
+    H = root + '/admurin--pixel-character-horse-rider/x/PixelHorse_V1.0/Horse I/Horse Black/64x64_Atlas_Horse_{}.png'
+    R = root + '/admurin--pixel-character-horse-rider/x/PixelHorse_V1.0/Rider/Rider Complete/64x64_Atlas_HorseRider_Mount{}.png'
+    a = lambda k: flip(over(grid(H.format(k), 64, 64), grid(R.format(k), 64, 64)))
+    return {'idle': a('Idle'), 'run': a('Run'), 'attack': a('Raise'), 'hurt': a('Stop'), 'death': a('Stop')[-1:]}
+def ot_camel(root):                     # Othur: 128 px, a row per direction (row 14 faces right)
+    W = root + '/othur--camel-rider-sprite-128x128/x/128x128_{}-loop.png'
+    w = [half(f) for f in grid(W.format('walk'), 128, 128, row=14)]
+    r = [half(f) for f in grid(W.format('run'), 128, 128, row=14)]
+    return {'idle': w[:1], 'run': w, 'attack': r, 'hurt': w[:1]}
+def pr_yeti(root):
+    Y = root + '/pixelrazastudio--yeti-asset-pack/x/YETI ASSET PACK(FREE)/Yeti-{}.png'
+    g = lambda k, fw: [half(f) for f in strip(Y.format(k), fw)]
+    return {'idle': g('Idle-192x192', 192), 'run': g('walk-278x192', 278), 'attack': g('attack-1-256x192', 256), 'hurt': g('damage-192x192', 192), 'death': g('dead-192x192', 192)}
+def bestiary(name, sz):
+    def f(root):
+        B = root + '/michelclauwaertgmailcom--pixel-bestiary-beasts-animated-side-view-monsters-free/x/PixelBestiaryBeasts/'
+        pick = lambda k: next(iter(sorted(glob.glob(B + f'*/{name}_{k}_{sz}_*.png'))), None)
+        out = {}
+        for anim, keys in [('idle', ['idle']), ('run', ['run', 'walk', 'fly', 'slither']), ('attack', ['attack', 'maul']), ('hurt', ['hurt']), ('death', ['death'])]:
+            for k in keys:
+                p = pick(k)
+                if p: out[anim] = strip(p, sz); break
+        return out
+    return f
+def tw_beast(name):
+    def f(root):
+        B = glob.glob(root + f'/twizzydoesntcode--free-pixel-art-{name}-*/x/{name.title()}')[0]
+        g = lambda k: [half(half(x)) for x in folder(os.path.join(B, k, 'frames'))]
+        idle = g('idle')
+        return {'idle': idle, 'run': idle, 'attack': g('attack'), 'death': g('death')}
+    return f
+def el_crab(root):                      # Elthen: 4 x 4 of 32 px; rows idle, walk, attack, death
+    rows = [grid(root + '/elthen--2d-pixel-art-crab-sprites/x/upload_3764527.png', 32, 32, row=r) for r in range(4)]
+    up = lambda fr: [f.resize((f.width * 2, f.height * 2), Image.NEAREST) for f in fr]   # a small crab: shown at 2x as a giant one
+    return {'idle': up(rows[0]), 'run': up(rows[1]), 'attack': up(rows[2]), 'death': up(rows[3])}
+def pg_beetle(root):
+    fr = [half(f) for f in folder(root + '/pinogames--beetle-soldier-pixel-art-pack/x/Beetle Soldier idle.png')]
+    return {'idle': fr, 'run': fr, 'attack': fr}
+def pd_cannon(root):                    # Pedro: one strip of 62 px, the shot and its smoke
+    fr = strip(root + '/pedrogn--pixelart-cannon/x/Cannon/cannon-Sheet.png', 62)
+    return {'idle': fr[:1], 'run': fr[:1], 'attack': fr}
+def np_catapult(root):                  # nicolaspla77: drawn at 16 px per pixel
+    im = Image.open(root + '/nicolaspla77--catapult/x/upload_11167877.png').convert('RGBA')
+    fr = [im.resize((64, 64), Image.NEAREST)]
+    return {'idle': fr, 'run': fr, 'attack': fr}
+GAP = ('gap',)
+CUSTOM = {
+    'ad_rider': (ad_rider, ('Admurin', 'https://admurin.itch.io/pixel-character-horse-rider', 'free for projects; not for resale as an asset')),
+    'ot_camel': (ot_camel, ('Othur', 'https://othur.itch.io/camel-rider-sprite-128x128', 'free, commercial use allowed')),
+    'pr_yeti': (pr_yeti, ('PixelRaza Studio', 'https://pixelrazastudio.itch.io/yeti-asset-pack', 'free to use, commercial projects')),
+    'pb_dire_bear': (bestiary('dire_bear', 64), ('Michel Clauwaert', 'https://michelclauwaertgmailcom.itch.io/pixel-bestiary-beasts-animated-side-view-monsters-free', 'use in games; no standalone redistribution')),
+    'pb_hawk': (bestiary('hawk', 32), ('Michel Clauwaert', 'https://michelclauwaertgmailcom.itch.io/pixel-bestiary-beasts-animated-side-view-monsters-free', 'use in games; no standalone redistribution')),
+    'pb_wolf': (bestiary('alpha_wolf', 64), ('Michel Clauwaert', 'https://michelclauwaertgmailcom.itch.io/pixel-bestiary-beasts-animated-side-view-monsters-free', 'use in games; no standalone redistribution')),
+    'pb_scorpion': (bestiary('scorpion', 32), ('Michel Clauwaert', 'https://michelclauwaertgmailcom.itch.io/pixel-bestiary-beasts-animated-side-view-monsters-free', 'use in games; no standalone redistribution')),
+    'tw_boar': (tw_beast('boar'), ('twizzydoesntcode', 'https://twizzydoesntcode.itch.io/free-pixel-art-boar-idle-attack-death', 'CC0')),
+    'el_crab': (el_crab, ('Elthen', 'https://elthen.itch.io/2d-pixel-art-crab-sprites', 'free for commercial and non-commercial projects')),
+    'pg_beetle': (pg_beetle, ('Pino Games', 'https://pinogames.itch.io/beetle-soldier-pixel-art-pack', 'free asset')),
+    'pd_cannon': (pd_cannon, ('PedroGN', 'https://pedrogn.itch.io/pixelart-cannon', 'free asset')),
+    'np_catapult': (np_catapult, ('nicolaspla77', 'https://nicolaspla77.itch.io/catapult', 'free asset')),
+}
+
 def half(im):
     """Halve a picture, keeping hard pixel edges: colour by 2x2 average, alpha by majority."""
     w, h = im.width // 2, im.height // 2
@@ -69,11 +145,15 @@ def half(im):
     rgb.putalpha(a)
     return rgb
 
-def main(root, out):
+def main(root, out, gap=None):
     os.makedirs(out, exist_ok=True)
     cat = {}
-    for cid, (folder, scale, credit) in CHARS.items():
-        anims = find_anims(os.path.join(root, folder))
+    jobs = [(cid, (lambda f=f: find_anims(os.path.join(root, f))), scale, credit) for cid, (f, scale, credit) in CHARS.items()]
+    if gap: jobs += [(cid, (lambda fn=fn: fn(gap)), 1, credit) for cid, (fn, credit) in CUSTOM.items()]
+    for cid, load, scale, credit in jobs:
+        try: anims = load()
+        except Exception as e: print('FAILED', cid, e); continue
+        folder = cid
         if not anims: print('MISSING', cid, folder); continue
         if 'idle' not in anims: anims['idle'] = anims.get('run')[:1]
         if 'run' not in anims: anims['run'] = anims['idle']
@@ -107,4 +187,5 @@ def main(root, out):
     json.dump(cat, open(os.path.join(out, 'catalog.json'), 'w'), indent=1)
 
 if __name__ == '__main__':
-    main(sys.argv[1], sys.argv[2] if len(sys.argv) > 2 else os.path.join(os.path.dirname(__file__), '..', '..', 'assets', 'sprites'))
+    # usage: import.py <character packs> [<gap packs>]
+    main(sys.argv[1], os.path.join(os.path.dirname(__file__), '..', '..', 'assets', 'sprites'), sys.argv[2] if len(sys.argv) > 2 else None)

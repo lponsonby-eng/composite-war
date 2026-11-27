@@ -867,6 +867,342 @@
   "source": "https://luizmelo.itch.io",
   "license": "CC0"
  },
+ "ad_rider": {
+  "w": 62,
+  "h": 58,
+  "feet": 56,
+  "anims": {
+   "idle": {
+    "row": 0,
+    "n": 5
+   },
+   "run": {
+    "row": 1,
+    "n": 6
+   },
+   "attack": {
+    "row": 2,
+    "n": 10
+   },
+   "hurt": {
+    "row": 3,
+    "n": 6
+   },
+   "death": {
+    "row": 4,
+    "n": 1
+   }
+  },
+  "height": 51,
+  "credit": "Admurin",
+  "source": "https://admurin.itch.io/pixel-character-horse-rider",
+  "license": "free for projects; not for resale as an asset"
+ },
+ "ot_camel": {
+  "w": 66,
+  "h": 44,
+  "feet": 42,
+  "anims": {
+   "idle": {
+    "row": 0,
+    "n": 1
+   },
+   "run": {
+    "row": 1,
+    "n": 6
+   },
+   "attack": {
+    "row": 2,
+    "n": 6
+   },
+   "hurt": {
+    "row": 3,
+    "n": 1
+   }
+  },
+  "height": 42,
+  "credit": "Othur",
+  "source": "https://othur.itch.io/camel-rider-sprite-128x128",
+  "license": "free, commercial use allowed"
+ },
+ "pr_yeti": {
+  "w": 97,
+  "h": 67,
+  "feet": 65,
+  "anims": {
+   "idle": {
+    "row": 0,
+    "n": 4
+   },
+   "run": {
+    "row": 1,
+    "n": 9
+   },
+   "attack": {
+    "row": 2,
+    "n": 8
+   },
+   "hurt": {
+    "row": 3,
+    "n": 4
+   },
+   "death": {
+    "row": 4,
+    "n": 7
+   }
+  },
+  "height": 65,
+  "credit": "PixelRaza Studio",
+  "source": "https://pixelrazastudio.itch.io/yeti-asset-pack",
+  "license": "free to use, commercial projects"
+ },
+ "pb_dire_bear": {
+  "w": 64,
+  "h": 43,
+  "feet": 41,
+  "anims": {
+   "idle": {
+    "row": 0,
+    "n": 8
+   },
+   "run": {
+    "row": 1,
+    "n": 8
+   },
+   "attack": {
+    "row": 2,
+    "n": 7
+   },
+   "hurt": {
+    "row": 3,
+    "n": 4
+   },
+   "death": {
+    "row": 4,
+    "n": 8
+   }
+  },
+  "height": 36,
+  "credit": "Michel Clauwaert",
+  "source": "https://michelclauwaertgmailcom.itch.io/pixel-bestiary-beasts-animated-side-view-monsters-free",
+  "license": "use in games; no standalone redistribution"
+ },
+ "pb_hawk": {
+  "w": 32,
+  "h": 32,
+  "feet": 28,
+  "anims": {
+   "idle": {
+    "row": 0,
+    "n": 6
+   },
+   "run": {
+    "row": 1,
+    "n": 6
+   },
+   "attack": {
+    "row": 2,
+    "n": 7
+   },
+   "hurt": {
+    "row": 3,
+    "n": 4
+   },
+   "death": {
+    "row": 4,
+    "n": 8
+   }
+  },
+  "height": 28,
+  "credit": "Michel Clauwaert",
+  "source": "https://michelclauwaertgmailcom.itch.io/pixel-bestiary-beasts-animated-side-view-monsters-free",
+  "license": "use in games; no standalone redistribution"
+ },
+ "pb_wolf": {
+  "w": 64,
+  "h": 41,
+  "feet": 39,
+  "anims": {
+   "idle": {
+    "row": 0,
+    "n": 8
+   },
+   "run": {
+    "row": 1,
+    "n": 6
+   },
+   "attack": {
+    "row": 2,
+    "n": 7
+   },
+   "hurt": {
+    "row": 3,
+    "n": 4
+   },
+   "death": {
+    "row": 4,
+    "n": 8
+   }
+  },
+  "height": 38,
+  "credit": "Michel Clauwaert",
+  "source": "https://michelclauwaertgmailcom.itch.io/pixel-bestiary-beasts-animated-side-view-monsters-free",
+  "license": "use in games; no standalone redistribution"
+ },
+ "pb_scorpion": {
+  "w": 31,
+  "h": 28,
+  "feet": 26,
+  "anims": {
+   "idle": {
+    "row": 0,
+    "n": 8
+   },
+   "run": {
+    "row": 1,
+    "n": 8
+   },
+   "attack": {
+    "row": 2,
+    "n": 7
+   },
+   "hurt": {
+    "row": 3,
+    "n": 4
+   },
+   "death": {
+    "row": 4,
+    "n": 7
+   }
+  },
+  "height": 21,
+  "credit": "Michel Clauwaert",
+  "source": "https://michelclauwaertgmailcom.itch.io/pixel-bestiary-beasts-animated-side-view-monsters-free",
+  "license": "use in games; no standalone redistribution"
+ },
+ "tw_boar": {
+  "w": 76,
+  "h": 47,
+  "feet": 45,
+  "anims": {
+   "idle": {
+    "row": 0,
+    "n": 10
+   },
+   "run": {
+    "row": 1,
+    "n": 10
+   },
+   "attack": {
+    "row": 2,
+    "n": 8
+   },
+   "death": {
+    "row": 3,
+    "n": 8
+   }
+  },
+  "height": 45,
+  "credit": "twizzydoesntcode",
+  "source": "https://twizzydoesntcode.itch.io/free-pixel-art-boar-idle-attack-death",
+  "license": "CC0"
+ },
+ "el_crab": {
+  "w": 54,
+  "h": 32,
+  "feet": 30,
+  "anims": {
+   "idle": {
+    "row": 0,
+    "n": 4
+   },
+   "run": {
+    "row": 1,
+    "n": 4
+   },
+   "attack": {
+    "row": 2,
+    "n": 4
+   },
+   "death": {
+    "row": 3,
+    "n": 4
+   }
+  },
+  "height": 18,
+  "credit": "Elthen",
+  "source": "https://elthen.itch.io/2d-pixel-art-crab-sprites",
+  "license": "free for commercial and non-commercial projects"
+ },
+ "pg_beetle": {
+  "w": 31,
+  "h": 53,
+  "feet": 51,
+  "anims": {
+   "idle": {
+    "row": 0,
+    "n": 5
+   },
+   "run": {
+    "row": 1,
+    "n": 5
+   },
+   "attack": {
+    "row": 2,
+    "n": 5
+   }
+  },
+  "height": 51,
+  "credit": "Pino Games",
+  "source": "https://pinogames.itch.io/beetle-soldier-pixel-art-pack",
+  "license": "free asset"
+ },
+ "pd_cannon": {
+  "w": 60,
+  "h": 41,
+  "feet": 39,
+  "anims": {
+   "idle": {
+    "row": 0,
+    "n": 1
+   },
+   "run": {
+    "row": 1,
+    "n": 1
+   },
+   "attack": {
+    "row": 2,
+    "n": 7
+   }
+  },
+  "height": 26,
+  "credit": "PedroGN",
+  "source": "https://pedrogn.itch.io/pixelart-cannon",
+  "license": "free asset"
+ },
+ "np_catapult": {
+  "w": 66,
+  "h": 56,
+  "feet": 54,
+  "anims": {
+   "idle": {
+    "row": 0,
+    "n": 1
+   },
+   "run": {
+    "row": 1,
+    "n": 1
+   },
+   "attack": {
+    "row": 2,
+    "n": 1
+   }
+  },
+  "height": 54,
+  "credit": "nicolaspla77",
+  "source": "https://nicolaspla77.itch.io/catapult",
+  "license": "free asset"
+ },
  "sv_wraith": {
   "w": 41,
   "h": 49,
