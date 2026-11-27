@@ -103,14 +103,14 @@
 
   // Faction colours, kept in step with DATA.factions / Heraldry.STYLE in the game.
   const FACTIONS = {
-    aster:   { main: '#3d7be0', accent: '#e8c860', name: 'Kingdom of Aster' },
-    frost:   { main: '#6fb8dc', accent: '#e8f8ff', name: 'Frostmark' },
-    thorn:   { main: '#1fa38a', accent: '#a8d870', name: 'Thornwood Pact' },
-    ember:   { main: '#e0483d', accent: '#ffb03a', name: 'Ember Clan' },
-    shadow:  { main: '#9b4fd6', accent: '#c88aff', name: 'Shadow Order' },
-    horde:   { main: '#7bc043', accent: '#e8d040', name: 'Wild Horde' },
-    azure:   { main: '#e05aa8', accent: '#7ae8ff', name: 'Azure Tide' },
-    sun:     { main: '#e0a030', accent: '#fff0b0', name: 'Sun Dominion' },
+    aster:   { main: '#5d78a8', accent: '#e8c860', name: 'Kingdom of Aster' },
+    frost:   { main: '#8fb0c4', accent: '#e8f8ff', name: 'Frostmark' },
+    thorn:   { main: '#4f8a7c', accent: '#a8d870', name: 'Thornwood Pact' },
+    ember:   { main: '#a8574a', accent: '#ffb03a', name: 'Ember Clan' },
+    shadow:  { main: '#8a6aa0', accent: '#c88aff', name: 'Shadow Order' },
+    horde:   { main: '#7f9a5a', accent: '#e8d040', name: 'Wild Horde' },
+    azure:   { main: '#b07090', accent: '#7ae8ff', name: 'Azure Tide' },
+    sun:     { main: '#c0a060', accent: '#fff0b0', name: 'Sun Dominion' },
     neutral: { main: '#8a8a92', accent: '#c8b070', name: 'Free Towns' },
   };
   // The element each faction leans on, for staffs, orbs and effects.

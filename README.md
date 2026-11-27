@@ -135,6 +135,18 @@ victory, first signature ability, 25 and 50 towns, rival factions falling); and 
 Choices can give or cost gold, soldiers, XP, promotions or bring a wandering general.
 Add your own events by copying an entry; the format is described at the top of the file.
 
+## Characters from free sprite packs
+Generals, heroes, most foot units and many monsters are hand-made, animated characters from free packs by
+[LuizMelo](https://luizmelo.itch.io) (CC0) and [Sven Thole](https://sventhole.itch.io) (free for any game), listed
+in `assets/sprites/CREDITS.md`. `tools/sprites/import.py` cuts each pack into one sheet per character (rows idle,
+run, attack, hurt, death, facing right; feet on one row; characters much taller than the game's figures halved) and
+writes `assets/sprites/catalog.json`. In the game (`js/chars.js`) each character is recoloured for the faction that
+fields it (cloth takes the faction's hue, muted; skin, steel and a monster's own colours are kept) and snapped to the
+palette; units play their real animations (run, attack, hurt, idle; mirrored to face left) and leave the last frame
+of their death on the field. Who looks like whom: `Chars.UNITS`, `Chars.HEROES` (generals by class; lords are
+kings) and `Chars.MONSTER_GENERALS`. Portraits are a close-up of the same character. Cavalry, artillery and a few
+beasts keep their generated look.
+
 ## Pixel art: one grid, one palette
 - **One pixel grid in battle.** The battlefield is drawn into a buffer at one pixel per *art pixel* (`ART` in
   `js/terrain.js`: soldiers' 32 px art is 22 world px tall, so 32/22 art pixels per world pixel), then enlarged to the
@@ -147,10 +159,11 @@ Add your own events by copying an entry; the format is described at the top of t
   drawn at one art pixel each; the map is drawn into a buffer and enlarged by a whole number, zoom steps whole
   sizes, and town and region names are drawn sharp on top. Up to two generals stand in front of a town at full
   size, with a "+N" badge for the rest.
-- **One palette.** Every generated sprite, building and portrait, and the whole battlefield, is snapped to
-  [Resurrect 64](https://lospec.com/palette-list/resurrect-64) by Kerrie Lake (`js/palette.js`, matched in OKLab
-  through a lookup table). The ground is painted in three palette shades of the region's ground. Set
-  `Palette.on = false` to see the raw colours.
+- **One sombre palette.** Everything (sprites, characters, buildings, portraits, effects, the battlefield and the
+  map) is snapped to the game's palette in `js/palette.js`: built around iron grey `#36413E`, charcoal `#5D5E60`,
+  rosy granite `#8D8D92`, thistle `#BEB2C8` and dust grey `#D7D6D6`, with muted earth, skin, steel, water and
+  faction tones and a little fire (matched in OKLab through a lookup table). Faction colours and the interface
+  are muted to match. Set `Palette.on = false` to see the raw colours.
 
 ## Battles
 Live battles are fought by **blocks of hundreds of men** on a large field (2000 x 1280) seen

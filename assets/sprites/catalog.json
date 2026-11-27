@@ -1,0 +1,998 @@
+{
+ "sven_knight": {
+  "w": 87,
+  "h": 52,
+  "feet": 50,
+  "anims": {
+   "idle": {
+    "row": 0,
+    "n": 8
+   },
+   "run": {
+    "row": 1,
+    "n": 10
+   },
+   "attack": {
+    "row": 2,
+    "n": 6
+   },
+   "hurt": {
+    "row": 3,
+    "n": 3
+   },
+   "death": {
+    "row": 4,
+    "n": 10
+   }
+  },
+  "height": 41,
+  "credit": "Sven Thole",
+  "source": "https://sventhole.itch.io",
+  "license": "free for any game; no resale as an asset"
+ },
+ "lm_hero_knight": {
+  "w": 97,
+  "h": 73,
+  "feet": 71,
+  "anims": {
+   "idle": {
+    "row": 0,
+    "n": 11
+   },
+   "run": {
+    "row": 1,
+    "n": 8
+   },
+   "attack": {
+    "row": 2,
+    "n": 7
+   },
+   "hurt": {
+    "row": 3,
+    "n": 4
+   },
+   "death": {
+    "row": 4,
+    "n": 11
+   }
+  },
+  "height": 57,
+  "credit": "LuizMelo",
+  "source": "https://luizmelo.itch.io",
+  "license": "CC0"
+ },
+ "lm_hero_knight2": {
+  "w": 88,
+  "h": 63,
+  "feet": 61,
+  "anims": {
+   "idle": {
+    "row": 0,
+    "n": 11
+   },
+   "run": {
+    "row": 1,
+    "n": 8
+   },
+   "attack": {
+    "row": 2,
+    "n": 6
+   },
+   "hurt": {
+    "row": 3,
+    "n": 4
+   },
+   "death": {
+    "row": 4,
+    "n": 9
+   }
+  },
+  "height": 39,
+  "credit": "LuizMelo",
+  "source": "https://luizmelo.itch.io",
+  "license": "CC0"
+ },
+ "lm_fantasy_warrior": {
+  "w": 116,
+  "h": 61,
+  "feet": 59,
+  "anims": {
+   "idle": {
+    "row": 0,
+    "n": 10
+   },
+   "run": {
+    "row": 1,
+    "n": 8
+   },
+   "attack": {
+    "row": 2,
+    "n": 7
+   },
+   "hurt": {
+    "row": 3,
+    "n": 3
+   },
+   "death": {
+    "row": 4,
+    "n": 7
+   }
+  },
+  "height": 45,
+  "credit": "LuizMelo",
+  "source": "https://luizmelo.itch.io",
+  "license": "CC0"
+ },
+ "lm_martial_hero": {
+  "w": 125,
+  "h": 71,
+  "feet": 69,
+  "anims": {
+   "idle": {
+    "row": 0,
+    "n": 8
+   },
+   "run": {
+    "row": 1,
+    "n": 8
+   },
+   "attack": {
+    "row": 2,
+    "n": 6
+   },
+   "hurt": {
+    "row": 3,
+    "n": 4
+   },
+   "death": {
+    "row": 4,
+    "n": 6
+   }
+  },
+  "height": 52,
+  "credit": "LuizMelo",
+  "source": "https://luizmelo.itch.io",
+  "license": "CC0"
+ },
+ "lm_martial_hero2": {
+  "w": 114,
+  "h": 68,
+  "feet": 66,
+  "anims": {
+   "idle": {
+    "row": 0,
+    "n": 4
+   },
+   "run": {
+    "row": 1,
+    "n": 8
+   },
+   "attack": {
+    "row": 2,
+    "n": 4
+   },
+   "hurt": {
+    "row": 3,
+    "n": 3
+   },
+   "death": {
+    "row": 4,
+    "n": 7
+   }
+  },
+  "height": 57,
+  "credit": "LuizMelo",
+  "source": "https://luizmelo.itch.io",
+  "license": "CC0"
+ },
+ "lm_martial_hero3": {
+  "w": 127,
+  "h": 82,
+  "feet": 80,
+  "anims": {
+   "idle": {
+    "row": 0,
+    "n": 10
+   },
+   "run": {
+    "row": 1,
+    "n": 8
+   },
+   "attack": {
+    "row": 2,
+    "n": 7
+   },
+   "hurt": {
+    "row": 3,
+    "n": 3
+   },
+   "death": {
+    "row": 4,
+    "n": 11
+   }
+  },
+  "height": 41,
+  "credit": "LuizMelo",
+  "source": "https://luizmelo.itch.io",
+  "license": "CC0"
+ },
+ "lm_king": {
+  "w": 73,
+  "h": 43,
+  "feet": 41,
+  "anims": {
+   "idle": {
+    "row": 0,
+    "n": 6
+   },
+   "run": {
+    "row": 1,
+    "n": 8
+   },
+   "attack": {
+    "row": 2,
+    "n": 6
+   },
+   "hurt": {
+    "row": 3,
+    "n": 4
+   },
+   "death": {
+    "row": 4,
+    "n": 11
+   }
+  },
+  "height": 41,
+  "credit": "LuizMelo",
+  "source": "https://luizmelo.itch.io",
+  "license": "CC0"
+ },
+ "lm_king2": {
+  "w": 112,
+  "h": 70,
+  "feet": 68,
+  "anims": {
+   "idle": {
+    "row": 0,
+    "n": 8
+   },
+   "run": {
+    "row": 1,
+    "n": 8
+   },
+   "attack": {
+    "row": 2,
+    "n": 4
+   },
+   "hurt": {
+    "row": 3,
+    "n": 4
+   },
+   "death": {
+    "row": 4,
+    "n": 6
+   }
+  },
+  "height": 54,
+  "credit": "LuizMelo",
+  "source": "https://luizmelo.itch.io",
+  "license": "CC0"
+ },
+ "lm_warrior": {
+  "w": 80,
+  "h": 64,
+  "feet": 62,
+  "anims": {
+   "idle": {
+    "row": 0,
+    "n": 6
+   },
+   "run": {
+    "row": 1,
+    "n": 8
+   },
+   "attack": {
+    "row": 2,
+    "n": 4
+   },
+   "hurt": {
+    "row": 3,
+    "n": 3
+   },
+   "death": {
+    "row": 4,
+    "n": 9
+   }
+  },
+  "height": 40,
+  "credit": "LuizMelo",
+  "source": "https://luizmelo.itch.io",
+  "license": "CC0"
+ },
+ "lm_warrior2": {
+  "w": 98,
+  "h": 57,
+  "feet": 55,
+  "anims": {
+   "idle": {
+    "row": 0,
+    "n": 8
+   },
+   "run": {
+    "row": 1,
+    "n": 8
+   },
+   "attack": {
+    "row": 2,
+    "n": 4
+   },
+   "hurt": {
+    "row": 3,
+    "n": 4
+   },
+   "death": {
+    "row": 4,
+    "n": 6
+   }
+  },
+  "height": 41,
+  "credit": "LuizMelo",
+  "source": "https://luizmelo.itch.io",
+  "license": "CC0"
+ },
+ "lm_warrior3": {
+  "w": 108,
+  "h": 51,
+  "feet": 49,
+  "anims": {
+   "idle": {
+    "row": 0,
+    "n": 10
+   },
+   "run": {
+    "row": 1,
+    "n": 6
+   },
+   "attack": {
+    "row": 2,
+    "n": 4
+   },
+   "hurt": {
+    "row": 3,
+    "n": 3
+   },
+   "death": {
+    "row": 4,
+    "n": 9
+   }
+  },
+  "height": 38,
+  "credit": "LuizMelo",
+  "source": "https://luizmelo.itch.io",
+  "license": "CC0"
+ },
+ "lm_huntress": {
+  "w": 89,
+  "h": 67,
+  "feet": 65,
+  "anims": {
+   "idle": {
+    "row": 0,
+    "n": 8
+   },
+   "run": {
+    "row": 1,
+    "n": 8
+   },
+   "attack": {
+    "row": 2,
+    "n": 5
+   },
+   "hurt": {
+    "row": 3,
+    "n": 3
+   },
+   "death": {
+    "row": 4,
+    "n": 8
+   }
+  },
+  "height": 42,
+  "credit": "LuizMelo",
+  "source": "https://luizmelo.itch.io",
+  "license": "CC0"
+ },
+ "lm_huntress2": {
+  "w": 68,
+  "h": 47,
+  "feet": 45,
+  "anims": {
+   "idle": {
+    "row": 0,
+    "n": 10
+   },
+   "run": {
+    "row": 1,
+    "n": 8
+   },
+   "attack": {
+    "row": 2,
+    "n": 6
+   },
+   "hurt": {
+    "row": 3,
+    "n": 3
+   },
+   "death": {
+    "row": 4,
+    "n": 10
+   }
+  },
+  "height": 39,
+  "credit": "LuizMelo",
+  "source": "https://luizmelo.itch.io",
+  "license": "CC0"
+ },
+ "lm_evil_wizard": {
+  "w": 96,
+  "h": 71,
+  "feet": 69,
+  "anims": {
+   "idle": {
+    "row": 0,
+    "n": 8
+   },
+   "run": {
+    "row": 1,
+    "n": 8
+   },
+   "attack": {
+    "row": 2,
+    "n": 8
+   },
+   "hurt": {
+    "row": 3,
+    "n": 4
+   },
+   "death": {
+    "row": 4,
+    "n": 5
+   }
+  },
+  "height": 69,
+  "credit": "LuizMelo",
+  "source": "https://luizmelo.itch.io",
+  "license": "CC0"
+ },
+ "lm_evil_wizard2": {
+  "w": 83,
+  "h": 73,
+  "feet": 71,
+  "anims": {
+   "idle": {
+    "row": 0,
+    "n": 8
+   },
+   "run": {
+    "row": 1,
+    "n": 8
+   },
+   "attack": {
+    "row": 2,
+    "n": 8
+   },
+   "hurt": {
+    "row": 3,
+    "n": 3
+   },
+   "death": {
+    "row": 4,
+    "n": 7
+   }
+  },
+  "height": 53,
+  "credit": "LuizMelo",
+  "source": "https://luizmelo.itch.io",
+  "license": "CC0"
+ },
+ "lm_evil_wizard3": {
+  "w": 90,
+  "h": 68,
+  "feet": 66,
+  "anims": {
+   "idle": {
+    "row": 0,
+    "n": 10
+   },
+   "run": {
+    "row": 1,
+    "n": 8
+   },
+   "attack": {
+    "row": 2,
+    "n": 13
+   },
+   "hurt": {
+    "row": 3,
+    "n": 3
+   },
+   "death": {
+    "row": 4,
+    "n": 18
+   }
+  },
+  "height": 53,
+  "credit": "LuizMelo",
+  "source": "https://luizmelo.itch.io",
+  "license": "CC0"
+ },
+ "lm_wizard": {
+  "w": 107,
+  "h": 71,
+  "feet": 69,
+  "anims": {
+   "idle": {
+    "row": 0,
+    "n": 6
+   },
+   "run": {
+    "row": 1,
+    "n": 8
+   },
+   "attack": {
+    "row": 2,
+    "n": 8
+   },
+   "hurt": {
+    "row": 3,
+    "n": 4
+   },
+   "death": {
+    "row": 4,
+    "n": 11
+   }
+  },
+  "height": 44,
+  "credit": "LuizMelo",
+  "source": "https://luizmelo.itch.io",
+  "license": "CC0"
+ },
+ "sv_bandit_heavy": {
+  "w": 47,
+  "h": 49,
+  "feet": 47,
+  "anims": {
+   "idle": {
+    "row": 0,
+    "n": 4
+   },
+   "run": {
+    "row": 1,
+    "n": 8
+   },
+   "attack": {
+    "row": 2,
+    "n": 8
+   },
+   "hurt": {
+    "row": 3,
+    "n": 2
+   },
+   "death": {
+    "row": 4,
+    "n": 1
+   }
+  },
+  "height": 39,
+  "credit": "Sven Thole",
+  "source": "https://sventhole.itch.io",
+  "license": "free for any game; no resale as an asset"
+ },
+ "sv_bandit_light": {
+  "w": 46,
+  "h": 49,
+  "feet": 47,
+  "anims": {
+   "idle": {
+    "row": 0,
+    "n": 4
+   },
+   "run": {
+    "row": 1,
+    "n": 8
+   },
+   "attack": {
+    "row": 2,
+    "n": 8
+   },
+   "hurt": {
+    "row": 3,
+    "n": 2
+   },
+   "death": {
+    "row": 4,
+    "n": 1
+   }
+  },
+  "height": 38,
+  "credit": "Sven Thole",
+  "source": "https://sventhole.itch.io",
+  "license": "free for any game; no resale as an asset"
+ },
+ "lm_skeleton": {
+  "w": 100,
+  "h": 61,
+  "feet": 57,
+  "anims": {
+   "idle": {
+    "row": 0,
+    "n": 4
+   },
+   "run": {
+    "row": 1,
+    "n": 4
+   },
+   "attack": {
+    "row": 2,
+    "n": 8
+   },
+   "hurt": {
+    "row": 3,
+    "n": 4
+   },
+   "death": {
+    "row": 4,
+    "n": 4
+   }
+  },
+  "height": 51,
+  "credit": "LuizMelo",
+  "source": "https://luizmelo.itch.io",
+  "license": "CC0"
+ },
+ "lm_goblin": {
+  "w": 90,
+  "h": 48,
+  "feet": 46,
+  "anims": {
+   "idle": {
+    "row": 0,
+    "n": 4
+   },
+   "run": {
+    "row": 1,
+    "n": 8
+   },
+   "attack": {
+    "row": 2,
+    "n": 8
+   },
+   "hurt": {
+    "row": 3,
+    "n": 4
+   },
+   "death": {
+    "row": 4,
+    "n": 4
+   }
+  },
+  "height": 38,
+  "credit": "LuizMelo",
+  "source": "https://luizmelo.itch.io",
+  "license": "CC0"
+ },
+ "lm_mushroom": {
+  "w": 73,
+  "h": 47,
+  "feet": 45,
+  "anims": {
+   "idle": {
+    "row": 0,
+    "n": 4
+   },
+   "run": {
+    "row": 1,
+    "n": 8
+   },
+   "attack": {
+    "row": 2,
+    "n": 8
+   },
+   "hurt": {
+    "row": 3,
+    "n": 4
+   },
+   "death": {
+    "row": 4,
+    "n": 4
+   }
+  },
+  "height": 39,
+  "credit": "LuizMelo",
+  "source": "https://luizmelo.itch.io",
+  "license": "CC0"
+ },
+ "lm_flying_eye": {
+  "w": 58,
+  "h": 43,
+  "feet": 33,
+  "anims": {
+   "idle": {
+    "row": 0,
+    "n": 8
+   },
+   "run": {
+    "row": 1,
+    "n": 8
+   },
+   "attack": {
+    "row": 2,
+    "n": 8
+   },
+   "hurt": {
+    "row": 3,
+    "n": 4
+   },
+   "death": {
+    "row": 4,
+    "n": 4
+   }
+  },
+  "height": 33,
+  "credit": "LuizMelo",
+  "source": "https://luizmelo.itch.io",
+  "license": "CC0"
+ },
+ "lm_bat": {
+  "w": 74,
+  "h": 57,
+  "feet": 55,
+  "anims": {
+   "idle": {
+    "row": 0,
+    "n": 11
+   },
+   "run": {
+    "row": 1,
+    "n": 11
+   },
+   "attack": {
+    "row": 2,
+    "n": 11
+   },
+   "hurt": {
+    "row": 3,
+    "n": 3
+   },
+   "death": {
+    "row": 4,
+    "n": 4
+   }
+  },
+  "height": 55,
+  "credit": "LuizMelo",
+  "source": "https://luizmelo.itch.io",
+  "license": "CC0"
+ },
+ "lm_rat": {
+  "w": 61,
+  "h": 24,
+  "feet": 22,
+  "anims": {
+   "idle": {
+    "row": 0,
+    "n": 10
+   },
+   "run": {
+    "row": 1,
+    "n": 8
+   },
+   "attack": {
+    "row": 2,
+    "n": 12
+   },
+   "hurt": {
+    "row": 3,
+    "n": 3
+   },
+   "death": {
+    "row": 4,
+    "n": 6
+   }
+  },
+  "height": 20,
+  "credit": "LuizMelo",
+  "source": "https://luizmelo.itch.io",
+  "license": "CC0"
+ },
+ "lm_slime": {
+  "w": 113,
+  "h": 37,
+  "feet": 35,
+  "anims": {
+   "idle": {
+    "row": 0,
+    "n": 14
+   },
+   "run": {
+    "row": 1,
+    "n": 6
+   },
+   "attack": {
+    "row": 2,
+    "n": 19
+   },
+   "hurt": {
+    "row": 3,
+    "n": 3
+   },
+   "death": {
+    "row": 4,
+    "n": 11
+   }
+  },
+  "height": 20,
+  "credit": "LuizMelo",
+  "source": "https://luizmelo.itch.io",
+  "license": "CC0"
+ },
+ "lm_fire_worm": {
+  "w": 79,
+  "h": 56,
+  "feet": 54,
+  "anims": {
+   "idle": {
+    "row": 0,
+    "n": 9
+   },
+   "run": {
+    "row": 1,
+    "n": 9
+   },
+   "attack": {
+    "row": 2,
+    "n": 16
+   },
+   "hurt": {
+    "row": 3,
+    "n": 3
+   },
+   "death": {
+    "row": 4,
+    "n": 8
+   }
+  },
+  "height": 45,
+  "credit": "LuizMelo",
+  "source": "https://luizmelo.itch.io",
+  "license": "CC0"
+ },
+ "sv_wraith": {
+  "w": 41,
+  "h": 49,
+  "feet": 47,
+  "height": 47,
+  "still": true,
+  "anims": {
+   "idle": {
+    "row": 0,
+    "n": 1
+   },
+   "run": {
+    "row": 0,
+    "n": 1
+   },
+   "attack": {
+    "row": 0,
+    "n": 1
+   },
+   "hurt": {
+    "row": 0,
+    "n": 1
+   },
+   "death": {
+    "row": 0,
+    "n": 1
+   }
+  },
+  "credit": "Sven Thole",
+  "source": "https://sventhole.itch.io",
+  "license": "free for any game; no resale as an asset"
+ },
+ "sv_flame_demon": {
+  "w": 60,
+  "h": 57,
+  "feet": 55,
+  "height": 55,
+  "still": true,
+  "anims": {
+   "idle": {
+    "row": 0,
+    "n": 1
+   },
+   "run": {
+    "row": 0,
+    "n": 1
+   },
+   "attack": {
+    "row": 0,
+    "n": 1
+   },
+   "hurt": {
+    "row": 0,
+    "n": 1
+   },
+   "death": {
+    "row": 0,
+    "n": 1
+   }
+  },
+  "credit": "Sven Thole",
+  "source": "https://sventhole.itch.io",
+  "license": "free for any game; no resale as an asset"
+ },
+ "sv_flame_demon2": {
+  "w": 59,
+  "h": 57,
+  "feet": 55,
+  "height": 55,
+  "still": true,
+  "anims": {
+   "idle": {
+    "row": 0,
+    "n": 1
+   },
+   "run": {
+    "row": 0,
+    "n": 1
+   },
+   "attack": {
+    "row": 0,
+    "n": 1
+   },
+   "hurt": {
+    "row": 0,
+    "n": 1
+   },
+   "death": {
+    "row": 0,
+    "n": 1
+   }
+  },
+  "credit": "Sven Thole",
+  "source": "https://sventhole.itch.io",
+  "license": "free for any game; no resale as an asset"
+ },
+ "sv_berserker": {
+  "w": 42,
+  "h": 50,
+  "feet": 48,
+  "height": 48,
+  "still": true,
+  "anims": {
+   "idle": {
+    "row": 0,
+    "n": 1
+   },
+   "run": {
+    "row": 0,
+    "n": 1
+   },
+   "attack": {
+    "row": 0,
+    "n": 1
+   },
+   "hurt": {
+    "row": 0,
+    "n": 1
+   },
+   "death": {
+    "row": 0,
+    "n": 1
+   }
+  },
+  "credit": "Sven Thole",
+  "source": "https://sventhole.itch.io",
+  "license": "free for any game; no resale as an asset"
+ }
+}

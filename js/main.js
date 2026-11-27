@@ -9,6 +9,14 @@
   // Wait for the pixel font and all images before drawing anything.
   try { await document.fonts.load('8px PixelFont'); } catch (e) {}
   await Assets.load();
+  if (typeof Chars !== 'undefined') await Chars.load();   // animated characters from the free sprite packs
+  // effects, tiles and the older sprites from image files: into the palette too
+  if (typeof Palette !== 'undefined') for (const [k, im] of Object.entries(Assets.img)) {
+    if (!/^(fx|tile|c\d|m\d)/.test(k) || !im || !im.width) continue;
+    const c = document.createElement('canvas'); c.width = im.width; c.height = im.height;
+    c.getContext('2d').drawImage(im, 0, 0);
+    Assets.img[k] = Object.assign(Palette.canvas(c), { fw: im.fw, fh: im.fh, pad: im.pad, rows: im.rows });
+  }
   MapView.init();
   if (typeof Gen !== 'undefined') Gen.warm();          // make the generated sprites in the background
 

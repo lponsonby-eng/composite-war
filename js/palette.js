@@ -1,20 +1,28 @@
 // =============================================================================
 //  PALETTE: one fixed palette for all the game's pixel art, so units, buildings,
-//  terrain and portraits look like one world. The palette is Resurrect 64 by
-//  Kerrie Lake (free to use; lospec.com/palette-list/resurrect-64).
+//  terrain and portraits look like one world: a sombre, overcast palette (see HEX).
 //  Colours are matched in OKLab (how different colours look, not how far apart their
 //  numbers are) through a 32 x 32 x 32 lookup table, so even a whole battlefield is
 //  snapped to the palette in a moment. Set Palette.on = false to see the raw colours.
 // =============================================================================
 const Palette = {
   on: true,
-  HEX: ['2e222f', '3e3546', '625565', '966c6c', 'ab947a', '694f62', '7f708a', '9babb2', 'c7dcd0', 'ffffff',
-    '6e2727', 'b33831', 'ea4f36', 'f57d4a', 'ae2334', 'e83b3b', 'fb6b1d', 'f79617', 'f9c22b',
-    '7a3045', '9e4539', 'cd683d', 'e6904e', 'fbb954', '4c3e24', '676633', 'a2a947', 'd5e04b', 'fbff86',
-    '165a4c', '239063', '1ebc73', '91db69', 'cddf6c', '313638', '374e4a', '547e64', '92a984', 'b2ba90',
-    '0b5e65', '0b8a8f', '0eaf9b', '30e1b9', '8ff8e2', '323353', '484a77', '4d65b4', '4d9be6', '8fd3ff',
-    '45293f', '6b3e75', '905ea9', 'a884f3', 'eaaded', '753c54', 'a24b6f', 'cf657f', 'ed8099',
-    '831c5d', 'c32454', 'f04f78', 'f68181', 'fca790', 'fdcbb0'],
+  // The sombre palette: built around iron grey 36413E, charcoal 5D5E60, rosy granite 8D8D92,
+  // thistle BEB2C8 and dust grey D7D6D6, with muted earth, skin, steel, water and faction tones
+  // added (and a little fire), so the world reads as one quiet, overcast place.
+  HEX: ['151a19', '1f2524', '2a3230', '36413e', '47504d', '5d5e60', '74757a', '8d8d92', 'a7a6ac', 'beb2c8', 'd7d6d6', 'eeedeb',
+    '4a4250', '6a5f75', '8f8299', 'a597b0',                                       // thistle and violet
+    '263329', '3e5040', '55684f', '718263', '939c80',                             // muted greens
+    '2e2620', '463a30', '5e4e3f', '7a6852', '9a8a72', 'b8aa92',                   // earth and wood
+    '6e5048', '8e6c5c', 'b08c76', 'cdb09a',                                       // skin
+    '4a2426', '6e3234', '93504a', 'b4746a',                                       // muted reds
+    '26304a', '3a4a6a', '58698c', '8496b0',                                       // muted blues
+    '5e4a26', '86703c', 'b09a62', 'd0c090',                                       // muted gold
+    '23403f', '3c6461', '6a8f88',                                                 // muted teal
+    '3c2a44', '5e4470',                                                           // deep purple
+    '2b3848', '425a6e', '6a8496',                                                 // water
+    '8a3e22', 'c06a32', 'e3a85a', 'f0d7a0'],                                      // fire, kept sparing
+
 
   // sRGB (0-255) to OKLab
   lab(r, g, b) {

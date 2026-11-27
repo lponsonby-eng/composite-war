@@ -429,7 +429,7 @@ class Battle {
     const near = (r, side) => this.units.filter(u => u.side === side && u.alive && !u.routing && !u.escaped && Math.hypot(u.x - x, u.y - y) <= r);
     const say = (s, c) => { if (!this.headless) this.texts.push({ x: L.x, y: L.y - 30, s, life: 1.2, color: c }); };
     if (S.target === 'self') { x = L.x; y = L.y; }
-    if (S.sig) { this.castSig(q, S, x, y, pw, near); say(S.name + '!', '#ffd84a'); if (!this.headless && q.side === this.playerSide) Assets.sfx('power-up', 0.35); return true; }
+    if (S.sig) { this.castSig(q, S, x, y, pw, near); say(S.name + '!', '#d0c090'); if (!this.headless && q.side === this.playerSide) Assets.sfx('power-up', 0.35); return true; }
     const fx = SKILL_FX[id];
     if (fx) fx(this, { q, S, x, y, pw, dk: pw * DATA.battle.hpMul, L, team, near, rad: this.rad(S) });
     say(S.name + '!', '#9fd8ff');
@@ -1156,7 +1156,7 @@ class Battle {
     const def = (v.def + v.b.def + fort) * DATA.battle.defMul * (ranged ? 1 - DATA.roles.back.pierce : 1);       // arrows and spells pierce armour
     const dmg = Math.max(1, Math.round(amount * (0.85 + Math.random() * 0.3) - def));
     v.hp -= dmg; v.hitT = 0.12;
-    if (!this.headless && (this.men === 1 || v.isLeader)) this.texts.push({ x: v.x, y: v.y - 16, s: String(dmg), life: 0.6, color: v.isLeader ? '#ffd84a' : '#ffffff' });
+    if (!this.headless && (this.men === 1 || v.isLeader)) this.texts.push({ x: v.x, y: v.y - 16, s: String(dmg), life: 0.6, color: v.isLeader ? '#d0c090' : '#ffffff' });
     if (v.hp <= 0) {
       v.alive = false;
       if (byGid) this.xp[byGid] = (this.xp[byGid] || 0) + (v.isLeader ? DATA.leveling.killGeneral : DATA.leveling.killSoldier / this.men);
@@ -1261,9 +1261,9 @@ class Battle {
     // The ground, painted straight onto the art-pixel grid in three shades of the region's
     // ground from the palette: broad soft patches, ragged where they meet, and sparse blades
     // of grass (or snow glints, pebbles...). No repeating tile, so no stripes.
-    const GROUNDS = { frost: ['9babb2', 'c7dcd0', 'ffffff'], sun: ['e6904e', 'fbb954', 'f9c22b'], ember: ['3e3546', '625565', '966c6c'],
-      bog: ['374e4a', '547e64', '676633'], shadow: ['3e3546', '625565', '7f708a'], darkwood: ['165a4c', '374e4a', '239063'] };
-    const shades = (GROUNDS[this.terrain.region] || ['165a4c', '239063', '547e64']).map(h => { const n = parseInt(h, 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; });
+    const GROUNDS = { frost: ['a7a6ac', 'beb2c8', 'd7d6d6'], sun: ['7a6852', '9a8a72', 'b8aa92'], ember: ['2a3230', '463a30', '5e4e3f'],
+      bog: ['263329', '3e5040', '5e4e3f'], shadow: ['2a3230', '4a4250', '5d5e60'], darkwood: ['1f2524', '263329', '3e5040'] };
+    const shades = (GROUNDS[this.terrain.region] || ['36413e', '3e5040', '55684f']).map(h => { const n = parseInt(h, 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; });
     const noise = makeNoise(seed & 0xffff), gw = cv.width, gh = cv.height, img = new ImageData(gw, gh), gd = img.data;
     const hash = (x, y) => { const h = Math.imul(x * 374761393 + y * 668265263, 1274126177); return ((h ^ (h >>> 15)) >>> 0) / 4294967296; };
     for (let y = 0; y < gh; y++) for (let x = 0; x < gw; x++) {
@@ -1333,7 +1333,7 @@ class Battle {
     if (!this.buf || this.buf.width !== bw || this.buf.height !== bh) { this.buf = document.createElement('canvas'); this.buf.width = bw; this.buf.height = bh; }
     let ctx = this.buf.getContext('2d');
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = '#16241a'; ctx.fillRect(0, 0, bw, bh);
+    ctx.fillStyle = '#151a19'; ctx.fillRect(0, 0, bw, bh);
     ctx.setTransform(ART, 0, 0, ART, this.ox / N, this.oy / N);
     ctx.imageSmoothingEnabled = false;
     ctx.drawImage(this.bg, 0, 0, this.W, this.H);
@@ -1398,20 +1398,23 @@ class Battle {
     for (const u of list) {
       const moving = u.moving && u.atkT <= 0;
       const frame = Math.floor(u.walkT * 8) % 4;
-      const alpha = u.routing ? 0.5 : u.hitT > 0 ? 0.55 : u.hidden && u.side === this.playerSide ? 0.7 : 1;   // own troops hidden in woods: see-through
+      const alpha = u.routing ? 0.5 : u.hitT > 0 && !(Assets.img[u.sprite] || {}).anims ? 0.55 : u.hidden && u.side === this.playerSide ? 0.7 : 1;   // own troops hidden in woods: see-through
       // drawn larger than on the map (22 px, generals 28 px), outlined in their side's colour
       const size = u.isLeader ? UNIT_SIZE.leader : UNIT_SIZE.soldier, top = u.y + 2 - size;
       if (!u.spriteO) u.spriteO = Assets.outlined(u.sprite, DATA.factions[this.factions[u.side]].neutral ? '#ffffff' : colors[u.side]);   // neutral troops: white
-      Assets.drawUnit(ctx, u.spriteO, u.dir, moving ? frame : 0, u.atkT > 0, u.x - size / 2, top, alpha, size);
+      if (u.dir === 2) u.faceLeft = true; else if (u.dir === 3) u.faceLeft = false;          // up / down keep the last side faced
+      if (u.animT == null) u.animT = Math.random() * 3;
+      Assets.drawUnit(ctx, u.spriteO, u.dir, moving ? frame : 0, u.atkT > 0, u.x - size / 2, top, alpha, size,
+        { t: moving ? u.walkT : this.time + u.animT, moving, atkK: 1 - u.atkT / 0.25, hurt: u.hitT > 0, hurtK: 1 - u.hitT / 0.12, left: u.faceLeft == null ? u.side === 1 : u.faceLeft });
       if (u.isLeader) {
         const im = Assets.img[u.sprite], over = im && im.fh ? (im.fh - 32 - (im.pad || 0)) * size / 32 : 0;   // above the plume
-        hpBar(ctx, u.x - 9, top - over - 3, 18, u.hp / u.maxHp, '#ffd84a');
+        hpBar(ctx, u.x - 9, top - over - 3, 18, u.hp / u.maxHp, '#d0c090');
         if (u.side === this.playerSide) hpBar(ctx, u.x - 9, top - over - 1, 18, u.sq.mp / u.sq.maxMp, '#6fb6ff');
       } else if (u.hp < u.maxHp && this.men === 1) {                  // big battles: no bars over every man
         hpBar(ctx, u.x - 6, top - 2, 12, u.hp / u.maxHp, u.side === 0 ? '#7cf07c' : '#ff7a6a');
       }
       if (u.tier > 1) {                                   // promoted soldiers: silver pip (tier 2), two gold pips (tier 3)
-        const col = u.tier === 3 ? '#ffd84a' : '#d8e0ec', px = Math.round(u.x) + 7, py = Math.round(top) + 2;
+        const col = u.tier === 3 ? '#d0c090' : '#d8e0ec', px = Math.round(u.x) + 7, py = Math.round(top) + 2;
         for (let k = 0; k < u.tier - 1; k++) { ctx.fillStyle = '#1a1020'; ctx.fillRect(px - 1, py - 1 + k * 3, 4, 4); ctx.fillStyle = col; ctx.fillRect(px, py + k * 3, 2, 2); }
       }
     }
@@ -1456,7 +1459,7 @@ class Battle {
     }
     // selection box being dragged
     if (this.box) {
-      ctx.strokeStyle = '#ffe680'; ctx.lineWidth = 1 / this.cam.z;
+      ctx.strokeStyle = '#d0c090'; ctx.lineWidth = 1 / this.cam.z;
       ctx.strokeRect(this.box.x0, this.box.y0, this.box.x1 - this.box.x0, this.box.y1 - this.box.y0);
     }
     // enlarge the buffer onto the screen; then sharp text, markers and messages on top
@@ -1485,8 +1488,8 @@ class Battle {
       ctx.strokeStyle = color; ctx.lineWidth = 0.75; ctx.stroke();
       label(ctx, text, cx, y, color, 'center', size);
     };
-    if (this.banner) plate(this.banner.text, top, this.banner.power ? 12 : 15, this.banner.power ? '#9fe8ff' : this.banner.side === this.playerSide ? '#ff8a7a' : '#ffe680');
-    if (this.paused && !this.done) plate('PAUSED - give orders, then press Space or Play', this.banner ? top + 22 : top, 11, '#ffe680');
+    if (this.banner) plate(this.banner.text, top, this.banner.power ? 12 : 15, this.banner.power ? '#9fe8ff' : this.banner.side === this.playerSide ? '#ff8a7a' : '#d0c090');
+    if (this.paused && !this.done) plate('PAUSED - give orders, then press Space or Play', this.banner ? top + 22 : top, 11, '#d0c090');
   }
 
   // A gate seen from above: heavy timber doors banded with iron between the wall's
@@ -1535,9 +1538,9 @@ class Battle {
     for (const u of q.members) if (u.alive && !u.routing) { const [ox, oy] = this.slot(q, u.slotK, p.face, files); ctx.fillRect(p.x + ox - dot / 2 - 1, p.y + oy - dot / 2 - 1, dot + 2, dot + 2); }
     ctx.fillStyle = col;
     for (const u of q.members) if (u.alive && !u.routing) { const [ox, oy] = this.slot(q, u.slotK, p.face, files); ctx.fillRect(p.x + ox - dot / 2, p.y + oy - dot / 2, dot, dot); }
-    ctx.fillStyle = '#ffe680'; ctx.fillRect(p.x - 2.5, p.y - 2.5, 5, 5);
+    ctx.fillStyle = '#d0c090'; ctx.fillRect(p.x - 2.5, p.y - 2.5, 5, 5);
     const [fx, fy] = p.face, w = this.squadWidth(q, files) / 2, tip = this.blockShape(Math.max(1, q.nFront), files).depth * this.spacing + 22;
-    ctx.strokeStyle = '#ffe680'; ctx.lineWidth = 1.5;
+    ctx.strokeStyle = '#d0c090'; ctx.lineWidth = 1.5;
     const k = this.spacingY, Y = v => p.y + v * k;                // stretched up and down like the block itself
     ctx.beginPath();
     ctx.moveTo(p.x + fx * tip - fy * 7, Y(fy * tip + fx * 7)); ctx.lineTo(p.x + fx * (tip + 9), Y(fy * (tip + 9))); ctx.lineTo(p.x + fx * tip + fy * 7, Y(fy * tip - fx * 7));
@@ -1568,9 +1571,9 @@ class Battle {
       ctx.fillStyle = 'rgba(12,10,22,0.85)';
       ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x0, y0, w, h, 4) : ctx.rect(x0, y0, w, h); ctx.fill();
       ctx.fillStyle = colors[q.side]; ctx.fillRect(x0 + 2, y0 + 2, 18, h - 4);
-      ctx.strokeStyle = sel ? '#ffe680' : colors[q.side]; ctx.lineWidth = sel ? 2 : 1; ctx.stroke();
+      ctx.strokeStyle = sel ? '#d0c090' : colors[q.side]; ctx.lineWidth = sel ? 2 : 1; ctx.stroke();
       ctx.beginPath(); ctx.moveTo(sx - 4, y0 + h); ctx.lineTo(sx, y0 + h + 5); ctx.lineTo(sx + 4, y0 + h); ctx.closePath();
-      ctx.fillStyle = sel ? '#ffe680' : colors[q.side]; ctx.fill();
+      ctx.fillStyle = sel ? '#d0c090' : colors[q.side]; ctx.fill();
       unitIcon(ctx, q.leader.t.type, x0 + 11, y0 + h / 2, 12);
       label(ctx, String(alive), x0 + 32, y0 + 14, q.order === 'hold' || q.order === 'move' ? '#ffffff' : '#ffd8a0', 'center', 11);
       ctx.fillStyle = '#3a1820'; ctx.fillRect(x0, y0 + h + 1, w, 3);
@@ -1615,7 +1618,7 @@ class Battle {
     const colors = this.factions.map(f => DATA.factions[f].color);
     for (const u of this.units) {
       if (!u.alive || u.escaped || !this.seenByPlayer(u)) continue;
-      c.fillStyle = this.sel.has(u.sq) ? '#ffe680' : colors[u.side];
+      c.fillStyle = this.sel.has(u.sq) ? '#d0c090' : colors[u.side];
       const s = u.isLeader ? 3 : 2;
       c.fillRect(u.x * k - s / 2, u.y * k - s / 2, s, s);
     }

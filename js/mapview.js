@@ -446,7 +446,7 @@ const MapView = {
     if (!this.buf || this.buf.width !== bw || this.buf.height !== bh) { this.buf = document.createElement('canvas'); this.buf.width = bw; this.buf.height = bh; }
     ctx = this.buf.getContext('2d');
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = '#1d3557';
+    ctx.fillStyle = '#2b3848';
     ctx.fillRect(0, 0, bw, bh);
     ctx.setTransform(1, 0, 0, 1, this.ox / N, this.oy / N);
     ctx.imageSmoothingEnabled = false;
@@ -529,11 +529,11 @@ const MapView = {
     if (tier >= 2) this.centerOn(x, y);
     // shockwaves
     for (let i = 0; i < [0, 1, 2, 4][tier]; i++)
-      this.ring(x, s.y + 2, 6, [0, 34, 52, 90][tier] + i * 14, 0.7 + i * 0.18, i % 2 ? '#ffd84a' : col, tier === 3 ? 3 : 2, i * 0.12);
+      this.ring(x, s.y + 2, 6, [0, 34, 52, 90][tier] + i * 14, 0.7 + i * 0.18, i % 2 ? '#d0c090' : col, tier === 3 ? 3 : 2, i * 0.12);
     // bursts of faction colour and gold
-    this.burst(x, y, [0, 26, 50, 110][tier], [col, lighten(col, 0.4), '#ffd84a', '#fff6c0'], [0, 60, 85, 130][tier]);
+    this.burst(x, y, [0, 26, 50, 110][tier], [col, lighten(col, 0.4), '#d0c090', '#fff6c0'], [0, 60, 85, 130][tier]);
     if (tier >= 2) this.coins(x, y - 6, tier === 3 ? 34 : 14);
-    if (tier === 1) this.floatText(x, y - 36, 'CAPTURED!', '#fff6b0', 11, 1.6);   // towns and cities get the big banner instead
+    if (tier === 1) this.floatText(x, y - 36, 'CAPTURED!', '#eeedeb', 11, 1.6);   // towns and cities get the big banner instead
     this.floatText(x, y - 22, `+${s.income} gold / turn`, '#7be07b', 9, 1.8, 0.35);
     this.shake = Math.max(this.shake, [0, 1.5, 4, 11][tier]);
     if (tier >= 2) { this.flash = tier === 3 ? 0.75 : 0.22; this.flashCol = tier === 3 ? col : null; }
@@ -541,7 +541,7 @@ const MapView = {
       this.beams.push({ x, y: s.y, age: 0, dur: 2.6, col });
       for (let i = 0; i < 9; i++) this.later.push({ t: 0.35 + i * 0.28 + Math.random() * 0.15, fn: () => {
         const fx = x + (Math.random() - 0.5) * 120, fy = y - 40 - Math.random() * 60;
-        this.burst(fx, fy, 36, [col, '#ffd84a', '#ffffff', lighten(col, 0.5)], 70, 0.9);
+        this.burst(fx, fy, 36, [col, '#d0c090', '#ffffff', lighten(col, 0.5)], 70, 0.9);
         this.ring(fx, fy, 2, 22, 0.5, '#fff6c0', 1);
         Assets.sfx(i % 2 ? 'magic-1' : 'kill', 0.25);
       } });
@@ -563,7 +563,7 @@ const MapView = {
   },
 
   recruitFx(s, name, how) {
-    const x = s.x, y = s.y - 10, col = how === 'persuade' ? '#ff7ad9' : '#ffd84a';
+    const x = s.x, y = s.y - 10, col = how === 'persuade' ? '#ff7ad9' : '#d0c090';
     this.ring(x, s.y + 2, 4, 40, 0.8, col, 2);
     this.ring(x, s.y + 2, 4, 26, 0.6, '#ffffff', 1, 0.15);
     this.beams.push({ x, y: s.y, age: 0, dur: 1.3, col, thin: true });
@@ -584,7 +584,7 @@ const MapView = {
   },
   coins(x, y, n) {
     for (let i = 0; i < n; i++) this.parts.push({ x: x + (Math.random() - 0.5) * 10, y, vx: (Math.random() - 0.5) * 70, vy: -60 - Math.random() * 60,
-      g: 160, life: 0, max: 1.1 + Math.random() * 0.6, col: '#ffd84a', size: 2, coin: true, spin: Math.random() * 6 });
+      g: 160, life: 0, max: 1.1 + Math.random() * 0.6, col: '#d0c090', size: 2, coin: true, spin: Math.random() * 6 });
   },
   floatText(x, y, text, col, size, dur, delay = 0) { this.texts.push({ x, y, text, col, size, dur, age: -delay }); },
 
@@ -793,7 +793,7 @@ const MapView = {
     shown.forEach((g, i) => {
       const done = g.acted && owner === game.player;
       Assets.drawUnit(ctx, Assets.outlined(Assets.genSprite(g.id), outlineOf(g.faction)), 0, 0, false,
-        startX + i * gap - GS / 2, s.y + 16 - GS, done ? 0.5 : 1, GS);
+        startX + i * gap - GS / 2, s.y + 16 - GS, done ? 0.5 : 1, GS, { t: this.time + i * 0.7 + s.x * 0.01 });
     });
     if (gens.length > MAXG) {                                // how many more are here
       const bx = Math.round(startX + (shown.length - 1) * gap + 12), by = Math.round(s.y - 4);
@@ -807,12 +807,12 @@ const MapView = {
     free.slice(0, 2).forEach((g, i) => {
       const WS = 32, wx = s.x - 28 - i * 15, wy = s.y + 2 - WS;                       // to the left; the right is for the +N badge
       const bob = Math.floor(this.time * 2 + i) % 2;
-      Assets.drawUnit(ctx, Assets.outlined(Assets.genSprite(g.id), '#ffd84a'), 0, 0, false, wx - WS / 2, wy, 1, WS);
+      Assets.drawUnit(ctx, Assets.outlined(Assets.genSprite(g.id), '#d0c090'), 0, 0, false, wx - WS / 2, wy, 1, WS, { t: this.time + i });
       const cx = wx + 7, cy = wy - 2 - bob;
       ctx.fillStyle = '#1a1020'; ctx.beginPath(); ctx.arc(cx, cy, 4.5, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = '#ffd84a'; ctx.beginPath(); ctx.arc(cx, cy, 3.5, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#d0c090'; ctx.beginPath(); ctx.arc(cx, cy, 3.5, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = '#b8860b'; ctx.fillRect(Math.round(cx) - 1, Math.round(cy) - 2, 1, 4);
-      ctx.fillStyle = '#fff6b0'; ctx.fillRect(Math.round(cx) - 2, Math.round(cy) - 2, 1, 1);
+      ctx.fillStyle = '#eeedeb'; ctx.fillRect(Math.round(cx) - 2, Math.round(cy) - 2, 1, 1);
     });
 
     // recruit opportunity: a bobbing badge over the town
@@ -868,7 +868,7 @@ const MapView = {
     const tw = Math.ceil(ctx.measureText(s.name).width), ty = s.y + 26;
     ctx.textAlign = 'center'; ctx.lineJoin = 'round';
     ctx.lineWidth = 3.2; ctx.strokeStyle = 'rgba(12,10,20,0.92)'; ctx.strokeText(s.name, s.x, ty);
-    ctx.fillStyle = tier === 3 ? '#ffe27a' : owner === game.player ? '#fff6b0' : '#ffffff';
+    ctx.fillStyle = tier === 3 ? '#d0c090' : owner === game.player ? '#eeedeb' : '#ffffff';
     ctx.fillText(s.name, s.x, ty);
     ctx.fillStyle = 'rgba(12,10,20,0.85)'; ctx.fillRect(Math.round(s.x - tw / 2) - 1, ty + 2, tw + 2, 3);
     ctx.fillStyle = color; ctx.fillRect(Math.round(s.x - tw / 2), ty + 3, tw, 1);
@@ -876,7 +876,7 @@ const MapView = {
 
   // Bobbing badge: gold "!" = a hero you can hire here; pink "?" = a general you can persuade.
   drawBeacon(ctx, id, s, kind, y) {
-    const hire = kind === 'hire', col = hire ? '#ffd84a' : '#ff7ad9';
+    const hire = kind === 'hire', col = hire ? '#d0c090' : '#ff7ad9';
     const bob = Math.sin(this.time * 4 + s.x) * 2, pulse = 0.5 + 0.5 * Math.sin(this.time * 6);
     const x = s.x - 6, cy = Math.round(y + bob);
     const fresh = this.beacons[id] != null && this.time - this.beacons[id] < 1.5;
@@ -906,7 +906,7 @@ const MapView = {
     }
     if (!this.fitAll && this.canvasW) {
       const [x0, y0] = this.toWorld(0, 0), [x1, y1] = this.toWorld(this.canvasW, this.canvasH);
-      c.strokeStyle = '#ffe680'; c.lineWidth = 1.5;
+      c.strokeStyle = '#d0c090'; c.lineWidth = 1.5;
       c.strokeRect(x0 * k, y0 * k, (x1 - x0) * k, (y1 - y0) * k);
     }
   },

@@ -120,9 +120,10 @@ const Assets = {
   // Old sheets have 16 x 16 frames filling the size x size box. Generated sheets
   // (im.fw x im.fh frames, 32 px figures) are drawn at size/32 per pixel, centred on
   // the box and standing on its bottom edge, so both kinds of figure match in height.
-  drawUnit(ctx, sprite, dir, frame, attacking, x, y, alpha = 1, size = 16) {
+  drawUnit(ctx, sprite, dir, frame, attacking, x, y, alpha = 1, size = 16, st = null) {
     const im = this.img[sprite];
     if (!im || !im.width) return;
+    if (im.anims) return this.drawChar(ctx, im, dir, frame, attacking, x, y, alpha, size, st || {});
     const fw = im.fw || 16, fh = im.fh || 16;
     const rows = im.rows || Math.floor(im.height / fh);
     let row = frame % Math.min(rows, 4);
@@ -134,6 +135,32 @@ const Assets = {
       this.crisp(ctx, im, dir * fw, row * fh, fw, fh, x + size / 2 - w / 2, y + size - h + (im.pad || 0) * k, w, h);
     }
     if (alpha !== 1) ctx.globalAlpha = 1;
+  },
+  // An animated character sheet (see Chars): idle, run, attack, hurt, death rows, facing
+  // right (a mirrored copy faces left). Stands with its feet on the bottom of the size box,
+  // centred on its body, size / 32 world pixels per art pixel. st: { t (animation clock),
+  // moving, atkK / hurtK (0..1 through the attack / hit), hurt, left }.
+  drawChar(ctx, im, dir, frame, attacking, x, y, alpha, size, st) {
+    const a = st.dead ? (im.anims.death ? 'death' : 'idle') : st.hurt && im.anims.hurt ? 'hurt' : attacking ? 'attack' : (st.moving || frame) ? 'run' : 'idle';
+    const A = im.anims[a] || im.anims.idle;
+    let f = st.dead ? A.n - 1 : a === 'attack' ? Math.floor(clampK(st.atkK == null ? 0.5 : st.atkK) * A.n) : a === 'hurt' ? Math.floor(clampK(st.hurtK || 0) * A.n)
+      : Math.floor((st.t || 0) * (a === 'run' ? 11 : 7)) % A.n;
+    f = Math.min(A.n - 1, f);
+    const left = st.left != null ? st.left : dir === 2;
+    const src = left ? this.mirrorOf(im) : im, cols = Math.round(im.width / im.fw);
+    const col = left ? cols - 1 - f : f, k = size / 32, w = im.fw * k, h = im.fh * k;
+    const cx = left ? im.fw - (im.cx || im.fw / 2) : (im.cx || im.fw / 2);
+    let bob = 0;
+    if (im.still && (st.moving || frame)) bob = Math.abs(Math.sin((st.t || 0) * 9)) * -2;   // a still picture hops as it moves
+    if (alpha !== 1) ctx.globalAlpha = alpha;
+    this.crisp(ctx, src, col * im.fw, A.row * im.fh, im.fw, im.fh, x + size / 2 - cx * k, y + size - (im.feet + 1) * k + bob, w, h);
+    if (alpha !== 1) ctx.globalAlpha = 1;
+  },
+  mirrorOf(im) {
+    if (im.mirror) return im.mirror;
+    const c = document.createElement('canvas'); c.width = im.width; c.height = im.height;
+    const x = c.getContext('2d'); x.translate(im.width, 0); x.scale(-1, 1); x.drawImage(im, 0, 0);
+    return (im.mirror = c);
   },
   // Generated art is drawn with hard pixel edges (no smoothing).
   crisp(ctx, im, sx, sy, sw, sh, dx, dy, dw, dh) {
@@ -151,6 +178,10 @@ const Assets = {
   drawCorpse(ctx, sprite, x, y, size, flip, alpha = 1) {
     const im = this.img[sprite], c = im && im.corpse;
     if (!c) return false;
+    if (im.anims) {                                        // an animated character: the last frame of its death
+      this.drawChar(ctx, im, flip ? 2 : 3, 0, false, x - size / 2, y - size + 2, alpha, size, { dead: true });
+      return true;
+    }
     const k = size / 32 * (im.scale || 1);
     if (alpha !== 1) ctx.globalAlpha = alpha;
     const part = (q, ox) => {
@@ -174,7 +205,8 @@ const Assets = {
     const c = cv.getContext('2d'); c.drawImage(src, 0, 0);
     const W = cv.width, H = cv.height, d = c.getImageData(0, 0, W, H), p = d.data, a = new Uint8Array(W * H);
     const fw = src.fw || 16, fh = src.fh || 16;
-    Object.assign(cv, { fw: src.fw, fh: src.fh, pad: src.pad, rows: src.rows, corpse: src.corpse, scale: src.scale });
+    Object.assign(cv, { fw: src.fw, fh: src.fh, pad: src.pad, rows: src.rows, corpse: src.corpse, scale: src.scale,
+      anims: src.anims, feet: src.feet, cx: src.cx, still: src.still, char: src.char });
     for (let i = 0; i < W * H; i++) a[i] = p[i * 4 + 3] > 128 ? 1 : 0;
     let r = parseInt(col.slice(1, 3), 16), g = parseInt(col.slice(3, 5), 16), b = parseInt(col.slice(5, 7), 16);
     if (typeof Palette !== 'undefined' && Palette.on) { const q = Palette.table()[(r >> 3) << 10 | (g >> 3) << 5 | b >> 3]; r = q >> 16; g = q >> 8 & 255; b = q & 255; }   // the side's colour, from the palette
@@ -258,3 +290,4 @@ function hslToRgb(h, s, l) {
   const f = t => { t = (t + 1) % 1; return t < 1 / 6 ? p + (q - p) * 6 * t : t < 1 / 2 ? q : t < 2 / 3 ? p + (q - p) * (2 / 3 - t) * 6 : p; };
   return [Math.round(f(h + 1 / 3) * 255), Math.round(f(h) * 255), Math.round(f(h - 1 / 3) * 255)];
 }
+function clampK(v) { return Math.max(0, Math.min(0.999, v)); }
