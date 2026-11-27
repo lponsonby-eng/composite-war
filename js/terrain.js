@@ -390,6 +390,11 @@ class Terrain {
     const fill = site === 'crag' || site === 'hill' ? G.cliff : site === 'lake' ? G.deep : null;
     if (fill != null) for (let y = Math.max(0, K[1]); y < Math.min(rows, K[3]); y++) for (let x = K[0]; x < K[2]; x++)
       if (!(x >= X0 && x < X1 && y >= Y0 && y < Y1)) this.kind[y * cols + x] = fill;
+    if (site === 'lake') for (let y = Y0 - 5; y < Y1 + 5; y++) for (let x = X0 - 5; x < X1 + 5; x++) {   // the island's rocky shore, raised with it
+      const d = Math.max(X0 - x, x - X1 + 1, Y0 - y, y - Y1 + 1);                          // cells out from the walls
+      if (d <= 0 || d > 2 + this.noise(x / 3 + 40, y / 3) * 3) continue;                    // two to five cells, ragged
+      const i = y * cols + x; this.kind[i] = G.cliff; this.height[i] = base * (1 - (d - 1) / 6);
+    }
     if (site === 'lake') for (let y = K[1] - 2; y < K[3] + 2; y++) for (let x = K[0] - 2; x < K[2] + 2; x++) {   // a shallow rim round the lake
       if (y < 0 || y >= rows || x < 0 || x >= cols || inK(x, y)) continue;
       this.kind[y * cols + x] = G.water;
